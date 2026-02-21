@@ -41,6 +41,9 @@ coverage/
 .DS_Store
 Thumbs.db
 
+# game design documents (project-specific, not part of template)
+gdd/
+
 # roblox studio cache
 *.tmp
 

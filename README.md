@@ -155,15 +155,7 @@ npx takt "#12" --auto-pr       # Issue から自動 PR 作成
 
 ## GDD（ゲーム仕様書）
 
-`gdd/` ディレクトリにゲームの仕様書を配置しています。
-
-| ファイル | 内容 |
-|---------|------|
-| `GDD.md` | ゲームデザインドキュメント |
-| `Requirements.md` | 機能要件・非機能要件 |
-| `Sprint-Plan.md` | スプリント計画 |
-| `Technical-Architecture.md` | 技術アーキテクチャ |
-| `Monetization-Growth-Strategy.md` | 収益化・成長戦略 |
+`gdd/` ディレクトリにゲームの仕様書を配置できます（git 管理外）。テンプレート使用時にプロジェクト固有の仕様書をここに作成してください。
 
 ---
 
