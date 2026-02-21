@@ -1,0 +1,181 @@
+name: roblox-network
+description: Flamework networking piece with security review (plan -> implement -> security + arch review -> fix -> complete)
+piece_config:
+  provider_options:
+    codex:
+      network_access: true
+    opencode:
+      network_access: true
+max_movements: 20
+initial_movement: plan
+movements:
+  - name: plan
+    edit: false
+    persona: planner
+    knowledge:
+      - roblox-ts
+      - flamework
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Bash
+      - WebSearch
+      - WebFetch
+    rules:
+      - condition: Requirements are clear and implementation is possible
+        next: implement
+      - condition: User is asking a question (not an implementation task)
+        next: COMPLETE
+      - condition: Requirements are unclear, insufficient information
+        next: ABORT
+    instruction: plan
+    output_contracts:
+      report:
+        - name: 00-plan.md
+          format: plan
+
+  - name: implement
+    edit: true
+    persona: roblox-coder
+    policy:
+      - roblox-coding
+      - coding
+    session: refresh
+    knowledge:
+      - roblox-ts
+      - flamework
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Edit
+      - Write
+      - Bash
+      - WebSearch
+      - WebFetch
+    required_permission_mode: edit
+    instruction: implement-game
+    rules:
+      - condition: Implementation complete
+        next: reviewers
+      - condition: Cannot proceed, insufficient info
+        next: ABORT
+      - condition: User input required because there are items to confirm with the user
+        next: implement
+        requires_user_input: true
+        interactive_only: true
+    output_contracts:
+      report:
+        - name: coder-scope.md
+          format: coder-scope
+        - name: coder-decisions.md
+          format: coder-decisions
+
+  - name: reviewers
+    parallel:
+      - name: roblox_review
+        edit: false
+        persona: roblox-reviewer
+        policy:
+          - review
+          - roblox-coding
+        knowledge:
+          - roblox-ts
+          - flamework
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - WebSearch
+          - WebFetch
+        instruction: review-arch
+        rules:
+          - condition: No architecture issues
+          - condition: Architecture issues found
+        output_contracts:
+          report:
+            - name: 03-arch-review.md
+              format: architecture-review
+      - name: security_review
+        edit: false
+        persona: security-reviewer
+        policy:
+          - review
+          - security
+        knowledge:
+          - roblox-ts
+          - flamework
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - WebSearch
+          - WebFetch
+        instruction: review-security
+        rules:
+          - condition: No security issues
+          - condition: Security issues found
+        output_contracts:
+          report:
+            - name: 04-security-review.md
+              format: security-review
+    rules:
+      - condition: all("No architecture issues", "No security issues")
+        next: supervise
+      - condition: any("Architecture issues found", "Security issues found")
+        next: fix
+
+  - name: fix
+    edit: true
+    persona: roblox-coder
+    policy:
+      - roblox-coding
+      - coding
+    knowledge:
+      - roblox-ts
+      - flamework
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Edit
+      - Write
+      - Bash
+      - WebSearch
+      - WebFetch
+    required_permission_mode: edit
+    pass_previous_response: false
+    rules:
+      - condition: Fix complete
+        next: reviewers
+      - condition: Cannot proceed, insufficient info
+        next: plan
+    instruction: fix
+
+  - name: supervise
+    edit: false
+    persona: supervisor
+    policy: review
+    knowledge: roblox-ts
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Bash
+      - WebSearch
+      - WebFetch
+    pass_previous_response: false
+    rules:
+      - condition: All checks passed
+        next: COMPLETE
+      - condition: Requirements unmet, tests failing, build errors
+        next: plan
+    instruction: supervise
+    output_contracts:
+      report:
+        - name: supervisor-validation.md
+          format: supervisor-validation
+        - name: summary.md
+          format: summary
+          use_judge: false

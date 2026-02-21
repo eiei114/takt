@@ -1,4 +1,4 @@
-﻿{
+{
   "name": "takt-roblox-ts",
   "version": "0.2.0",
   "private": true,
@@ -12,7 +12,10 @@
     "serve": "rojo serve default.project.json",
     "build:place": "powershell -NoProfile -Command \"New-Item -ItemType Directory -Force build | Out-Null; rojo build default.project.json -o build/main.rbxlx\"",
     "lint": "eslint \"places/**/*.ts\"",
-    "test": "echo \"No test runner configured yet. Add TestEZ or @rbxts/jest.\""
+    "test": "echo \"No test runner configured yet. Add TestEZ or @rbxts/jest.\"",
+    "takt": "takt",
+    "takt:run": "takt run",
+    "takt:list": "takt list"
   },
   "dependencies": {
     "@flamework/components": "^1.3.2",
@@ -30,6 +33,7 @@
     "eslint": "^9.39.2",
     "rbxts-transformer-flamework": "^1.3.2",
     "roblox-ts": "^3.0.0",
+    "takt": "^0.21.0",
     "typescript": "~5.4.5",
     "typescript-eslint": "^8.46.1"
   }

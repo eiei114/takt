@@ -1,0 +1,151 @@
+name: roblox-mini
+description: Roblox TS mini piece (plan -> implement -> parallel review -> fix -> complete)
+piece_config:
+  provider_options:
+    codex:
+      network_access: true
+    opencode:
+      network_access: true
+max_movements: 20
+initial_movement: plan
+movements:
+  - name: plan
+    edit: false
+    persona: planner
+    knowledge: roblox-ts
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Bash
+      - WebSearch
+      - WebFetch
+    rules:
+      - condition: Requirements are clear and implementation is possible
+        next: implement
+      - condition: User is asking a question (not an implementation task)
+        next: COMPLETE
+      - condition: Requirements are unclear, insufficient information
+        next: ABORT
+    instruction: plan
+    output_contracts:
+      report:
+        - name: 00-plan.md
+          format: plan
+
+  - name: implement
+    edit: true
+    persona: roblox-coder
+    policy:
+      - roblox-coding
+      - coding
+    knowledge:
+      - roblox-ts
+      - flamework
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Edit
+      - Write
+      - Bash
+      - WebSearch
+      - WebFetch
+    required_permission_mode: edit
+    instruction: implement
+    rules:
+      - condition: Implementation complete
+        next: reviewers
+      - condition: Cannot proceed, insufficient info
+        next: ABORT
+      - condition: User input required because there are items to confirm with the user
+        next: implement
+        requires_user_input: true
+        interactive_only: true
+    output_contracts:
+      report:
+        - name: coder-scope.md
+          format: coder-scope
+        - name: coder-decisions.md
+          format: coder-decisions
+
+  - name: reviewers
+    parallel:
+      - name: roblox_review
+        edit: false
+        persona: roblox-reviewer
+        policy:
+          - review
+          - roblox-coding
+        knowledge:
+          - roblox-ts
+          - flamework
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - WebSearch
+          - WebFetch
+        instruction: review-arch
+        rules:
+          - condition: No architecture issues
+          - condition: Architecture issues found
+        output_contracts:
+          report:
+            - name: 03-roblox-review.md
+              format: architecture-review
+      - name: supervise
+        edit: false
+        persona: supervisor
+        policy: review
+        knowledge: roblox-ts
+        allowed_tools:
+          - Read
+          - Glob
+          - Grep
+          - Bash
+          - WebSearch
+          - WebFetch
+        instruction: supervise
+        rules:
+          - condition: All checks passed
+          - condition: Requirements unmet, tests failing
+        output_contracts:
+          report:
+            - name: supervisor-validation.md
+              format: supervisor-validation
+            - name: summary.md
+              format: summary
+              use_judge: false
+    rules:
+      - condition: all("No architecture issues", "All checks passed")
+        next: COMPLETE
+      - condition: any("Architecture issues found", "Requirements unmet, tests failing")
+        next: fix
+
+  - name: fix
+    edit: true
+    persona: roblox-coder
+    policy:
+      - roblox-coding
+      - coding
+    knowledge:
+      - roblox-ts
+      - flamework
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Edit
+      - Write
+      - Bash
+      - WebSearch
+      - WebFetch
+    required_permission_mode: edit
+    pass_previous_response: false
+    rules:
+      - condition: Issues fixed
+        next: reviewers
+      - condition: Cannot proceed, insufficient info
+        next: implement
+    instruction: fix

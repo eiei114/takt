@@ -62,3 +62,35 @@
 - 主な操作は `run_code` と `insert_model` です。
 - Studio を開いた状態で使う前提であり、未起動での直接編集用途には向きません。
 - 生成 AI 連携中は機密アセットを開かない運用を徹底してください。
+
+## Takt AI Orchestration
+
+本プロジェクトは [takt](https://github.com/nrslib/takt) を AI エージェントオーケストレーションに使用します。
+
+### 利用可能な Pieces
+
+| Piece | 用途 | コマンド |
+|-------|------|---------|
+| `roblox-mini` | 軽量タスク（デフォルト） | `npx takt "タスク説明"` |
+| `roblox-default` | 本格開発（AI + Archレビュー） | `npx takt --piece roblox-default "タスク説明"` |
+| `roblox-network` | ネットワーク機能（セキュリティレビュー付き） | `npx takt --piece roblox-network "タスク説明"` |
+
+### Takt コマンド
+
+| コマンド | 説明 |
+|---------|------|
+| `npx takt` | インタラクティブモード |
+| `npx takt "タスク説明"` | タスク実行 |
+| `npx takt run` | 保留中タスクを全実行 |
+| `npx takt list` | タスクブランチ管理 |
+| `npx takt switch` | アクティブ piece 変更 |
+| `npx takt add` | 会話でタスク追加 |
+
+### カスタム設定
+
+- `.takt/config.yaml` — プロジェクト設定
+- `.takt/pieces/` — カスタムワークフロー定義
+- `.takt/personas/` — AI エージェントロール定義
+- `.takt/knowledge/` — ドメイン知識ファイル
+- `.takt/policies/` — コーディングポリシー
+- `.takt/instructions/` — 実装手順

@@ -31,3 +31,8 @@ Thumbs.db
 
 # roblox studio cache
 *.tmp
+
+# takt runtime (config/pieces/personas/knowledge/policies are committed)
+.takt/tasks/
+.takt/tasks.yaml
+.takt/runs/
