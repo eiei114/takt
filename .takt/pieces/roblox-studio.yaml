@@ -1,12 +1,12 @@
-name: roblox-network
-description: Flamework networking piece with security review (plan -> implement -> security + arch review -> fix -> complete)
+name: roblox-studio
+description: Roblox TS piece with Studio MCP verification (plan -> implement -> verify -> parallel review -> fix -> complete)
 piece_config:
   provider_options:
     codex:
       network_access: true
     opencode:
       network_access: true
-max_movements: 20
+max_movements: 25
 initial_movement: plan
 movements:
   - name: plan
@@ -14,7 +14,7 @@ movements:
     persona: planner
     knowledge:
       - roblox-ts
-      - flamework
+      - studio-mcp
     allowed_tools:
       - Read
       - Glob
@@ -22,6 +22,13 @@ movements:
       - Bash
       - WebSearch
       - WebFetch
+      - mcp__robloxstudio-mcp__get_studio_mode
+      - mcp__robloxstudio-mcp__run_code
+      - mcp__roblox-docs__roblox_search
+      - mcp__roblox-docs__roblox_get_class
+      - mcp__roblox-docs__roblox_get_member
+      - mcp__roblox-docs__roblox_get_enum
+      - mcp__roblox-docs__roblox_list_services
     rules:
       - condition: Requirements are clear and implementation is possible
         next: implement
@@ -58,11 +65,17 @@ movements:
       - mcp__robloxstudio-mcp__run_code
       - mcp__robloxstudio-mcp__get_console_output
       - mcp__robloxstudio-mcp__get_studio_mode
+      - mcp__robloxstudio-mcp__insert_model
+      - mcp__roblox-docs__roblox_search
+      - mcp__roblox-docs__roblox_get_class
+      - mcp__roblox-docs__roblox_get_member
+      - mcp__roblox-docs__roblox_get_enum
+      - mcp__roblox-docs__roblox_search_devforum
     required_permission_mode: edit
-    instruction: implement-game
+    instruction: implement
     rules:
       - condition: Implementation complete
-        next: reviewers
+        next: verify
       - condition: Cannot proceed, insufficient info
         next: ABORT
       - condition: User input required because there are items to confirm with the user
@@ -75,6 +88,35 @@ movements:
           format: coder-scope
         - name: coder-decisions.md
           format: coder-decisions
+
+  - name: verify
+    edit: false
+    persona: supervisor
+    knowledge:
+      - roblox-ts
+      - studio-mcp
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Bash
+      - mcp__robloxstudio-mcp__run_code
+      - mcp__robloxstudio-mcp__get_console_output
+      - mcp__robloxstudio-mcp__start_stop_play
+      - mcp__robloxstudio-mcp__run_script_in_play_mode
+      - mcp__robloxstudio-mcp__get_studio_mode
+    instruction: verify-studio
+    rules:
+      - condition: Studio verification passed, no runtime errors
+        next: reviewers
+      - condition: Studio verification failed, runtime errors or incorrect behavior
+        next: fix
+      - condition: Studio not available, skip verification
+        next: reviewers
+    output_contracts:
+      report:
+        - name: 02-studio-verification.md
+          format: supervisor-validation
 
   - name: reviewers
     parallel:
@@ -97,45 +139,47 @@ movements:
           - mcp__robloxstudio-mcp__run_code
           - mcp__robloxstudio-mcp__get_console_output
           - mcp__robloxstudio-mcp__get_studio_mode
+          - mcp__roblox-docs__roblox_search
+          - mcp__roblox-docs__roblox_get_class
         instruction: review-arch
         rules:
           - condition: No architecture issues
           - condition: Architecture issues found
         output_contracts:
           report:
-            - name: 03-arch-review.md
+            - name: 03-roblox-review.md
               format: architecture-review
-      - name: security_review
+      - name: supervise
         edit: false
-        persona: security-reviewer
-        policy:
-          - review
-          - security
+        persona: supervisor
+        policy: review
         knowledge:
           - roblox-ts
-          - flamework
           - studio-mcp
         allowed_tools:
           - Read
           - Glob
           - Grep
+          - Bash
           - WebSearch
           - WebFetch
-          - mcp__robloxstudio-mcp__run_code
           - mcp__robloxstudio-mcp__get_console_output
           - mcp__robloxstudio-mcp__get_studio_mode
-        instruction: review-security
+        instruction: supervise
         rules:
-          - condition: No security issues
-          - condition: Security issues found
+          - condition: All checks passed
+          - condition: Requirements unmet, tests failing
         output_contracts:
           report:
-            - name: 04-security-review.md
-              format: security-review
+            - name: supervisor-validation.md
+              format: supervisor-validation
+            - name: summary.md
+              format: summary
+              use_judge: false
     rules:
-      - condition: all("No architecture issues", "No security issues")
-        next: supervise
-      - condition: any("Architecture issues found", "Security issues found")
+      - condition: all("No architecture issues", "All checks passed")
+        next: COMPLETE
+      - condition: any("Architecture issues found", "Requirements unmet, tests failing")
         next: fix
 
   - name: fix
@@ -160,40 +204,13 @@ movements:
       - mcp__robloxstudio-mcp__run_code
       - mcp__robloxstudio-mcp__get_console_output
       - mcp__robloxstudio-mcp__get_studio_mode
+      - mcp__roblox-docs__roblox_search
+      - mcp__roblox-docs__roblox_get_class
     required_permission_mode: edit
     pass_previous_response: false
     rules:
-      - condition: Fix complete
-        next: reviewers
+      - condition: Issues fixed
+        next: verify
       - condition: Cannot proceed, insufficient info
-        next: plan
+        next: implement
     instruction: fix
-
-  - name: supervise
-    edit: false
-    persona: supervisor
-    policy: review
-    knowledge: roblox-ts
-    allowed_tools:
-      - Read
-      - Glob
-      - Grep
-      - Bash
-      - WebSearch
-      - WebFetch
-      - mcp__robloxstudio-mcp__get_console_output
-      - mcp__robloxstudio-mcp__get_studio_mode
-    pass_previous_response: false
-    rules:
-      - condition: All checks passed
-        next: COMPLETE
-      - condition: Requirements unmet, tests failing, build errors
-        next: plan
-    instruction: supervise
-    output_contracts:
-      report:
-        - name: supervisor-validation.md
-          format: supervisor-validation
-        - name: summary.md
-          format: summary
-          use_judge: false

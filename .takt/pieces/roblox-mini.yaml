@@ -42,6 +42,7 @@ movements:
     knowledge:
       - roblox-ts
       - flamework
+      - studio-mcp
     allowed_tools:
       - Read
       - Glob
@@ -51,6 +52,9 @@ movements:
       - Bash
       - WebSearch
       - WebFetch
+      - mcp__robloxstudio-mcp__run_code
+      - mcp__robloxstudio-mcp__get_console_output
+      - mcp__robloxstudio-mcp__get_studio_mode
     required_permission_mode: edit
     instruction: implement
     rules:
@@ -80,12 +84,16 @@ movements:
         knowledge:
           - roblox-ts
           - flamework
+          - studio-mcp
         allowed_tools:
           - Read
           - Glob
           - Grep
           - WebSearch
           - WebFetch
+          - mcp__robloxstudio-mcp__run_code
+          - mcp__robloxstudio-mcp__get_console_output
+          - mcp__robloxstudio-mcp__get_studio_mode
         instruction: review-arch
         rules:
           - condition: No architecture issues
@@ -106,6 +114,7 @@ movements:
           - Bash
           - WebSearch
           - WebFetch
+          - mcp__robloxstudio-mcp__get_console_output
         instruction: supervise
         rules:
           - condition: All checks passed
@@ -132,6 +141,7 @@ movements:
     knowledge:
       - roblox-ts
       - flamework
+      - studio-mcp
     allowed_tools:
       - Read
       - Glob
@@ -141,6 +151,9 @@ movements:
       - Bash
       - WebSearch
       - WebFetch
+      - mcp__robloxstudio-mcp__run_code
+      - mcp__robloxstudio-mcp__get_console_output
+      - mcp__robloxstudio-mcp__get_studio_mode
     required_permission_mode: edit
     pass_previous_response: false
     rules:

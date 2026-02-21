@@ -13,6 +13,11 @@ Refer only to files within the Report Directory shown in the Piece Context.
 6. Update `Flamework.addPaths()` if new directories are introduced
 7. Verify Rojo mapping in `default.project.json` if new paths are needed
 8. Run `pnpm run build` and `pnpm run lint` to verify
+9. Studio MCP ツールが利用可能な場合:
+   a. `get_studio_mode` で Edit モードを確認
+   b. `run_code` で主要 Instance の存在を検証
+   c. `get_console_output` でエラーチェック
+   d. 結果を出力に含める
 
 **Required output (include headings):**
 
@@ -27,3 +32,6 @@ Refer only to files within the Report Directory shown in the Piece Context.
 
 ## Lint verification
 - {Output of pnpm run lint}
+
+## Studio verification (if available)
+- {Studio 検証結果、または "Studio MCP not connected -- skipped"}

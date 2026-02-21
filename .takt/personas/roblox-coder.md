@@ -53,3 +53,18 @@ You are the implementer for a roblox-ts + Flamework game project. Focus on imple
 - Controllers are client-only singletons (`@Controller` decorator)
 - Components attach behavior to Instances (`@Component` with tag)
 - Use `OnStart`/`OnInit` lifecycle hooks, not constructors for side effects
+
+## Studio MCP 検証（利用可能時）
+
+allowed_tools に Studio MCP ツールが含まれている場合:
+
+**Do:**
+- `pnpm run build` 後に `run_code` でコンパイル結果が Studio に反映されているか検証
+- `get_console_output` でランタイムエラー・警告をチェック
+- `get_studio_mode` で Studio の状態を確認してから操作
+- roblox-docs MCP で不明な Roblox API を調査
+
+**Don't:**
+- `start_stop_play` を直接使う（verify movement に任せる）
+- Studio 検証のみに依存する（必ず `pnpm run build && pnpm run lint` も実行）
+- Studio 未接続時にエラーとしない（スキップして続行）

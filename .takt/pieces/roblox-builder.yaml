@@ -1,0 +1,164 @@
+name: roblox-builder
+description: Studio map/model builder piece (plan -> build -> verify -> supervise -> complete)
+piece_config:
+  provider_options:
+    codex:
+      network_access: true
+    opencode:
+      network_access: true
+max_movements: 20
+initial_movement: plan
+movements:
+  - name: plan
+    edit: false
+    persona: planner
+    knowledge:
+      - roblox-ts
+      - studio-mcp
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Bash
+      - WebSearch
+      - WebFetch
+      - mcp__robloxstudio-mcp__get_studio_mode
+      - mcp__robloxstudio-mcp__run_code
+      - mcp__roblox-docs__roblox_search
+      - mcp__roblox-docs__roblox_get_class
+      - mcp__roblox-docs__roblox_get_member
+      - mcp__roblox-docs__roblox_get_enum
+      - mcp__roblox-docs__roblox_list_services
+      - mcp__roblox-docs__roblox_get_datatype
+    rules:
+      - condition: Requirements are clear and building is possible
+        next: build
+      - condition: User is asking a question (not a building task)
+        next: COMPLETE
+      - condition: Requirements are unclear, insufficient information
+        next: ABORT
+    instruction: plan
+    output_contracts:
+      report:
+        - name: 00-plan.md
+          format: plan
+
+  - name: build
+    edit: false
+    persona: studio-builder
+    knowledge:
+      - studio-mcp
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Bash
+      - mcp__robloxstudio-mcp__run_code
+      - mcp__robloxstudio-mcp__insert_model
+      - mcp__robloxstudio-mcp__get_console_output
+      - mcp__robloxstudio-mcp__start_stop_play
+      - mcp__robloxstudio-mcp__run_script_in_play_mode
+      - mcp__robloxstudio-mcp__get_studio_mode
+      - mcp__roblox-docs__roblox_search
+      - mcp__roblox-docs__roblox_get_class
+      - mcp__roblox-docs__roblox_get_member
+      - mcp__roblox-docs__roblox_get_enum
+      - mcp__roblox-docs__roblox_get_datatype
+      - mcp__roblox-docs__roblox_search_devforum
+    instruction: build-studio
+    rules:
+      - condition: Building complete
+        next: verify
+      - condition: Cannot proceed, Studio not available
+        next: ABORT
+      - condition: User input required because there are items to confirm with the user
+        next: build
+        requires_user_input: true
+        interactive_only: true
+    output_contracts:
+      report:
+        - name: coder-scope.md
+          format: coder-scope
+        - name: coder-decisions.md
+          format: coder-decisions
+
+  - name: verify
+    edit: false
+    persona: supervisor
+    knowledge:
+      - studio-mcp
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Bash
+      - mcp__robloxstudio-mcp__run_code
+      - mcp__robloxstudio-mcp__get_console_output
+      - mcp__robloxstudio-mcp__run_script_in_play_mode
+      - mcp__robloxstudio-mcp__get_studio_mode
+    instruction: verify-studio
+    rules:
+      - condition: Verification passed, all instances created correctly
+        next: supervise
+      - condition: Verification failed, missing or incorrect instances
+        next: fix
+    output_contracts:
+      report:
+        - name: 02-studio-verification.md
+          format: supervisor-validation
+
+  - name: fix
+    edit: false
+    persona: studio-builder
+    knowledge:
+      - studio-mcp
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Bash
+      - mcp__robloxstudio-mcp__run_code
+      - mcp__robloxstudio-mcp__insert_model
+      - mcp__robloxstudio-mcp__get_console_output
+      - mcp__robloxstudio-mcp__start_stop_play
+      - mcp__robloxstudio-mcp__run_script_in_play_mode
+      - mcp__robloxstudio-mcp__get_studio_mode
+      - mcp__roblox-docs__roblox_search
+      - mcp__roblox-docs__roblox_get_class
+      - mcp__roblox-docs__roblox_get_member
+    pass_previous_response: false
+    rules:
+      - condition: Fix complete
+        next: verify
+      - condition: Cannot proceed, insufficient info
+        next: plan
+    instruction: fix
+
+  - name: supervise
+    edit: false
+    persona: supervisor
+    policy: review
+    knowledge:
+      - studio-mcp
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+      - Bash
+      - mcp__robloxstudio-mcp__run_code
+      - mcp__robloxstudio-mcp__get_console_output
+      - mcp__robloxstudio-mcp__get_studio_mode
+    pass_previous_response: false
+    rules:
+      - condition: All checks passed
+        next: COMPLETE
+      - condition: Requirements unmet, build issues
+        next: plan
+    instruction: supervise
+    output_contracts:
+      report:
+        - name: supervisor-validation.md
+          format: supervisor-validation
+        - name: summary.md
+          format: summary
+          use_judge: false
