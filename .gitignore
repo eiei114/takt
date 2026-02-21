@@ -16,6 +16,18 @@ tsconfig.tsbuildinfo
 # logs
 *.log
 npm-debug.log*
+pnpm-debug.log*
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Local MCP config (machine-specific paths)
+.mcp.json
+
+# lint / test cache
+.eslintcache
+coverage/
 
 # env
 .env
