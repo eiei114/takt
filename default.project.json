@@ -1,0 +1,38 @@
+{
+  "name": "takt-roblox-ts-main",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "rbxts_include": {
+        "$path": "include"
+      },
+      "node_modules": {
+        "$className": "Folder",
+        "@rbxts": {
+          "$path": "node_modules/@rbxts"
+        },
+        "@flamework": {
+          "$path": "node_modules/@flamework"
+        }
+      },
+      "TS": {
+        "$path": "out/main/src/shared"
+      },
+      "Common": {
+        "$path": "out/common/src/shared"
+      }
+    },
+    "ServerScriptService": {
+      "TS": {
+        "$path": "out/main/src/server"
+      }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "TS": {
+          "$path": "out/main/src/client"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+﻿# dependencies
+node_modules/
+
+# build outputs
+out/
+dist/
+build/
+include/
+flamework.build
+tsconfig.tsbuildinfo
+.pnpm-store/
+*.rbxl
+*.rbxlx
+*.rbxm
+
+# logs
+*.log
+npm-debug.log*
+
+# env
+.env
+.env.local
+.env.*.local
+
+# editors / os
+.vscode/
+.idea/
+.claude/
+.DS_Store
+Thumbs.db
+
+# roblox studio cache
+*.tmp

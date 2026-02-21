@@ -1,0 +1,36 @@
+﻿{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "commonjs",
+    "moduleResolution": "Node",
+    "moduleDetection": "force",
+    "strict": true,
+    "noLib": true,
+    "allowSyntheticDefaultImports": true,
+    "incremental": true,
+    "rootDir": "places",
+    "outDir": "out",
+    "baseUrl": ".",
+    "paths": {
+      "@common/*": ["places/common/src/*"],
+      "@main/*": ["places/main/src/*"]
+    },
+    "types": ["types"],
+    "typeRoots": ["node_modules/@rbxts", "node_modules/@flamework", "node_modules/@types"],
+    "experimentalDecorators": true,
+    "jsx": "react",
+    "jsxFactory": "React.createElement",
+    "jsxFragmentFactory": "React.Fragment",
+    "plugins": [
+      {
+        "transform": "rbxts-transformer-flamework"
+      }
+    ]
+  },
+  "include": [
+    "places/common/src/shared",
+    "places/main/src/client",
+    "places/main/src/server",
+    "places/main/src/shared"
+  ]
+}
