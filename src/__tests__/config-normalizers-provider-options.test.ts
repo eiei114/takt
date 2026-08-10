@@ -215,6 +215,28 @@ describe('denormalizeProviderOptions', () => {
     expect(denormalizedProviderOptions).toEqual(rawProviderOptions);
   });
 
+  it('should round-trip Pi SDK resource options through normalize and denormalize', () => {
+    const rawProviderOptions = {
+      pi: {
+        extensions: ['npm:example-extension'],
+        no_extensions: true,
+        no_skills: false,
+      },
+    };
+
+    const normalizedProviderOptions = normalizeProviderOptions(rawProviderOptions);
+    const denormalizedProviderOptions = denormalizeProviderOptions(normalizedProviderOptions);
+
+    expect(normalizedProviderOptions).toEqual({
+      pi: {
+        extensions: ['npm:example-extension'],
+        noExtensions: true,
+        noSkills: false,
+      },
+    });
+    expect(denormalizedProviderOptions).toEqual(rawProviderOptions);
+  });
+
   it('should persist kiro agent alongside other provider options', () => {
     const result = denormalizeProviderOptions({
       kiro: { agent: 'coder-agent' },

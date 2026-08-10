@@ -693,6 +693,21 @@ describe('resolveProviderOptionsSources (all paths)', () => {
       'kiro.agent': 'step',
     });
   });
+
+  it('includes pi SDK options in resolved sources when set', () => {
+    const result = resolveProviderOptionsSources(
+      { pi: { extensions: ['npm:example-extension'], noSkills: true } },
+      [],
+      undefined,
+      undefined,
+      undefined,
+    );
+
+    expect(result).toEqual({
+      'pi.extensions': 'step',
+      'pi.noSkills': 'step',
+    });
+  });
 });
 
 describe('providerOptionsContract', () => {
@@ -726,6 +741,12 @@ describe('providerOptionsContract', () => {
       'provider_options.claude_terminal.transcript_poll_interval_ms',
       'provider_options.copilot.effort',
       'provider_options.kiro.agent',
+      'provider_options.pi.extensions',
+      'provider_options.pi.no_extensions',
+      'provider_options.pi.no_skills',
+      'provider_options.pi.no_prompt_templates',
+      'provider_options.pi.no_themes',
+      'provider_options.pi.no_context_files',
     ]));
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.codex.base_url');
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.claude.base_url');
@@ -744,6 +765,10 @@ describe('providerOptionsContract', () => {
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.claude_terminal.timeout_ms');
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.kiro');
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.kiro.agent');
+    expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi');
+    expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi.extensions');
+    expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi.no_extensions');
+    expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi.no_skills');
     expect(PROVIDER_OPTIONS_FILE_PREFERRED_ENV_PATHS).toEqual([
       'provider_options.codex.base_url',
       'provider_options.claude.base_url',
@@ -783,6 +808,10 @@ describe('providerOptionsContract', () => {
       .toBe('provider_options.claude_terminal.transcript_poll_interval_ms');
     expect(toProviderOptionsTracePath('kiro.agent'))
       .toBe('provider_options.kiro.agent');
+    expect(toProviderOptionsTracePath('pi.extensions'))
+      .toBe('provider_options.pi.extensions');
+    expect(toProviderOptionsTracePath('pi.noSkills'))
+      .toBe('provider_options.pi.no_skills');
   });
 
   it('enumerates only present provider option leaves', () => {
@@ -834,6 +863,18 @@ describe('providerOptionsContract', () => {
   it('does not enumerate kiro.agent for an empty kiro entry', () => {
     expect(getPresentProviderOptionPaths({
       kiro: {},
+    })).toEqual([]);
+  });
+
+  it('enumerates pi SDK options when present', () => {
+    expect(getPresentProviderOptionPaths({
+      pi: { extensions: ['npm:example-extension'], noSkills: true },
+    })).toEqual(['pi.extensions', 'pi.noSkills']);
+  });
+
+  it('does not enumerate Pi SDK options for an empty pi entry', () => {
+    expect(getPresentProviderOptionPaths({
+      pi: {},
     })).toEqual([]);
   });
 });

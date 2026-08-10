@@ -1558,6 +1558,43 @@ describe('bindWorkflowExecutionEvents', () => {
     ]);
   });
 
+  it('event sink へ並列 tool result を provider の ID で対応づける', async () => {
+    const eventSink = vi.fn().mockResolvedValue(undefined);
+    const { bridge, engine } = createBridgeHarness({ eventSink });
+    const step = {
+      name: 'review',
+      personaDisplayName: 'Reviewer',
+      instruction: '',
+    } as WorkflowStep;
+
+    engine.emit('step:start', step, 1, 'instruction', { provider: 'pi', model: 'test/model' }, 'parent', step.name);
+    bridge.emitProviderOutput({
+      type: 'tool_use',
+      data: { id: 'tool-a', tool: 'Read', input: { file_path: 'src/a.ts' } },
+    });
+    bridge.emitProviderOutput({
+      type: 'tool_use',
+      data: { id: 'tool-b', tool: 'Read', input: { file_path: 'src/b.ts' } },
+    });
+    bridge.emitProviderOutput({
+      type: 'tool_result',
+      data: { id: 'tool-b', content: 'content b', isError: false },
+    });
+    bridge.emitProviderOutput({
+      type: 'tool_result',
+      data: { id: 'tool-a', content: 'content a', isError: false },
+    });
+    await bridge.flushEventSink();
+
+    const completedEvents = eventSink.mock.calls
+      .map((call) => call[0])
+      .filter((event) => event.type === 'tool_completed');
+    expect(completedEvents).toEqual([
+      expect.objectContaining({ toolCallId: 'tool-b', message: 'content b' }),
+      expect.objectContaining({ toolCallId: 'tool-a', message: 'content a' }),
+    ]);
+  });
+
   it('event sink へ空の tool result でも pending tool call の完了を渡す', async () => {
     const eventSink = vi.fn().mockResolvedValue(undefined);
     const { bridge, engine } = createBridgeHarness({ eventSink });

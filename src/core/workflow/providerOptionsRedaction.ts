@@ -2,6 +2,17 @@ import type { StepProviderOptions } from '../models/workflow-provider-options.js
 
 export const CONFIGURED_PROVIDER_OPTION_VALUE = '[configured]';
 
+function redactExtensionSource(source: string): string {
+  const credentials = /^(.*?:\/\/)[^/@]+@(.+)$/u.exec(source);
+  const withoutCredentials = credentials === null
+    ? source
+    : `${credentials[1]}${CONFIGURED_PROVIDER_OPTION_VALUE}@${credentials[2]}`;
+  return withoutCredentials.replace(
+    /([?&#](?:api[_-]?key|token|password|secret|credential)=)[^&#\s]*/giu,
+    `$1${CONFIGURED_PROVIDER_OPTION_VALUE}`,
+  );
+}
+
 export function redactProviderOptions(
   providerOptions: StepProviderOptions | undefined,
 ): StepProviderOptions | undefined {
@@ -15,10 +26,16 @@ export function redactProviderOptions(
   const claude = providerOptions.claude?.baseUrl !== undefined
     ? { ...providerOptions.claude, baseUrl: CONFIGURED_PROVIDER_OPTION_VALUE }
     : providerOptions.claude;
-
+  const pi = providerOptions.pi?.extensions !== undefined
+    ? {
+        ...providerOptions.pi,
+        extensions: providerOptions.pi.extensions.map(redactExtensionSource),
+      }
+    : providerOptions.pi;
   return {
     ...providerOptions,
     ...(codex !== undefined ? { codex } : {}),
     ...(claude !== undefined ? { claude } : {}),
+    ...(pi !== undefined ? { pi } : {}),
   };
 }

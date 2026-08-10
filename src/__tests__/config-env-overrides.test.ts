@@ -304,6 +304,29 @@ describe('config traced env overrides', () => {
     });
   });
 
+  it('project config は pi.extensions の JSON env override を traced-config 経由で反映する', () => {
+    const projectDir = join(testRoot, 'project-pi-extensions-env');
+    const configDir = getProjectConfigDir(projectDir);
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, 'config.yaml'),
+      [
+        'provider_options:',
+        '  pi:',
+        '    extensions:',
+        '      - npm:old-extension',
+      ].join('\n'),
+      'utf-8',
+    );
+    process.env.TAKT_PROVIDER_OPTIONS_PI_EXTENSIONS = JSON.stringify(['npm:example-extension']);
+
+    const config = loadProjectConfig(projectDir);
+
+    expect(config.providerOptions).toEqual({
+      pi: { extensions: ['npm:example-extension'] },
+    });
+  });
+
   it('global config は provider_options.kiro.agent を読み込む', () => {
     mkdirSync(globalTaktDir, { recursive: true });
     writeFileSync(
