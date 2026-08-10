@@ -171,3 +171,14 @@ export function providerKeepsAllowedToolWithoutEdit(
 
   return getProvider(provider).keepsAllowedToolWithoutEdit(tool);
 }
+
+export function providerDefaultAllowedToolsWithoutEdit(
+  provider: ProviderType | undefined,
+): string[] | undefined {
+  if (provider === undefined) {
+    return undefined;
+  }
+
+  const tools = getProvider(provider).getDefaultAllowedToolsWithoutEdit?.();
+  return tools === undefined ? undefined : [...tools];
+}

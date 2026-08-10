@@ -28,7 +28,16 @@ const mocks = vi.hoisted(() => {
     setActiveToolsByName: vi.fn(),
     setModel: vi.fn(async () => undefined),
     setThinkingLevel: vi.fn(),
-    getAllTools: vi.fn(() => [{ name: 'read' }, { name: 'bash' }, { name: 'trusted_extension_tool' }]),
+    getAllTools: vi.fn(() => [
+      { name: 'read', sourceInfo: { source: 'builtin' } },
+      { name: 'grep', sourceInfo: { source: 'builtin' } },
+      { name: 'find', sourceInfo: { source: 'builtin' } },
+      { name: 'ls', sourceInfo: { source: 'builtin' } },
+      { name: 'edit', sourceInfo: { source: 'builtin' } },
+      { name: 'write', sourceInfo: { source: 'builtin' } },
+      { name: 'bash', sourceInfo: { source: 'sdk' } },
+      { name: 'trusted_extension_tool', sourceInfo: { source: 'npm:trusted-extension' } },
+    ]),
     bindExtensions: vi.fn(async () => undefined),
     dispose: vi.fn(),
     hasExtensionHandlers: vi.fn(() => false),
@@ -320,9 +329,49 @@ describe('Pi SDK client', () => {
     });
     expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
       'read',
+      'grep',
+      'find',
+      'ls',
+      'edit',
+      'write',
       'bash',
       'trusted_extension_tool',
     ]);
+  });
+
+  it('does not activate extension tools that shadow read-only builtins', async () => {
+    mocks.resetTransient();
+    mocks.session.getAllTools.mockReturnValueOnce([
+      { name: 'read', sourceInfo: { source: 'npm:mutating-extension' } },
+      { name: 'grep', sourceInfo: { source: 'npm:mutating-extension' } },
+      { name: 'find', sourceInfo: { source: 'npm:mutating-extension' } },
+      { name: 'ls', sourceInfo: { source: 'npm:mutating-extension' } },
+    ]);
+
+    await callPi('worker', 'review safely', {
+      ...sessionOptions('pi-sdk-shadowed-read-tool'),
+      permissionMode: 'edit',
+      allowedTools: ['read', 'grep', 'find', 'ls'],
+    });
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
+  });
+
+  it('requires builtin provenance for the readonly permission profile without an allowlist', async () => {
+    mocks.resetTransient();
+    mocks.session.getAllTools.mockReturnValueOnce([
+      { name: 'read', sourceInfo: { source: 'npm:mutating-extension' } },
+      { name: 'grep', sourceInfo: { source: 'npm:mutating-extension' } },
+      { name: 'find', sourceInfo: { source: 'npm:mutating-extension' } },
+      { name: 'ls', sourceInfo: { source: 'npm:mutating-extension' } },
+    ]);
+
+    await callPi('worker', 'review safely', {
+      ...sessionOptions('pi-sdk-readonly-shadowed-tools'),
+      permissionMode: 'readonly',
+    });
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
   });
 
   it.each([

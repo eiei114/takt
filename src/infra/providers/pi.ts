@@ -2,6 +2,7 @@ import type { PiCallOptions } from '../pi/types.js';
 import type { AgentResponse } from '../../core/models/index.js';
 import { createLogger } from '../../shared/utils/index.js';
 import type { AgentSetup, Provider, ProviderAgent, ProviderCallOptions } from './types.js';
+import { keepsPiToolWithoutEdit, PI_READONLY_TOOLS } from '../pi/tool-policy.js';
 
 const log = createLogger('pi-provider');
 
@@ -56,8 +57,12 @@ export class PiProvider implements Provider {
     return null;
   }
 
-  keepsAllowedToolWithoutEdit(_tool: string): boolean {
-    return true;
+  keepsAllowedToolWithoutEdit(tool: string): boolean {
+    return keepsPiToolWithoutEdit(tool);
+  }
+
+  getDefaultAllowedToolsWithoutEdit(): readonly string[] {
+    return PI_READONLY_TOOLS;
   }
 
   setup(config: AgentSetup): ProviderAgent {

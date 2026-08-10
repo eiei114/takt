@@ -24,7 +24,7 @@ import {
   type ImageContent,
   type Model,
 } from '@earendil-works/pi-ai';
-import type { AgentResponse, PermissionMode } from '../../core/models/index.js';
+import type { AgentResponse } from '../../core/models/index.js';
 import { buildEnvWithNestedObservabilitySnapshot } from '../../shared/telemetry/index.js';
 import {
   classifyAbortSignalReason,
@@ -37,37 +37,8 @@ import { sanitizeSensitiveText } from '../../shared/utils/sensitiveText.js';
 import type { ProviderImageAttachment } from '../providers/types.js';
 import { validateProviderImageAttachments } from '../providers/imageAttachments.js';
 import type { PiCallOptions } from './types.js';
+import { resolvePiActiveTools } from './tool-policy.js';
 
-const PI_READONLY_TOOLS = ['read', 'grep', 'find', 'ls'];
-const PI_EDIT_TOOLS = ['read', 'grep', 'find', 'ls', 'edit', 'write', 'bash'];
-const PI_DEFAULT_TOOLS = ['read', 'bash', 'edit', 'write'];
-const PI_BUILTIN_TOOLS = new Set([
-  'read',
-  'bash',
-  'edit',
-  'write',
-  'grep',
-  'find',
-  'ls',
-]);
-const PI_TOOL_ALIASES: Record<string, string> = {
-  read: 'read',
-  Read: 'read',
-  grep: 'grep',
-  Grep: 'grep',
-  find: 'find',
-  Find: 'find',
-  glob: 'find',
-  Glob: 'find',
-  ls: 'ls',
-  LS: 'ls',
-  edit: 'edit',
-  Edit: 'edit',
-  write: 'write',
-  Write: 'write',
-  bash: 'bash',
-  Bash: 'bash',
-};
 const PI_THINKING_LEVEL_VALUES = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 type PiThinkingLevel = (typeof PI_THINKING_LEVEL_VALUES)[number];
 const PI_THINKING_LEVELS = new Set<string>(PI_THINKING_LEVEL_VALUES);
@@ -201,10 +172,6 @@ function resolvePiModel(
   );
 }
 
-function normalizePiToolName(tool: string): string | undefined {
-  return PI_TOOL_ALIASES[tool] ?? PI_TOOL_ALIASES[tool.toLowerCase()];
-}
-
 function assertSafeExtensionSources(sources: readonly string[]): void {
   for (const source of sources) {
     const trimmedSource = source.trim();
@@ -240,42 +207,11 @@ function assertSafeExtensionSources(sources: readonly string[]): void {
   }
 }
 
-function resolvePiActiveTools(
-  permissionMode: PermissionMode | undefined,
-  allowedTools: string[] | undefined,
-  allTools: string[],
-): string[] {
-  const permissionTools = permissionMode === 'readonly'
-    ? PI_READONLY_TOOLS
-    : permissionMode === 'edit'
-      ? PI_EDIT_TOOLS
-      : undefined;
-
-  if (allowedTools === undefined) {
-    if (permissionTools !== undefined) {
-      return [...permissionTools];
-    }
-    if (permissionMode === 'full') {
-      return allTools;
-    }
-    const extensionTools = allTools.filter((tool) => !PI_BUILTIN_TOOLS.has(tool));
-    return [...new Set([...PI_DEFAULT_TOOLS, ...extensionTools])];
-  }
-
-  const normalized = [...new Set(allowedTools
-    .map((tool) => normalizePiToolName(tool) ?? tool.trim())
-    .filter((tool) => tool.length > 0))];
-  if (permissionMode === 'readonly') {
-    return normalized.filter((tool) => permissionTools?.includes(tool) === true);
-  }
-  if (permissionMode === 'edit') {
-    return normalized.filter((tool) => permissionTools?.includes(tool) === true || !PI_BUILTIN_TOOLS.has(tool));
-  }
-  return normalized;
-}
-
 function applyPiTools(session: AgentSession, options: PiCallOptions): void {
-  const allTools = session.getAllTools().map((tool) => tool.name);
+  const allTools = session.getAllTools().map((tool) => ({
+    name: tool.name,
+    source: tool.sourceInfo.source,
+  }));
   session.setActiveToolsByName(resolvePiActiveTools(
     options.permissionMode,
     options.allowedTools,
@@ -572,6 +508,22 @@ function retireSessionRecord(record: PiSessionRecord): Promise<void> {
   return Promise.resolve();
 }
 
+function enforcePiSessionCacheLimit(): void {
+  const records = [...new Set(sessions.values())];
+  if (records.length <= MAX_CACHED_PI_SESSIONS) {
+    return;
+  }
+  const evictable = records
+    .filter((candidate) => !candidate.retired && candidate.activeOperations === 0)
+    .sort((left, right) => left.lastUsedAt - right.lastUsedAt);
+  for (const candidate of evictable) {
+    if (new Set(sessions.values()).size <= MAX_CACHED_PI_SESSIONS) {
+      break;
+    }
+    void retireSessionRecord(candidate);
+  }
+}
+
 function cacheSessionRecord(record: PiSessionRecord, sessionIds: readonly string[]): void {
   for (const sessionId of new Set(sessionIds)) {
     const key = sessionCacheKey(sessionId, record.cwd);
@@ -582,19 +534,7 @@ function cacheSessionRecord(record: PiSessionRecord, sessionIds: readonly string
     sessions.set(key, record);
   }
 
-  const records = [...new Set(sessions.values())];
-  if (records.length <= MAX_CACHED_PI_SESSIONS) {
-    return;
-  }
-  const evictable = records
-    .filter((candidate) => candidate.activeOperations === 0)
-    .sort((left, right) => left.lastUsedAt - right.lastUsedAt);
-  for (const candidate of evictable) {
-    if (new Set(sessions.values()).size <= MAX_CACHED_PI_SESSIONS) {
-      break;
-    }
-    void retireSessionRecord(candidate);
-  }
+  enforcePiSessionCacheLimit();
 }
 
 async function createPiSession(
@@ -713,6 +653,8 @@ function releasePiSessionCreationHandoff(creation: PiSessionCreation): void {
   creation.record.activeOperations -= 1;
   if (creation.record.retired && creation.record.activeOperations === 0) {
     void disposePiSessionRecord(creation.record);
+  } else if (creation.record.activeOperations === 0) {
+    enforcePiSessionCacheLimit();
   }
 }
 
@@ -882,6 +824,8 @@ async function runWithPiSessionLock<T>(
     record.lastUsedAt = Date.now();
     if (record.retired && record.activeOperations === 0) {
       await disposePiSessionRecord(record);
+    } else if (record.activeOperations === 0) {
+      enforcePiSessionCacheLimit();
     }
   }
 }
