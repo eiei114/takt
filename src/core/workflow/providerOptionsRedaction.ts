@@ -9,7 +9,7 @@ function redactExtensionSource(source: string): string {
     ? trimmedSource
     : `${credentials[1]}${CONFIGURED_PROVIDER_OPTION_VALUE}@${credentials[2]}`;
   return withoutCredentials.replace(
-    /([?&#])([^=&#\s]+)=([^&#\s]*)/gu,
+    /([?&#])([^=&#\s]+)=([^&#]*)/gu,
     (parameter, delimiter: string, rawKey: string) => {
       let key = rawKey;
       try {

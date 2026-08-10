@@ -353,23 +353,29 @@ describe('config traced env overrides', () => {
       rawKey: 'no_context_files',
       internalKey: 'noContextFiles',
     },
-  ])('project config は $envName の boolean override を反映する', ({ envName, rawKey, internalKey }) => {
-    const projectDir = join(testRoot, `project-pi-${rawKey}`);
-    const configDir = getProjectConfigDir(projectDir);
-    mkdirSync(configDir, { recursive: true });
-    writeFileSync(
-      join(configDir, 'config.yaml'),
-      ['provider_options:', '  pi:', `    ${rawKey}: false`].join('\n'),
-      'utf-8',
-    );
-    process.env[envName] = 'true';
+  ].flatMap((option) => [
+    { ...option, configValue: false, envValue: 'true', expectedValue: true },
+    { ...option, configValue: true, envValue: 'false', expectedValue: false },
+  ]))(
+    'project config は $envName=$envValue の boolean override を反映する',
+    ({ envName, rawKey, internalKey, configValue, envValue, expectedValue }) => {
+      const projectDir = join(testRoot, `project-pi-${rawKey}-${envValue}`);
+      const configDir = getProjectConfigDir(projectDir);
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(
+        join(configDir, 'config.yaml'),
+        ['provider_options:', '  pi:', `    ${rawKey}: ${configValue}`].join('\n'),
+        'utf-8',
+      );
+      process.env[envName] = envValue;
 
-    const config = loadProjectConfig(projectDir);
+      const config = loadProjectConfig(projectDir);
 
-    expect(config.providerOptions).toEqual({
-      pi: { [internalKey]: true },
-    });
-  });
+      expect(config.providerOptions).toEqual({
+        pi: { [internalKey]: expectedValue },
+      });
+    },
+  );
 
   it('global config は provider_options.kiro.agent を読み込む', () => {
     mkdirSync(globalTaktDir, { recursive: true });
