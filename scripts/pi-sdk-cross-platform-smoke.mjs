@@ -34,13 +34,15 @@ const extensionPath = join(root, 'platform-probe.js');
 try {
   await mkdir(cwd, { recursive: true });
   await writeFile(extensionPath, `
+import { Type } from 'typebox';
+
 export default function platformProbe(pi) {
   pi.on('session_start', () => {
     pi.registerTool({
       name: 'platform_probe',
       label: 'Platform probe',
       description: 'Cross-platform SDK registration probe',
-      parameters: { type: 'object', properties: {}, additionalProperties: false },
+      parameters: Type.Object({}),
       async execute() {
         return { content: [{ type: 'text', text: 'ok' }], details: {} };
       },

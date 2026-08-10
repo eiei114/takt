@@ -357,7 +357,7 @@ Operations without workflow-step context, such as AI task-slug generation, use t
 
 Auto-routing decisions are written locally to `.takt/events/` as NDJSON. TAKT does not upload routing decisions. Local recording is enabled by default, can be configured with `telemetry.routing_decisions`, and can be inspected or changed with `takt telemetry status|enable|disable`.
 
-Or use provider credentials directly (no CLI installation required for Claude, Codex, OpenCode, or Pi):
+Or use provider credentials directly (no CLI installation required for claude-sdk, Codex, OpenCode, or Pi):
 
 ```bash
 export TAKT_ANTHROPIC_API_KEY=sk-ant-...   # Anthropic (Claude)

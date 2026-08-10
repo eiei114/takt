@@ -240,10 +240,11 @@ function assertSafeExtensionSources(sources: readonly string[]): void {
   }
 }
 
-function buildPiTools(
+function resolvePiActiveTools(
   permissionMode: PermissionMode | undefined,
   allowedTools: string[] | undefined,
-): string[] | undefined {
+  allTools: string[],
+): string[] {
   const permissionTools = permissionMode === 'readonly'
     ? PI_READONLY_TOOLS
     : permissionMode === 'edit'
@@ -251,7 +252,14 @@ function buildPiTools(
       : undefined;
 
   if (allowedTools === undefined) {
-    return permissionTools;
+    if (permissionTools !== undefined) {
+      return [...permissionTools];
+    }
+    if (permissionMode === 'full') {
+      return allTools;
+    }
+    const extensionTools = allTools.filter((tool) => !PI_BUILTIN_TOOLS.has(tool));
+    return [...new Set([...PI_DEFAULT_TOOLS, ...extensionTools])];
   }
 
   const normalized = [...new Set(allowedTools
@@ -268,21 +276,11 @@ function buildPiTools(
 
 function applyPiTools(session: AgentSession, options: PiCallOptions): void {
   const allTools = session.getAllTools().map((tool) => tool.name);
-  if (options.allowedTools === undefined) {
-    if (options.permissionMode === 'readonly') {
-      session.setActiveToolsByName(PI_READONLY_TOOLS);
-    } else if (options.permissionMode === 'edit') {
-      session.setActiveToolsByName(PI_EDIT_TOOLS);
-    } else if (options.permissionMode === 'full') {
-      session.setActiveToolsByName(allTools);
-    } else {
-      const extensionTools = allTools.filter((tool) => !PI_BUILTIN_TOOLS.has(tool));
-      session.setActiveToolsByName([...new Set([...PI_DEFAULT_TOOLS, ...extensionTools])]);
-    }
-    return;
-  }
-
-  session.setActiveToolsByName(buildPiTools(options.permissionMode, options.allowedTools) ?? []);
+  session.setActiveToolsByName(resolvePiActiveTools(
+    options.permissionMode,
+    options.allowedTools,
+    allTools,
+  ));
 }
 
 function enabledResourcePaths(paths: ResolvedPaths, key: keyof ResolvedPaths): string[] {
@@ -458,11 +456,25 @@ function stableEnvironment(
     : Object.entries(environment).sort(([left], [right]) => left.localeCompare(right));
 }
 
+function stableJsonValue(value: unknown): unknown {
+  if (value === null || typeof value !== 'object') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(stableJsonValue);
+  }
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, entry]) => [key, stableJsonValue(entry)]),
+  );
+}
+
 function buildSessionConfigurationFingerprint(options: PiCallOptions, agentDir: string): string {
   return JSON.stringify({
     agentDir: normalizeSessionCwd(agentDir),
     systemPrompt: options.systemPrompt,
-    providerOptions: options.providerOptions,
+    providerOptions: stableJsonValue(options.providerOptions),
     childProcessEnv: stableEnvironment(options.childProcessEnv),
   });
 }
@@ -943,11 +955,11 @@ function handlePiEvent(
 
   if (event.type === 'message_end') {
     const message = event.message as unknown as Record<string, unknown>;
-    const text = extractAssistantText(message);
     if (message.role === 'assistant') {
-      state.responseText = text;
-    }
-    if (message.role === 'assistant') {
+      const text = extractAssistantText(message);
+      if (text) {
+        state.responseText = text;
+      }
       if (message.stopReason === 'error') {
         state.assistantError = typeof message.errorMessage === 'string'
           ? message.errorMessage
@@ -968,7 +980,9 @@ function handlePiEvent(
     if (lastAssistant) {
       const message = lastAssistant as unknown as Record<string, unknown>;
       const text = extractAssistantText(message);
-      state.responseText = text;
+      if (text) {
+        state.responseText = text;
+      }
       if (message.stopReason === 'error') {
         state.assistantError = typeof message.errorMessage === 'string'
           ? message.errorMessage

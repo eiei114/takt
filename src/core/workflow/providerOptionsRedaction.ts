@@ -3,13 +3,24 @@ import type { StepProviderOptions } from '../models/workflow-provider-options.js
 export const CONFIGURED_PROVIDER_OPTION_VALUE = '[configured]';
 
 function redactExtensionSource(source: string): string {
-  const credentials = /^(.*?:\/\/)[^/@]+@(.+)$/u.exec(source);
+  const trimmedSource = source.trim();
+  const credentials = /^(.*?:\/\/)[^/@]+@(.+)$/u.exec(trimmedSource);
   const withoutCredentials = credentials === null
-    ? source
+    ? trimmedSource
     : `${credentials[1]}${CONFIGURED_PROVIDER_OPTION_VALUE}@${credentials[2]}`;
   return withoutCredentials.replace(
-    /([?&#](?:api[_-]?key|token|password|secret|credential)=)[^&#\s]*/giu,
-    `$1${CONFIGURED_PROVIDER_OPTION_VALUE}`,
+    /([?&#])([^=&#\s]+)=([^&#\s]*)/gu,
+    (parameter, delimiter: string, rawKey: string) => {
+      let key = rawKey;
+      try {
+        key = decodeURIComponent(rawKey.replace(/\+/gu, ' '));
+      } catch {
+        // Keep the raw key when percent-encoding is malformed.
+      }
+      return /api[_-]?key|token|password|secret|credential/iu.test(key)
+        ? `${delimiter}${rawKey}=${CONFIGURED_PROVIDER_OPTION_VALUE}`
+        : parameter;
+    },
   );
 }
 

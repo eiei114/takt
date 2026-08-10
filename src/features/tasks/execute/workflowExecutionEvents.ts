@@ -210,8 +210,8 @@ function createOutputEvents(
         const pendingIndex = pendingToolCallIds.indexOf(reportedToolCallId);
         if (pendingIndex >= 0) {
           pendingToolCallIds.splice(pendingIndex, 1);
+          completedToolCallId = reportedToolCallId;
         }
-        completedToolCallId = reportedToolCallId;
       } else {
         completedToolCallId = pendingToolCallIds.shift();
       }

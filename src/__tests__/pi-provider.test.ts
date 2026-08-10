@@ -23,8 +23,18 @@ describe('PiProvider', () => {
     const provider = new PiProvider();
 
     expect(provider.supportsStructuredOutput).toBe(false);
+    expect(provider.supportsIsolatedStructuredExecution).toBe(false);
     expect(provider.supportsNativeImageInput).toBe(true);
     expect(provider.supportsStrictInternalAgentIsolation).toBe(false);
+  });
+
+  it('returns an error response for isolated structured execution', async () => {
+    const agent = new PiProvider().setupIsolatedStructured({ name: 'worker', systemPrompt: '' });
+    const response = await agent.call('implement', { cwd: '/tmp/work', sessionId: 'session-1' });
+
+    expect(response.status).toBe('error');
+    expect(response.error).toBe('Provider "pi" does not support isolated structured execution');
+    expect(response.sessionId).toBe('session-1');
   });
 
   it('passes Pi options and the persona system prompt to the SDK client', async () => {
@@ -67,5 +77,29 @@ describe('PiProvider', () => {
       onStream,
       childProcessEnv: undefined,
     });
+  });
+
+  it('warns when unsupported options are ignored', async () => {
+    mockCallPi.mockResolvedValue({
+      persona: 'worker',
+      status: 'done',
+      content: 'ok',
+      timestamp: new Date(),
+    });
+    mockLogger.warn.mockClear();
+
+    const agent = new PiProvider().setup({ name: 'worker' });
+    await agent.call('implement', {
+      cwd: '/tmp/work',
+      mcpServers: { docs: { command: 'node', args: ['server.js'] } },
+      maxTurns: 3,
+      outputSchema: { type: 'object' },
+    });
+
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      'Pi provider does not support mcpServers; configure integrations through Pi extensions when supported',
+    );
+    expect(mockLogger.warn).toHaveBeenCalledWith('Pi provider does not support maxTurns; ignoring');
+    expect(mockLogger.warn).toHaveBeenCalledWith('Pi provider does not support outputSchema; ignoring');
   });
 });

@@ -19,13 +19,13 @@ function toPiOptions(options: ProviderCallOptions, systemPrompt?: string): PiCal
     log.info('Pi provider maps allowedTools to Pi SDK tool names');
   }
   if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
-    log.info('Pi provider does not support mcpServers; configure integrations through Pi extensions when supported');
+    log.warn('Pi provider does not support mcpServers; configure integrations through Pi extensions when supported');
   }
   if (options.maxTurns !== undefined) {
-    log.info('Pi provider does not support maxTurns; ignoring');
+    log.warn('Pi provider does not support maxTurns; ignoring');
   }
   if (options.outputSchema) {
-    log.info('Pi provider does not support outputSchema; ignoring');
+    log.warn('Pi provider does not support outputSchema; ignoring');
   }
   if (options.imageAttachments && options.imageAttachments.length > 0) {
     log.info('Pi provider passes imageAttachments to the Pi SDK as native images');

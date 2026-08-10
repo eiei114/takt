@@ -7,6 +7,7 @@ import {
   providerSupportsMaxTurns,
   providerSupportsMcpServers,
   providerSupportsNativeImageInput,
+  providerSupportsStructuredOutput,
 } from '../infra/providers/provider-capabilities.js';
 
 function readModuleSource(path: string): string {
@@ -70,6 +71,10 @@ describe('provider capabilities module boundary', () => {
     expect(providerSupportsNativeImageInput('claude-terminal')).toBe(false);
     expect(providerSupportsNativeImageInput('opencode')).toBe(false);
     expect(providerSupportsNativeImageInput('pi')).toBe(true);
+  });
+
+  it('Pi は structured output をサポートしない', () => {
+    expect(providerSupportsStructuredOutput('pi')).toBe(false);
   });
 
   it('非編集 step の allowedTools 判定は provider capability 境界に閉じる', () => {

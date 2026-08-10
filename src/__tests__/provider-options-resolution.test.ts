@@ -696,7 +696,16 @@ describe('resolveProviderOptionsSources (all paths)', () => {
 
   it('includes pi SDK options in resolved sources when set', () => {
     const result = resolveProviderOptionsSources(
-      { pi: { extensions: ['npm:example-extension'], noSkills: true } },
+      {
+        pi: {
+          extensions: ['npm:example-extension'],
+          noExtensions: true,
+          noSkills: true,
+          noPromptTemplates: true,
+          noThemes: true,
+          noContextFiles: true,
+        },
+      },
       [],
       undefined,
       undefined,
@@ -705,7 +714,11 @@ describe('resolveProviderOptionsSources (all paths)', () => {
 
     expect(result).toEqual({
       'pi.extensions': 'step',
+      'pi.noExtensions': 'step',
       'pi.noSkills': 'step',
+      'pi.noPromptTemplates': 'step',
+      'pi.noThemes': 'step',
+      'pi.noContextFiles': 'step',
     });
   });
 });
@@ -769,6 +782,9 @@ describe('providerOptionsContract', () => {
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi.extensions');
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi.no_extensions');
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi.no_skills');
+    expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi.no_prompt_templates');
+    expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi.no_themes');
+    expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi.no_context_files');
     expect(PROVIDER_OPTIONS_FILE_PREFERRED_ENV_PATHS).toEqual([
       'provider_options.codex.base_url',
       'provider_options.claude.base_url',
@@ -810,8 +826,16 @@ describe('providerOptionsContract', () => {
       .toBe('provider_options.kiro.agent');
     expect(toProviderOptionsTracePath('pi.extensions'))
       .toBe('provider_options.pi.extensions');
+    expect(toProviderOptionsTracePath('pi.noExtensions'))
+      .toBe('provider_options.pi.no_extensions');
     expect(toProviderOptionsTracePath('pi.noSkills'))
       .toBe('provider_options.pi.no_skills');
+    expect(toProviderOptionsTracePath('pi.noPromptTemplates'))
+      .toBe('provider_options.pi.no_prompt_templates');
+    expect(toProviderOptionsTracePath('pi.noThemes'))
+      .toBe('provider_options.pi.no_themes');
+    expect(toProviderOptionsTracePath('pi.noContextFiles'))
+      .toBe('provider_options.pi.no_context_files');
   });
 
   it('enumerates only present provider option leaves', () => {
@@ -868,8 +892,22 @@ describe('providerOptionsContract', () => {
 
   it('enumerates pi SDK options when present', () => {
     expect(getPresentProviderOptionPaths({
-      pi: { extensions: ['npm:example-extension'], noSkills: true },
-    })).toEqual(['pi.extensions', 'pi.noSkills']);
+      pi: {
+        extensions: ['npm:example-extension'],
+        noExtensions: true,
+        noSkills: true,
+        noPromptTemplates: true,
+        noThemes: true,
+        noContextFiles: true,
+      },
+    })).toEqual([
+      'pi.extensions',
+      'pi.noExtensions',
+      'pi.noSkills',
+      'pi.noPromptTemplates',
+      'pi.noThemes',
+      'pi.noContextFiles',
+    ]);
   });
 
   it('does not enumerate Pi SDK options for an empty pi entry', () => {

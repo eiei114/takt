@@ -38,6 +38,7 @@ describe('denormalizeProviderOptions', () => {
   it('should return undefined when provider options do not contain persisted fields', () => {
     const result = denormalizeProviderOptions({
       claude: { sandbox: {} },
+      pi: {},
     });
 
     expect(result).toBeUndefined();
@@ -221,6 +222,9 @@ describe('denormalizeProviderOptions', () => {
         extensions: ['npm:example-extension'],
         no_extensions: true,
         no_skills: false,
+        no_prompt_templates: false,
+        no_themes: false,
+        no_context_files: false,
       },
     };
 
@@ -232,6 +236,9 @@ describe('denormalizeProviderOptions', () => {
         extensions: ['npm:example-extension'],
         noExtensions: true,
         noSkills: false,
+        noPromptTemplates: false,
+        noThemes: false,
+        noContextFiles: false,
       },
     });
     expect(denormalizedProviderOptions).toEqual(rawProviderOptions);

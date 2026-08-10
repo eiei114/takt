@@ -327,6 +327,50 @@ describe('config traced env overrides', () => {
     });
   });
 
+  it.each([
+    {
+      envName: 'TAKT_PROVIDER_OPTIONS_PI_NO_EXTENSIONS',
+      rawKey: 'no_extensions',
+      internalKey: 'noExtensions',
+    },
+    {
+      envName: 'TAKT_PROVIDER_OPTIONS_PI_NO_SKILLS',
+      rawKey: 'no_skills',
+      internalKey: 'noSkills',
+    },
+    {
+      envName: 'TAKT_PROVIDER_OPTIONS_PI_NO_PROMPT_TEMPLATES',
+      rawKey: 'no_prompt_templates',
+      internalKey: 'noPromptTemplates',
+    },
+    {
+      envName: 'TAKT_PROVIDER_OPTIONS_PI_NO_THEMES',
+      rawKey: 'no_themes',
+      internalKey: 'noThemes',
+    },
+    {
+      envName: 'TAKT_PROVIDER_OPTIONS_PI_NO_CONTEXT_FILES',
+      rawKey: 'no_context_files',
+      internalKey: 'noContextFiles',
+    },
+  ])('project config は $envName の boolean override を反映する', ({ envName, rawKey, internalKey }) => {
+    const projectDir = join(testRoot, `project-pi-${rawKey}`);
+    const configDir = getProjectConfigDir(projectDir);
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, 'config.yaml'),
+      ['provider_options:', '  pi:', `    ${rawKey}: false`].join('\n'),
+      'utf-8',
+    );
+    process.env[envName] = 'true';
+
+    const config = loadProjectConfig(projectDir);
+
+    expect(config.providerOptions).toEqual({
+      pi: { [internalKey]: true },
+    });
+  });
+
   it('global config は provider_options.kiro.agent を読み込む', () => {
     mkdirSync(globalTaktDir, { recursive: true });
     writeFileSync(

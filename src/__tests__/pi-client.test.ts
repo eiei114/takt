@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -235,22 +235,26 @@ describe('Pi SDK client', () => {
 
   it('maps read-only permissions and native image attachments to SDK options', async () => {
     mocks.resetTransient();
-    const imagePath = path.join(tmpdir(), 'pi-client-test.png');
-    mkdirSync(path.dirname(imagePath), { recursive: true });
+    const imageDir = mkdtempSync(path.join(tmpdir(), 'pi-client-image-'));
+    const imagePath = path.join(imageDir, 'attachment.png');
     writeFileSync(imagePath, Buffer.from('image-data'));
 
-    await callPi('worker', 'inspect the image', {
-      ...sessionOptions('pi-sdk-image'),
-      permissionMode: 'readonly',
-      allowedTools: ['Read', 'Bash'],
-      imageAttachments: [{ placeholder: '[Image #1]', path: imagePath }],
-    });
+    try {
+      await callPi('worker', 'inspect the image', {
+        ...sessionOptions('pi-sdk-image'),
+        permissionMode: 'readonly',
+        allowedTools: ['Read', 'Bash'],
+        imageAttachments: [{ placeholder: '[Image #1]', path: imagePath }],
+      });
 
-    expect(mocks.createAgentSession.mock.calls.at(-1)?.[0]).not.toHaveProperty('tools');
-    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith(['read']);
-    expect(mocks.getPromptOptions()).toMatchObject({
-      images: [{ type: 'image', mimeType: 'image/png', data: Buffer.from('image-data').toString('base64') }],
-    });
+      expect(mocks.createAgentSession.mock.calls.at(-1)?.[0]).not.toHaveProperty('tools');
+      expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith(['read']);
+      expect(mocks.getPromptOptions()).toMatchObject({
+        images: [{ type: 'image', mimeType: 'image/png', data: Buffer.from('image-data').toString('base64') }],
+      });
+    } finally {
+      rmSync(imageDir, { recursive: true, force: true });
+    }
   });
 
   it('reapplies permissions when a cached session is resumed', async () => {
@@ -282,6 +286,22 @@ describe('Pi SDK client', () => {
     ]);
   });
 
+  it('reuses a session when equivalent provider options have different key order', async () => {
+    mocks.resetTransient();
+
+    await callPi('worker', 'first', {
+      ...sessionOptions('pi-sdk-stable-provider-options'),
+      providerOptions: { noSkills: true, noThemes: false },
+    });
+    await callPi('worker', 'second', {
+      ...sessionOptions('pi-sdk-stable-provider-options'),
+      providerOptions: { noThemes: false, noSkills: true },
+    });
+
+    expect(mocks.createAgentSession).toHaveBeenCalledTimes(1);
+    expect(mocks.session.dispose).not.toHaveBeenCalled();
+  });
+
   it('keeps extension tools registered and activates them only when allowed', async () => {
     mocks.resetTransient();
 
@@ -311,23 +331,26 @@ describe('Pi SDK client', () => {
     'git://user:topsecret@example.invalid/extension.git',
     '  git://user:topsecret@example.invalid/extension.git',
     'git://example.invalid/extension.git?token=topsecret',
-  ])('rejects credential-bearing extension URL %s before package resolution', async (source) => {
-    mocks.resetTransient();
+  ].map((source, index) => ({ index, source })))(
+    'rejects credential-bearing extension URL $source before package resolution',
+    async ({ index, source }) => {
+      mocks.resetTransient();
 
-    const response = await callPi('worker', 'load extension', {
-      ...sessionOptions(`pi-sdk-extension-credential-${source.length}`),
-      providerOptions: {
-        extensions: [source],
-      },
-    });
+      const response = await callPi('worker', 'load extension', {
+        ...sessionOptions(`pi-sdk-extension-credential-${index}`),
+        providerOptions: {
+          extensions: [source],
+        },
+      });
 
-    expect(response.status).toBe('error');
-    expect(response.error).not.toContain('topsecret');
-    expect(mocks.packageManager.resolveExtensionSources).not.toHaveBeenCalledWith(
-      [source],
-      expect.anything(),
-    );
-  });
+      expect(response.status).toBe('error');
+      expect(response.error).not.toContain('topsecret');
+      expect(mocks.packageManager.resolveExtensionSources).not.toHaveBeenCalledWith(
+        [source],
+        expect.anything(),
+      );
+    },
+  );
 
   it('fails closed when an explicitly configured extension resolves to no resources', async () => {
     mocks.resetTransient();
@@ -508,6 +531,35 @@ describe('Pi SDK client', () => {
 
     expect(response.status).toBe('done');
     expect(output).toEqual(['first', ' second']);
+  });
+
+  it('preserves streamed assistant text when final assistant messages have no text', async () => {
+    mocks.resetTransient();
+    mocks.session.prompt.mockImplementationOnce(async () => {
+      mocks.emit({
+        type: 'message_update',
+        assistantMessageEvent: { type: 'text_delta', delta: 'answer before tool call' },
+      });
+      mocks.emit({
+        type: 'message_end',
+        message: {
+          role: 'assistant',
+          content: [],
+          stopReason: 'stop',
+        },
+      });
+      mocks.emit({
+        type: 'agent_end',
+        messages: [{ role: 'assistant', content: [], stopReason: 'stop' }],
+      });
+    });
+
+    const response = await callPi('worker', 'stream before a tool-only message', {
+      ...sessionOptions('pi-sdk-empty-final-message'),
+    });
+
+    expect(response.status).toBe('done');
+    expect(response.content).toBe('answer before tool call');
   });
 
   it('does not reuse an assistant response from a previous turn', async () => {
