@@ -37,7 +37,7 @@ import { sanitizeSensitiveText } from '../../shared/utils/sensitiveText.js';
 import type { ProviderImageAttachment } from '../providers/types.js';
 import { validateProviderImageAttachments } from '../providers/imageAttachments.js';
 import type { PiCallOptions } from './types.js';
-import { resolvePiActiveTools } from './tool-policy.js';
+import { resolvePiActiveTools } from '../providers/pi-tool-policy.js';
 
 const PI_THINKING_LEVEL_VALUES = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 type PiThinkingLevel = (typeof PI_THINKING_LEVEL_VALUES)[number];

@@ -2,7 +2,7 @@ import type { PiCallOptions } from '../pi/types.js';
 import type { AgentResponse } from '../../core/models/index.js';
 import { createLogger } from '../../shared/utils/index.js';
 import type { AgentSetup, Provider, ProviderAgent, ProviderCallOptions } from './types.js';
-import { keepsPiToolWithoutEdit, PI_READONLY_TOOLS } from '../pi/tool-policy.js';
+import { keepsPiToolWithoutEdit, PI_READONLY_TOOLS } from './pi-tool-policy.js';
 
 const log = createLogger('pi-provider');
 

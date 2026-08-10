@@ -9,7 +9,7 @@ import {
   resolvePartAllowedToolsForProvider,
 } from '../core/workflow/engine/engine-provider-options.js';
 import { providerDefaultAllowedToolsWithoutEdit } from '../infra/providers/provider-capabilities.js';
-import { resolvePiActiveTools } from '../infra/pi/tool-policy.js';
+import { resolvePiActiveTools } from '../infra/providers/pi-tool-policy.js';
 
 describe('allowed-tool-edit-policy', () => {
   it('should export Claude edit tool names for provider policy checks', () => {
