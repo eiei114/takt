@@ -564,7 +564,7 @@ In workflow YAML, `model: null` is an explicit model omission for a normal step,
 
 **OpenCode** requires a model in `provider/model` format (e.g., `opencode/big-pickle`). Omitting the model for the OpenCode provider will result in a configuration error.
 
-**Pi** accepts `provider/model` references and bare model IDs that uniquely match a configured Pi model. A recognized `:<thinking-level>` suffix selects the Pi thinking level. If omitted, the Pi SDK-selected model is used.
+**Pi** accepts `provider/model` references and bare model IDs that uniquely match a configured Pi model. A recognized `:<thinking-level>` suffix selects the Pi thinking level. If omitted, TAKT keeps the Pi session's current model.
 
 **Cursor Agent** forwards `model` directly to `cursor-agent --model <model>`. If omitted, Cursor CLI default is used.
 
