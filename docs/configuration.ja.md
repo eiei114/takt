@@ -444,7 +444,8 @@ export TAKT_OPENAI_API_KEY=sk-...
 # OpenCode 用
 export TAKT_OPENCODE_API_KEY=...
 
-# Pi は Pi SDK の credential store または provider-native 環境変数を使用
+# Pi 用
+# Pi SDK の credential store または provider-native 環境変数を使用
 
 # Cursor Agent 用（cursor-agent login 済みなら省略可）
 export TAKT_CURSOR_API_KEY=...

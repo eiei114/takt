@@ -454,7 +454,8 @@ export TAKT_OPENAI_API_KEY=sk-...
 # For OpenCode
 export TAKT_OPENCODE_API_KEY=...
 
-# For Pi, use the Pi SDK credential store or provider-native environment variables
+# For Pi
+# Use the Pi SDK credential store or provider-native environment variables
 
 # For Cursor Agent (optional if cursor-agent login session exists)
 export TAKT_CURSOR_API_KEY=...
