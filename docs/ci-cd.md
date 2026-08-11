@@ -173,7 +173,7 @@ This approach works with any CI system that supports Node.js, including GitLab C
 
 ## Environment Variables
 
-For authentication in CI environments, configure the credentials required by the selected provider. The API key environment variables below use TAKT-specific prefixes to avoid conflicts with other tools.
+For authentication in CI environments, set the appropriate API key environment variable. These use TAKT-specific prefixes to avoid conflicts with other tools.
 
 ```bash
 # For Claude (Anthropic)

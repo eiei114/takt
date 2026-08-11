@@ -173,7 +173,7 @@ takt --pipeline --task "Fix bug" --auto-pr --repo owner/repo
 
 ## 環境変数
 
-CI 環境での認証には、選択した provider に必要な認証情報を設定してください。以下の API キー環境変数は、他のツールとの衝突を避けるため TAKT 固有のプレフィックスを使用しています。
+CI 環境での認証には、適切な API キー環境変数を設定してください。これらは他のツールとの衝突を避けるため TAKT 固有のプレフィックスを使用しています。
 
 ```bash
 # Claude（Anthropic）用
