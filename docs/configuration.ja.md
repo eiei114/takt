@@ -1013,6 +1013,30 @@ provider_options:
 
 ファイル編集の権限は引き続き `permission_mode` で制御されます。
 
+#### Pi のリソース読み込み (`extensions`, `no_*`)
+
+TAKT 実行時に Pi package / extension を読み込む、または探索する Pi リソース種別を制限するには `provider_options.pi` を使います。
+
+```yaml
+provider_options:
+  pi:
+    extensions:
+      - npm:pi-fff
+      # - git:https://github.com/example/pi-extension
+      # - /absolute/path/to/local-extension
+    no_extensions: true        # 探索を無効化。上記の明示した extension は読み込む
+    no_skills: true            # Pi Skill の探索を無効化
+    no_prompt_templates: true  # Pi prompt template の探索を無効化
+    no_themes: true            # Pi theme の探索を無効化
+    no_context_files: true     # Pi context file の探索を無効化
+```
+
+- `extensions` には npm package、Git source、local path を指定できます。
+- 明示した source は TAKT 実行時に temporary resolution され、Pi settings には永続化されません。
+- `no_extensions` は extension 探索を無効にしますが、`extensions` に列挙した source は読み込みます。
+- その他の `no_*` オプションは、それぞれ対応するリソース種別の探索を無効にします。
+- 明示した extension は TAKT process 内で実行されるため、信頼できる source だけを設定してください。
+
 <a id="workflow-categories"></a>
 
 ## Workflow カテゴリ
