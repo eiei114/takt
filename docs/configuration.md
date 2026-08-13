@@ -298,8 +298,7 @@ ignore_exceed: false          # Applies to takt run and takt watch like --ignore
 
 ```
 
-Pi SDK sessions are kept in memory for the current TAKT process. TAKT does not write Pi session JSONL files or persist `provider_options.pi.extensions` into Pi settings; explicitly requested packages use Pi's temporary resolution path.
-Implicit project-local Pi extensions are not trusted or loaded. Explicit Pi extensions execute inside the TAKT process, so only configure trusted local paths and package sources. Extension URLs containing embedded credentials or secret-bearing query parameters are rejected.
+Pi SDK sessions are kept in memory for the current TAKT process. TAKT does not write Pi session JSONL files. For `provider_options.pi` resource loading (`extensions`, `no_*`), temporary resolution, and trust boundaries, see [Pi resource loading](#pi-resource-loading).
 
 ### OpenCode execution guards
 
@@ -1019,6 +1018,8 @@ provider_options:
 
 File-edit permissions continue to be governed by `permission_mode`.
 
+<a id="pi-resource-loading"></a>
+
 #### Pi resource loading (`extensions`, `no_*`)
 
 Use `provider_options.pi` when a TAKT run should load Pi packages / extensions or restrict which Pi resource types are discovered:
@@ -1041,7 +1042,9 @@ provider_options:
 - Explicit sources are resolved temporarily for the TAKT run and are not persisted into Pi settings.
 - `no_extensions` disables extension discovery but still loads the sources listed in `extensions`.
 - The other `no_*` options disable discovery of their respective resource types.
-- Explicit extensions execute inside the TAKT process, so configure only trusted sources.
+- Implicit project-local Pi extensions are not trusted or loaded.
+- Explicit extensions execute inside the TAKT process, so configure only trusted local paths and package sources.
+- Extension URLs containing embedded credentials or secret-bearing query parameters are rejected.
 
 <a id="workflow-categories"></a>
 

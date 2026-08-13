@@ -298,8 +298,7 @@ ignore_exceed: false          # takt run / takt watch で --ignore-exceed 相当
 
 ```
 
-Pi SDK session は現在の TAKT process 内だけ memory に保持します。TAKT は Pi の session JSONL を書き込まず、`provider_options.pi.extensions` を Pi settings に永続化しません。明示した package は Pi の temporary resolution path で解決します。
-暗黙の project-local Pi extension は信頼せず、読み込みません。明示した Pi extension は TAKT process 内で実行されるため、信頼できる local path と package source だけを設定してください。認証情報を埋め込んだ URL や secret 系 query parameter を含む extension URL は拒否します。
+Pi SDK session は現在の TAKT process 内だけ memory に保持します。TAKT は Pi の session JSONL を書き込みません。`provider_options.pi` のリソース読み込み（`extensions`、`no_*`）、temporary resolution、信頼境界は [Pi のリソース読み込み](#pi-resource-loading) を参照してください。
 
 ### OpenCode 実行ガード
 
@@ -1013,6 +1012,8 @@ provider_options:
 
 ファイル編集の権限は引き続き `permission_mode` で制御されます。
 
+<a id="pi-resource-loading"></a>
+
 #### Pi のリソース読み込み (`extensions`, `no_*`)
 
 TAKT 実行時に Pi package / extension を読み込む、または探索する Pi リソース種別を制限するには `provider_options.pi` を使います。
@@ -1035,7 +1036,9 @@ provider_options:
 - 明示した source は TAKT 実行時に temporary resolution され、Pi settings には永続化されません。
 - `no_extensions` は extension 探索を無効にしますが、`extensions` に列挙した source は読み込みます。
 - その他の `no_*` オプションは、それぞれ対応するリソース種別の探索を無効にします。
-- 明示した extension は TAKT process 内で実行されるため、信頼できる source だけを設定してください。
+- 暗黙の project-local Pi extension は信頼せず、読み込みません。
+- 明示した extension は TAKT process 内で実行されるため、信頼できる local path と package source だけを設定してください。
+- 認証情報を埋め込んだ URL や secret 系 query parameter を含む extension URL は拒否します。
 
 <a id="workflow-categories"></a>
 
