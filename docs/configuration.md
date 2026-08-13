@@ -1046,6 +1046,8 @@ provider_options:
 - Explicit extensions execute inside the TAKT process, so configure only trusted local paths and package sources.
 - Extension URLs containing embedded credentials or secret-bearing query parameters are rejected.
 
+These settings follow normal provider-option leaf priority, including `TAKT_PROVIDER_OPTIONS_PI_*`.
+
 <a id="workflow-categories"></a>
 
 ## Workflow categories

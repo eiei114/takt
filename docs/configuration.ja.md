@@ -1040,6 +1040,8 @@ provider_options:
 - 明示した extension は TAKT process 内で実行されるため、信頼できる local path と package source だけを設定してください。
 - 認証情報を埋め込んだ URL や secret 系 query parameter を含む extension URL は拒否します。
 
+これらの設定は通常の provider option leaf 優先順位に従い、`TAKT_PROVIDER_OPTIONS_PI_*` でも上書きできます。
+
 <a id="workflow-categories"></a>
 
 ## Workflow カテゴリ
