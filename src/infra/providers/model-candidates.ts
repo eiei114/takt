@@ -16,6 +16,7 @@ const EXEC_MODEL_CANDIDATES: Partial<Record<ProviderType, readonly string[]>> = 
   // Pi resolves its default model from ~/.pi/agent/models.json or auth-backed builtins.
   // There is no provider-independent model name that is safe to suggest here.
   pi: [],
+  'deepseek-harness': ['deepseek-v4-flash'],
   mock: ['mock-model'],
 };
 

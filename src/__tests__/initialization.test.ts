@@ -67,6 +67,7 @@ describe('initialization', () => {
         expect.arrayContaining([
           { label: 'Claude Code terminal (experimental)', value: 'claude-terminal' },
           { label: 'Kiro CLI', value: 'kiro' },
+          { label: 'DeepSeek Harness (official Python SDK)', value: 'deepseek-harness' },
         ]),
         'claude',
       );

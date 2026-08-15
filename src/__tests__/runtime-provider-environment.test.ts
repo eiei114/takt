@@ -7,6 +7,7 @@ import {
 } from '../infra/config/runtime-provider/environment.js';
 import { collectLegacyProviderSignals } from '../infra/config/runtime-provider/legacy-signals.js';
 import type { RuntimeProviderSection } from '../infra/config/runtime-provider/schema.js';
+import type { RuntimeProviderResolutionContext } from '../infra/config/runtime-provider/resolution-context.js';
 import { resolveStepProviderModel } from '../core/workflow/provider-resolution.js';
 import { resolveDeterministicAutoRoutingProviderInfo } from '../core/workflow/auto-routing/resolver.js';
 import { selectRoutingCandidate } from '../core/workflow/auto-routing/selector.js';
@@ -23,6 +24,21 @@ import { selectRoutingCandidate } from '../core/workflow/auto-routing/selector.j
  *   or unknown key) fail fast before any agent runs.
  * - The factory selects the compiler by the discriminated union `kind`.
  */
+
+const globalRuntimeResolutionContext: RuntimeProviderResolutionContext = {
+  lang: 'en',
+  projectDir: '/project',
+  workflowDir: '/project/.takt',
+  repertoireDir: '/home/user/.takt/repertoire',
+  globalConfigDir: '/home/user/.takt',
+  projectConfigDir: '/project/.takt',
+  profileOrigins: new Map([['p', 'global']]),
+};
+
+const projectRuntimeResolutionContext: RuntimeProviderResolutionContext = {
+  ...globalRuntimeResolutionContext,
+  profileOrigins: new Map([['p', 'project']]),
+};
 
 const legacyInput: LegacyProviderEnvironmentInput = {
   provider: 'codex',
@@ -131,6 +147,63 @@ describe('compileRuntimeProviderEnvironment (profile options)', () => {
     expect(env.personaProviders).toEqual({
       coder: { provider: 'codex', model: 'persona-m', providerOptions: { codex: { reasoningEffort: 'low' } } },
     });
+  });
+
+  it('allows a DeepSeek Python executable override from a global runtime profile', () => {
+    const section: RuntimeProviderSection = {
+      defaults: { profile: 'p' },
+      profiles: {
+        p: {
+          provider: 'deepseek-harness',
+          model: 'deepseek-v4-flash',
+          options: {
+            python_path: '/opt/user-python',
+            base_url: 'https://proxy.example.test/v1',
+          },
+        },
+      },
+    };
+
+    const env = compileRuntimeProviderEnvironment(section, globalRuntimeResolutionContext);
+
+    expect(env.providerOptions).toEqual({
+      deepseekHarness: {
+        pythonPath: '/opt/user-python',
+        baseUrl: 'https://proxy.example.test/v1',
+      },
+    });
+  });
+
+  it('rejects a DeepSeek executable override from a project runtime profile', () => {
+    const section: RuntimeProviderSection = {
+      defaults: { profile: 'p' },
+      profiles: {
+        p: {
+          provider: 'deepseek-harness',
+          model: 'deepseek-v4-flash',
+          options: { python_path: '/tmp/untrusted-python' },
+        },
+      },
+    };
+
+    expect(() => compileRuntimeProviderEnvironment(section, projectRuntimeResolutionContext))
+      .toThrow('python_path');
+  });
+
+  it('rejects a non-loopback DeepSeek endpoint from a project runtime profile', () => {
+    const section: RuntimeProviderSection = {
+      defaults: { profile: 'p' },
+      profiles: {
+        p: {
+          provider: 'deepseek-harness',
+          model: 'deepseek-v4-flash',
+          options: { base_url: 'https://proxy.example.test/v1' },
+        },
+      },
+    };
+
+    expect(() => compileRuntimeProviderEnvironment(section, projectRuntimeResolutionContext))
+      .toThrow('base_url');
   });
 });
 

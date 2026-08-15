@@ -111,8 +111,9 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
     sync_conflict_resolver,
     observability,
   } = parsedConfigResult;
-  const projectBaseUrlOptions = {
+  const projectProviderOptionsPolicy = {
     baseUrlTrust: 'local-loopback-only' as const,
+    pythonPathTrust: 'local-untrusted' as const,
     getOrigin: trace.getOrigin,
   };
   const normalizedProvider = normalizeConfigProviderReference(
@@ -120,7 +121,7 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
     model as string | undefined,
     provider_options as Record<string, unknown> | undefined,
     {
-      ...projectBaseUrlOptions,
+      ...projectProviderOptionsPolicy,
       pathPrefix: 'provider_options',
     },
   );
@@ -137,7 +138,7 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
       model?: string;
       provider_options?: Record<string, unknown>;
     }> | undefined,
-    projectBaseUrlOptions,
+    projectProviderOptionsPolicy,
   );
   const normalizedProviderRouting = normalizeProviderRouting(
     provider_routing as {
@@ -145,7 +146,7 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
       tags?: Record<string, string | { type?: string; provider?: string; model?: string; provider_options?: Record<string, unknown> }>;
       steps?: Record<string, string | { type?: string; provider?: string; model?: string; provider_options?: Record<string, unknown> }>;
     } | undefined,
-    projectBaseUrlOptions,
+    projectProviderOptionsPolicy,
   );
   const analyticsConfig = normalizeAnalytics(analytics as Record<string, unknown> | undefined);
   const normalizedTaktProviders = normalizeTaktProviders(
@@ -161,7 +162,7 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
       };
     } | undefined,
     {
-      ...projectBaseUrlOptions,
+      ...projectProviderOptionsPolicy,
       pathPrefix: 'takt_providers.selector.provider_options',
     },
   );
@@ -198,7 +199,7 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
     provider: normalizedProvider.provider,
     model: normalizedProvider.model,
     providerOptions: normalizedProvider.providerOptions,
-    autoRouting: normalizeAutoRoutingConfig(auto_routing, projectBaseUrlOptions),
+    autoRouting: normalizeAutoRoutingConfig(auto_routing, projectProviderOptionsPolicy),
     rateLimitFallback: normalizeRateLimitFallback(rate_limit_fallback),
     providerProfiles: normalizeProviderProfiles(
       parsedConfigResult.provider_profiles as Record<string, {

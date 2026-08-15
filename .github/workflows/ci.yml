@@ -28,6 +28,7 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run lint
+      - run: python3 -m py_compile src/infra/deepseek-harness/bridge.py
 
   test-shard:
     name: test shard (${{ matrix.shard }}/4)

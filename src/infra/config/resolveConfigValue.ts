@@ -366,11 +366,12 @@ type TracedConfigState = {
   getOrigin(path: string): ProviderOptionsTraceOrigin;
 };
 
-type ConfigBaseUrlPath = 'codex.baseUrl' | 'claude.baseUrl';
+type ConfigBaseUrlPath = 'codex.baseUrl' | 'claude.baseUrl' | 'deepseekHarness.baseUrl';
 
 const CONFIG_BASE_URL_PATHS = [
   'codex.baseUrl',
   'claude.baseUrl',
+  'deepseekHarness.baseUrl',
 ] as const satisfies readonly ConfigBaseUrlPath[];
 
 function getConfigBaseUrl(
@@ -380,7 +381,10 @@ function getConfigBaseUrl(
   if (path === 'codex.baseUrl') {
     return providerOptions?.codex?.baseUrl;
   }
-  return providerOptions?.claude?.baseUrl;
+  if (path === 'claude.baseUrl') {
+    return providerOptions?.claude?.baseUrl;
+  }
+  return providerOptions?.deepseekHarness?.baseUrl;
 }
 
 function setConfigBaseUrl(
@@ -397,10 +401,19 @@ function setConfigBaseUrl(
       },
     };
   }
+  if (path === 'claude.baseUrl') {
+    return {
+      ...providerOptions,
+      claude: {
+        ...providerOptions?.claude,
+        baseUrl: value,
+      },
+    };
+  }
   return {
     ...providerOptions,
-    claude: {
-      ...providerOptions?.claude,
+    deepseekHarness: {
+      ...providerOptions?.deepseekHarness,
       baseUrl: value,
     },
   };
@@ -551,7 +564,11 @@ export function resolveProviderOptionsWithTrace(
   );
 
   const originResolver: ProviderOptionsOriginResolver = (path: string) => {
-    if (path === 'codex.baseUrl' || path === 'claude.baseUrl') {
+    if (
+      path === 'codex.baseUrl'
+      || path === 'claude.baseUrl'
+      || path === 'deepseekHarness.baseUrl'
+    ) {
       const origin = baseUrlOrigins[path];
       if (origin !== undefined) {
         return origin;

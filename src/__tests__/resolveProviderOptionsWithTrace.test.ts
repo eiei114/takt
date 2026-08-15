@@ -387,6 +387,8 @@ describe('resolveProviderOptionsWithTrace', () => {
         '    base_url: http://global.example.test/v1',
         '  claude:',
         '    base_url: http://global.example.test',
+        '  deepseek_harness:',
+        '    base_url: http://global.example.test/deepseek',
       ].join('\n'),
       'utf-8',
     );
@@ -401,6 +403,7 @@ describe('resolveProviderOptionsWithTrace', () => {
     );
     process.env.TAKT_PROVIDER_OPTIONS_CODEX_BASE_URL = 'http://env.example.test/v1';
     process.env.TAKT_PROVIDER_OPTIONS_CLAUDE_BASE_URL = 'http://env.example.test';
+    process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_BASE_URL = 'http://env.example.test/deepseek';
 
     const result = resolveProviderOptionsWithTrace(projectDir);
 
@@ -411,9 +414,13 @@ describe('resolveProviderOptionsWithTrace', () => {
         skills: defaultCodexSkills,
       },
       claude: { baseUrl: 'http://global.example.test', skills: defaultClaudeSkills },
+      deepseekHarness: {
+        baseUrl: 'http://global.example.test/deepseek',
+      },
     });
     expect(result.originResolver('codex.baseUrl')).toBe('global');
     expect(result.originResolver('claude.baseUrl')).toBe('global');
+    expect(result.originResolver('deepseekHarness.baseUrl')).toBe('global');
     expect(result.originResolver('codex.networkAccess')).toBe('local');
   });
 });

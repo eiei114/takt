@@ -35,8 +35,11 @@ import type {
 import type { StepProviderOptions } from '../../../core/models/workflow-types.js';
 import type { PermissionMode } from '../../../core/models/types.js';
 import type { ProviderResolutionSource } from '../../../core/workflow/provider-options-trace.js';
-import { normalizeProviderOptions } from '../providerOptions.js';
-import { mergeProviderOptions } from '../providerOptions.js';
+import {
+  mergeProviderOptions,
+  normalizeProviderOptions,
+  type NormalizeProviderOptionsOptions,
+} from '../providerOptions.js';
 import { resolveCapabilitySets } from '../loaders/capabilitySetResolver.js';
 import type { FacetResolutionContext } from '../loaders/workflowPackageScope.js';
 import {
@@ -529,7 +532,7 @@ function resolveProfileEntry(
       `runtime.yaml \`provider.profiles."${profileName}"\` is not defined or is missing \`provider\`/\`model\``,
     );
   }
-  const options = resolveProfileProviderOptions(profile, resolutionContext);
+  const options = resolveProfileProviderOptions(profileName, profile, resolutionContext);
   return {
     provider: profile.provider as ProviderType,
     model: profile.model,
@@ -548,9 +551,11 @@ const PROVIDER_OPTIONS_RAW_KEY: Partial<Record<ProviderType, string>> = {
   copilot: 'copilot',
   kiro: 'kiro',
   pi: 'pi',
+  'deepseek-harness': 'deepseek_harness',
 };
 
 function resolveProfileProviderOptions(
+  profileName: string,
   profile: FlatProfile | undefined,
   resolutionContext?: FacetResolutionContext | RuntimeProviderResolutionContext,
 ): StepProviderOptions | undefined {
@@ -578,8 +583,18 @@ function resolveProfileProviderOptions(
       `runtime.yaml profile \`options\` are not supported for provider "${profile.provider}"`,
     );
   }
+  const isTrustedGlobalProfile = resolutionContext !== undefined
+    && 'profileOrigins' in resolutionContext
+    && resolutionContext.profileOrigins?.get(profileName) === 'global';
+  const pythonPathTrust: NormalizeProviderOptionsOptions['pythonPathTrust'] = isTrustedGlobalProfile
+    ? 'trusted'
+    : 'untrusted';
+  const normalizationOptions: NormalizeProviderOptionsOptions = profile.provider === 'deepseek-harness'
+    && !isTrustedGlobalProfile
+    ? { pythonPathTrust, baseUrlTrust: 'loopback-only' }
+    : { pythonPathTrust };
   return mergeProviderOptions(
     capabilityOptions,
-    normalizeProviderOptions({ [rawKey]: profile.options }),
+    normalizeProviderOptions({ [rawKey]: profile.options }, normalizationOptions),
   );
 }
