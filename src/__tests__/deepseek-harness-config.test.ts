@@ -127,6 +127,18 @@ describe('DeepSeek Harness provider options', () => {
     })).toThrow('trusted user configuration');
   });
 
+  it('allows a user-controlled environment Cordis override through an untrusted project layer', () => {
+    expect(normalizeProviderOptions({
+      deepseek_harness: { cordis: '/opt/user-cordis.yml' },
+    }, {
+      cordisTrust: 'untrusted',
+      pathPrefix: 'provider_options',
+      getOrigin: () => 'env',
+    })).toEqual({
+      deepseekHarness: { cordis: '/opt/user-cordis.yml' },
+    });
+  });
+
   it('allows trusted environment overrides for session root and Cordis paths', () => {
     expect(normalizeProviderOptions({
       deepseek_harness: {

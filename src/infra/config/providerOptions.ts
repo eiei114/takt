@@ -274,6 +274,15 @@ function assertAllowedProviderCordis(
   if (trust === 'trusted') {
     return;
   }
+  if (trust === 'untrusted') {
+    const origin = options.getOrigin?.(path) ?? 'default';
+    // Environment overrides are user-controlled even when the surrounding
+    // project/config layer is untrusted. Repository and workflow values keep
+    // the default origin and remain rejected.
+    if (origin === 'env' || origin === 'global') {
+      return;
+    }
+  }
   if (trust === 'local-untrusted') {
     const origin = options.getOrigin?.(path) ?? 'default';
     if (origin !== 'local' && origin !== 'default') {
