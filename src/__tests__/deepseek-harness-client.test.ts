@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -8,6 +8,12 @@ import {
   callDeepSeekHarness,
   closeDeepSeekHarnessProcesses,
 } from '../infra/deepseek-harness/index.js';
+
+function isSupportedPythonVersion(version: readonly [number, number]): boolean {
+  const minimum: readonly [number, number] = [3, 10];
+  return version[0] > minimum[0]
+    || (version[0] === minimum[0] && version[1] >= minimum[1]);
+}
 
 function findPython(): string | undefined {
   const candidates = process.platform === 'win32' ? ['python'] : ['python3', 'python'];
@@ -18,7 +24,10 @@ function findPython(): string | undefined {
         stdio: ['ignore', 'pipe', 'ignore'],
       });
       const match = /\((\d+), (\d+)\)/u.exec(version);
-      if (match !== null && Number(match[1]) >= 3 && Number(match[2]) >= 10) {
+      const parsedVersion: readonly [number, number] | undefined = match === null
+        ? undefined
+        : [Number(match[1]), Number(match[2])];
+      if (parsedVersion !== undefined && isSupportedPythonVersion(parsedVersion)) {
         return candidate;
       }
     } catch {
@@ -54,7 +63,9 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness bridge lifecycle', () => {
     const moduleDir = path.join(root, 'deepseek_harness');
     await mkdir(moduleDir);
     await writeFile(path.join(moduleDir, '__init__.py'), `
+import json
 import os
+import threading
 import time
 
 class Notification:
@@ -113,17 +124,31 @@ class DeepSeekHarness:
         if input == 'unexpected-exit':
             os._exit(23)
         active_session = session_id or 'generated-session'
+        if input.startswith('capture-prompt:'):
+            with open(os.path.join(self.kwargs['cwd'], 'received-prompt.txt'), 'w', encoding='utf-8') as prompt_file:
+                prompt_file.write(input)
+        if input == 'inspect-env':
+            environment = {}
+            for name in ['DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'OPENAI_API_KEY', 'TAKT_OBSERVABILITY_ENABLED', 'HOME', 'DSH_RUNTIME_MODE']:
+                value = os.environ.get(name)
+                if value is not None:
+                    environment[name] = value
+            with open(os.path.join(self.kwargs['cwd'], 'bridge-env.json'), 'w', encoding='utf-8') as env_file:
+                json.dump(environment, env_file)
         secret = os.environ.get('DEEPSEEK_API_KEY', '')
         secret_events = input == 'secret-events'
+        tool_id = 'call-' + secret if input == 'secret-tool-id' else 'call-1'
         finish_reason = input.split(':', 1)[1] if input.startswith('reason:') else 'completed'
+        event_finish_reason = 'blocked' if input == 'mismatched-reason' else finish_reason
+        result_finish_reason = None if input == 'missing-result-reason' else finish_reason
         text = secret if secret_events else 'hello'
         tool_arguments = '{"path":"' + (secret if secret_events else 'README.md') + '"}'
         events = [
             {'type': 'assistant/chunk', 'data': {'chunk': {'type': 'reasoning-delta', 'text': secret if secret_events else 'thinking'}}},
-            {'type': 'tool/call', 'data': {'callId': 'call-1', 'name': 'read', 'arguments': tool_arguments}},
-            {'type': 'tool/result', 'data': {'message': {'source': {'callId': 'call-1'}, 'content': [{'type': 'tool-result', 'toolCallId': 'call-1', 'content': [{'type': 'text', 'text': secret if secret_events else 'file'}]}]}}},
+            {'type': 'tool/call', 'data': {'callId': tool_id, 'name': 'read', 'arguments': tool_arguments}},
+            {'type': 'tool/result', 'data': {'message': {'source': {'callId': tool_id}, 'content': [{'type': 'tool-result', 'toolCallId': tool_id, 'content': [{'type': 'text', 'text': secret if secret_events else 'file'}]}]}}},
             {'type': 'assistant/chunk', 'data': {'chunk': {'type': 'text-delta', 'text': text}}},
-            {'type': 'turn/end', 'data': {'reason': {'kind': finish_reason, **({'error': {'code': 'FAKE', 'message': 'provider failure'}} if finish_reason == 'error' else {})}}},
+            {'type': 'turn/end', 'data': {'reason': {'kind': event_finish_reason, **({'error': {'code': 'FAKE', 'message': 'provider failure'}} if event_finish_reason == 'error' else {})}}},
         ]
         if input == 'message-events':
             events = [
@@ -131,11 +156,36 @@ class DeepSeekHarness:
                 {'type': 'assistant/message', 'data': {'message': {'content': [{'type': 'text', 'text': 'second'}]}}},
                 {'type': 'turn/end', 'data': {'reason': {'kind': 'completed'}}},
             ]
+        if input == 'malformed-frame':
+            events = [
+                {'type': 'assistant/chunk', 'data': {'chunk': {'type': 'text-delta', 'text': float('nan')}}},
+            ]
+        if input == 'malformed-notification':
+            events = [
+                {'type': 'assistant/chunk', 'data': {}},
+            ]
+        if input == 'concurrent-events':
+            events = [
+                {'type': 'assistant/chunk', 'data': {'chunk': {'type': 'text-delta', 'text': str(index)}}}
+                for index in range(32)
+            ] + [{'type': 'turn/end', 'data': {'reason': {'kind': 'completed'}}}]
+        if input == 'missing-turn-end':
+            events = events[:-1]
         if on_notification is not None:
-            for event in events:
-                on_notification(Notification('session.event', {'sessionId': active_session, 'event': event}))
+            if input == 'concurrent-events':
+                threads = [threading.Thread(
+                    target=on_notification,
+                    args=(Notification('session.event', {'sessionId': active_session, 'event': event}),),
+                ) for event in events]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+            else:
+                for event in events:
+                    on_notification(Notification('session.event', {'sessionId': active_session, 'event': event}))
         final_response = 'firstsecond' if input == 'message-events' else (secret if secret_events else 'hello')
-        return Result(active_session, final_response, finish_reason)
+        return Result(active_session, final_response, result_finish_reason)
 `, 'utf8');
     pythonPath = path.join(root, 'python-wrapper.sh');
     await writeFile(pythonPath, `#!/bin/sh\nPYTHONPATH="${root}:${'${PYTHONPATH:-}'}" exec "${python}" "$@"\n`, 'utf8');
@@ -166,6 +216,10 @@ class DeepSeekHarness:
       { type: 'text', data: { text: 'hello' } },
       expect.objectContaining({ type: 'result', data: expect.objectContaining({ success: true }) }),
     ]));
+    expect(events
+      .filter((event) => event.type === 'init' || event.type === 'result')
+      .map((event) => event.data.sessionId))
+      .toEqual([response.sessionId, response.sessionId]);
   });
 
   it('preserves multiple assistant messages when the SDK omits chunk events', async () => {
@@ -230,6 +284,70 @@ class DeepSeekHarness:
     expect(persisted).toContain('[REDACTED]');
   });
 
+  it('rejects session identifiers that contain a known secret', async () => {
+    const secret = 'deepseek-session-secret-789';
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId: `session-${secret}`,
+      childProcessEnv: { DEEPSEEK_API_KEY: secret },
+      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.content).toContain('must not contain configured secret values');
+    expect(response.sessionId).toBeUndefined();
+  });
+
+  it('rejects session identifiers containing credentials embedded in the configured base URL', async () => {
+    const embeddedSecret = 'embedded-base-secret-012';
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId: `session-${embeddedSecret}`,
+      providerOptions: {
+        pythonPath,
+        baseUrl: `https://deepseek-user:${embeddedSecret}@deepseek.example/v1`,
+        requestTimeoutMs: 10_000,
+      },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.content).toContain('must not contain configured secret values');
+    expect(response.content).not.toContain(embeddedSecret);
+    expect(response.sessionId).toBeUndefined();
+  });
+
+  it('rejects encoded URL-userinfo credentials in opaque session identifiers', async () => {
+    const encodedUsername = 'embedded%40user';
+    const encodedPassword = 'embedded%2Fpassword';
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId: `session-${encodedUsername}`,
+      providerOptions: {
+        pythonPath,
+        baseUrl: `https://${encodedUsername}:${encodedPassword}@deepseek.example/v1`,
+        requestTimeoutMs: 10_000,
+      },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.content).toContain('must not contain configured secret values');
+    expect(response.content).not.toContain(encodedUsername);
+    expect(response.content).not.toContain(encodedPassword);
+  });
+
+  it('rejects tool identifiers that contain a configured secret', async () => {
+    const secret = 'deepseek-tool-secret-345';
+    const response = await callDeepSeekHarness('worker', 'secret-tool-id', {
+      cwd: root,
+      childProcessEnv: { DEEPSEEK_API_KEY: secret },
+      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.content).toContain('tool ID must not contain configured secret values');
+    expect(response.content).not.toContain(secret);
+  });
+
   it.each([
     ['blocked', 'blocked', 'blocked'],
     ['max-tokens', 'error', 'maximum token limit'],
@@ -272,8 +390,17 @@ class DeepSeekHarness:
     expect(response.content).toContain('startup failure');
   });
 
-  it('maps malformed bridge output to a stream protocol error', async () => {
+  it('keeps SDK stdout noise off the bridge protocol stream', async () => {
     const response = await callDeepSeekHarness('worker', 'malformed-json', {
+      cwd: root,
+      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+    });
+
+    expect(response).toMatchObject({ status: 'done', content: 'hello' });
+  });
+
+  it('maps malformed JSON bridge output to a stream protocol error', async () => {
+    const response = await callDeepSeekHarness('worker', 'malformed-frame', {
       cwd: root,
       providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
     });
@@ -281,6 +408,77 @@ class DeepSeekHarness:
     expect(response.status).toBe('error');
     expect(response.failureCategory).toBe('provider_stream_parse_error');
     expect(response.content).toContain('malformed JSON');
+  });
+
+  it('maps a malformed notification frame to a stream protocol error', async () => {
+    const response = await callDeepSeekHarness('worker', 'malformed-notification', {
+      cwd: root,
+      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.failureCategory).toBe('provider_stream_parse_error');
+    expect(response.content).toContain('malformed assistant chunk');
+  });
+
+  it('serializes concurrent SDK notifications without corrupting JSONL frames', async () => {
+    const response = await callDeepSeekHarness('worker', 'concurrent-events', {
+      cwd: root,
+      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+    });
+
+    expect(response).toMatchObject({ status: 'done', content: 'hello' });
+  });
+
+  it.each(['missing-turn-end', 'missing-result-reason', 'mismatched-reason'] as const)(
+    'rejects %s when the bridge result and turn end reason do not match',
+    async (input) => {
+      const response = await callDeepSeekHarness('worker', input, {
+        cwd: root,
+        providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+      });
+
+      expect(response.status).toBe('error');
+      expect(response.failureCategory).toBe('provider_stream_parse_error');
+      expect(response.content).toContain('finishReason did not match');
+    },
+  );
+
+  it('preserves credential-like and known-secret prompt text', async () => {
+    const secret = 'prompt-secret-789';
+    const prompt = `capture-prompt: preserve DEEPSEEK_API_KEY=${secret} exactly`;
+    const response = await callDeepSeekHarness('worker', prompt, {
+      cwd: root,
+      childProcessEnv: { DEEPSEEK_API_KEY: secret },
+      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+    });
+
+    expect(response.status).toBe('done');
+    expect(await readFile(path.join(root, 'received-prompt.txt'), 'utf8')).toBe(prompt);
+  });
+
+  it('isolates bridge credentials from unrelated child environment variables', async () => {
+    const response = await callDeepSeekHarness('worker', 'inspect-env', {
+      cwd: root,
+      childProcessEnv: {
+        DEEPSEEK_API_KEY: 'deepseek-env-secret',
+        DEEPSEEK_BASE_URL: 'https://deepseek.example/v1',
+        OPENAI_API_KEY: 'unrelated-secret',
+        TAKT_OBSERVABILITY_ENABLED: '1',
+        HOME: 'unrelated-home',
+        DSH_RUNTIME_MODE: 'node',
+      },
+      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+    });
+    const bridgeEnvironment = JSON.parse(await readFile(path.join(root, 'bridge-env.json'), 'utf8')) as Record<string, string | null>;
+
+    expect(response.status).toBe('done');
+    expect(bridgeEnvironment.DEEPSEEK_API_KEY).toBe('deepseek-env-secret');
+    expect(bridgeEnvironment.DEEPSEEK_BASE_URL).toBe('https://deepseek.example/v1');
+    expect(bridgeEnvironment.TAKT_OBSERVABILITY_ENABLED).toBe('1');
+    expect(Object.prototype.hasOwnProperty.call(bridgeEnvironment, 'OPENAI_API_KEY')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(bridgeEnvironment, 'HOME')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(bridgeEnvironment, 'DSH_RUNTIME_MODE')).toBe(false);
   });
 
   it('maps an SDK JSON-RPC failure to a provider error', async () => {
@@ -305,6 +503,20 @@ class DeepSeekHarness:
     expect(response.content).toMatch(/process exited|stdout closed/u);
   });
 
+  it.each(['', '.', '..', '../outside', 'nested/session', 'C:\\outside'] as const)(
+    'rejects path-like session IDs before starting the bridge: %s',
+    async (sessionId) => {
+      const response = await callDeepSeekHarness('worker', 'hello', {
+        cwd: root,
+        sessionId,
+        providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+      });
+
+      expect(response.status).toBe('error');
+      expect(response.content).toContain('path-safe identifier');
+    },
+  );
+
   it('reuses one Python bridge for repeated calls with the same session', async () => {
     const counterFile = path.join(root, 'bridge-starts.txt');
     const first = await callDeepSeekHarness('worker', 'hello', {
@@ -321,6 +533,174 @@ class DeepSeekHarness:
     expect(first).toMatchObject({ status: 'done', sessionId: 'persistent-session' });
     expect(second).toMatchObject({ status: 'done', sessionId: 'persistent-session' });
     expect((await readFile(counterFile, 'utf8')).trim().split('\n')).toEqual(['initialized']);
+  });
+
+  it('rejects a relative session root that traverses a symlink outside the project', async () => {
+    const outsideRoot = await mkdtemp(path.join(os.tmpdir(), 'takt-deepseek-harness-outside-'));
+    try {
+      const outsideSessionFile = path.join(outsideRoot, 'session.db');
+      const linkedSessionFile = path.join(root, 'session-link');
+      await writeFile(outsideSessionFile, 'outside\n', 'utf8');
+      await symlink(outsideSessionFile, linkedSessionFile, 'file');
+
+      const response = await callDeepSeekHarness('worker', 'hello', {
+        cwd: root,
+        providerOptions: {
+          pythonPath,
+          sessionRoot: 'session-link',
+          requestTimeoutMs: 10_000,
+        },
+      });
+
+      expect(response.status).toBe('error');
+      expect(response.content).toContain('session_root');
+      expect(response.content).toContain('symlinks');
+      expect(await readFile(outsideSessionFile, 'utf8')).toBe('outside\n');
+    } finally {
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a relative Cordis path that traverses a symlink outside the project', async () => {
+    const outsideRoot = await mkdtemp(path.join(os.tmpdir(), 'takt-deepseek-harness-outside-'));
+    try {
+      const outsideCordis = path.join(outsideRoot, 'cordis.yml');
+      const linkedCordis = path.join(root, 'cordis-link.yml');
+      await writeFile(outsideCordis, 'outside\n', 'utf8');
+      await symlink(outsideCordis, linkedCordis, 'file');
+
+      const response = await callDeepSeekHarness('worker', 'hello', {
+        cwd: root,
+        providerOptions: {
+          pythonPath,
+          cordis: 'cordis-link.yml',
+          requestTimeoutMs: 10_000,
+        },
+      });
+
+      expect(response.status).toBe('error');
+      expect(response.content).toContain('cordis');
+      expect(await readFile(outsideCordis, 'utf8')).toBe('outside\n');
+    } finally {
+      await rm(outsideRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('reuses a session through canonical project and session-root aliases', async () => {
+    const aliasContainer = await mkdtemp(path.join(os.tmpdir(), 'takt-deepseek-harness-alias-'));
+    try {
+      const sharedSessionFile = path.join(root, 'same-project-session.db');
+      const projectAlias = path.join(aliasContainer, 'project-alias');
+      const aliasedSessionFile = path.join(aliasContainer, 'same-project-session-alias.db');
+      await writeFile(sharedSessionFile, '', 'utf8');
+      await symlink(root, projectAlias, 'dir');
+      await symlink(sharedSessionFile, aliasedSessionFile, 'file');
+
+      const first = await callDeepSeekHarness('worker', 'hello', {
+        cwd: root,
+        sessionId: 'canonical-alias-session',
+        providerOptions: {
+          pythonPath,
+          sessionRoot: sharedSessionFile,
+          requestTimeoutMs: 10_000,
+        },
+      });
+      const second = await callDeepSeekHarness('worker', 'hello', {
+        cwd: projectAlias,
+        sessionId: 'canonical-alias-session',
+        providerOptions: {
+          pythonPath,
+          sessionRoot: aliasedSessionFile,
+          requestTimeoutMs: 10_000,
+        },
+      });
+
+      expect(first).toMatchObject({ status: 'done', sessionId: 'canonical-alias-session' });
+      expect(second).toMatchObject({ status: 'done', sessionId: 'canonical-alias-session' });
+      expect((await readFile(sharedSessionFile, 'utf8')).trim().split('\n')).toEqual(['initialized']);
+    } finally {
+      await rm(aliasContainer, { recursive: true, force: true });
+    }
+  });
+
+  it('canonicalizes session root aliases before cross-project binding checks', async () => {
+    const otherRoot = await mkdtemp(path.join(os.tmpdir(), 'takt-deepseek-harness-other-'));
+    try {
+      const sharedSessionFile = path.join(root, 'shared-session.db');
+      const aliasedSessionFile = path.join(otherRoot, 'shared-session-alias.db');
+      await writeFile(sharedSessionFile, '', 'utf8');
+      await symlink(sharedSessionFile, aliasedSessionFile, 'file');
+
+      const first = await callDeepSeekHarness('worker', 'hello', {
+        cwd: root,
+        sessionId: 'shared-root-owner',
+        providerOptions: {
+          pythonPath,
+          sessionRoot: sharedSessionFile,
+          requestTimeoutMs: 10_000,
+        },
+      });
+      const second = await callDeepSeekHarness('worker', 'hello', {
+        cwd: otherRoot,
+        sessionId: 'different-project',
+        providerOptions: {
+          pythonPath,
+          sessionRoot: aliasedSessionFile,
+          requestTimeoutMs: 10_000,
+        },
+      });
+
+      expect(first.status).toBe('done');
+      expect(second.status).toBe('error');
+      expect(second.content).toContain('different project');
+      expect((await readFile(sharedSessionFile, 'utf8')).trim().split('\n')).toEqual(['initialized']);
+    } finally {
+      await rm(otherRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects reusing a closed one-shot session root from another project', async () => {
+    const otherRoot = await mkdtemp(path.join(os.tmpdir(), 'takt-deepseek-harness-other-'));
+    try {
+      const sessionRoot = path.join(root, 'shared-one-shot-sessions');
+      const first = await callDeepSeekHarness('worker', 'hello', {
+        cwd: root,
+        providerOptions: { pythonPath, sessionRoot, requestTimeoutMs: 10_000 },
+      });
+      const second = await callDeepSeekHarness('worker', 'hello', {
+        cwd: otherRoot,
+        providerOptions: { pythonPath, sessionRoot, requestTimeoutMs: 10_000 },
+      });
+
+      expect(first.status).toBe('done');
+      expect(second.status).toBe('error');
+      expect(second.content).toContain('different project');
+    } finally {
+      await rm(otherRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects reusing a session root and session id from another project', async () => {
+    const otherRoot = await mkdtemp(path.join(os.tmpdir(), 'takt-deepseek-harness-other-'));
+    try {
+      const sessionRoot = path.join(root, 'shared-sessions.txt');
+      const first = await callDeepSeekHarness('worker', 'hello', {
+        cwd: root,
+        sessionId: 'cross-project-session',
+        providerOptions: { pythonPath, sessionRoot, requestTimeoutMs: 10_000 },
+      });
+      const second = await callDeepSeekHarness('worker', 'hello', {
+        cwd: otherRoot,
+        sessionId: 'cross-project-session',
+        providerOptions: { pythonPath, sessionRoot, requestTimeoutMs: 10_000 },
+      });
+
+      expect(first.status).toBe('done');
+      expect(second.status).toBe('error');
+      expect(second.content).toContain('different project');
+    } finally {
+      await rm(otherRoot, { recursive: true, force: true });
+    }
   });
 
   it('maps a request timeout to a bounded part-timeout failure and closes the bridge', async () => {

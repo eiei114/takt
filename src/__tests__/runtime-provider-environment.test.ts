@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   compileProviderEnvironment,
@@ -171,6 +172,53 @@ describe('compileRuntimeProviderEnvironment (profile options)', () => {
         pythonPath: '/opt/user-python',
         baseUrl: 'https://proxy.example.test/v1',
       },
+    });
+  });
+
+  it('resolves relative paths from a trusted global runtime profile before execution', () => {
+    const section: RuntimeProviderSection = {
+      defaults: { profile: 'p' },
+      profiles: {
+        p: {
+          provider: 'deepseek-harness',
+          model: 'deepseek-v4-flash',
+          options: {
+            session_root: 'deepseek-sessions',
+            cordis: 'cordis.yml',
+          },
+        },
+      },
+    };
+
+    const env = compileRuntimeProviderEnvironment(section, {
+      ...globalRuntimeResolutionContext,
+      executionDir: '/execution',
+    });
+
+    expect(env.providerOptions).toEqual({
+      deepseekHarness: {
+        sessionRoot: resolve('/execution', 'deepseek-sessions'),
+        cordis: resolve('/execution', 'cordis.yml'),
+      },
+    });
+  });
+
+  it('keeps project runtime session roots relative for the client boundary check', () => {
+    const section: RuntimeProviderSection = {
+      defaults: { profile: 'p' },
+      profiles: {
+        p: {
+          provider: 'deepseek-harness',
+          model: 'deepseek-v4-flash',
+          options: { session_root: 'deepseek-sessions' },
+        },
+      },
+    };
+
+    const env = compileRuntimeProviderEnvironment(section, projectRuntimeResolutionContext);
+
+    expect(env.providerOptions).toEqual({
+      deepseekHarness: { sessionRoot: 'deepseek-sessions' },
     });
   });
 

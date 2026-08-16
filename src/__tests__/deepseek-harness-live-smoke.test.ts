@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { callDeepSeekHarness } from '../infra/deepseek-harness/index.js';
+import { DEEPSEEK_HARNESS_DEFAULT_MODEL } from '../infra/deepseek-harness/constants.js';
 
 const liveSmokeEnabled = process.env.TAKT_DEEPSEEK_HARNESS_LIVE === '1';
 const supportedRuntime = (
@@ -22,11 +23,12 @@ describe('DeepSeek Harness live smoke', () => {
       'Reply with a short confirmation that the DeepSeek Harness workspace smoke test completed.',
       {
         cwd: process.cwd(),
-        model: 'deepseek-v4-flash',
+        model: DEEPSEEK_HARNESS_DEFAULT_MODEL,
+        providerOptions: { requestTimeoutMs: 30_000 },
       },
     );
 
     expect(response.status).toBe('done');
     expect(response.content.trim().length).toBeGreaterThan(0);
-  });
+  }, 45_000);
 });

@@ -7,11 +7,36 @@ import json
 import os
 import re
 import sys
+import threading
 from typing import Any
 
 
 _SECRET_ENV_NAMES = ("DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL")
+_PROTOCOL_STRING_FIELDS = frozenset({
+    "id",
+    "requestId",
+    "sessionId",
+    "callId",
+    "toolCallId",
+    "kind",
+    "method",
+    "type",
+    "code",
+    "finishReason",
+})
 _BRIDGE_PROTOCOL_VERSION = 1
+
+
+def _create_protocol_stdout() -> Any:
+    stdout_fd = sys.stdout.fileno()
+    protocol_fd = os.dup(stdout_fd)
+    sys.stdout.flush()
+    os.dup2(sys.stderr.fileno(), stdout_fd)
+    return os.fdopen(protocol_fd, "w", encoding="utf-8", buffering=1)
+
+
+_PROTOCOL_STDOUT = _create_protocol_stdout()
+_PROTOCOL_WRITE_LOCK = threading.Lock()
 
 
 def _redact_text(text: str) -> str:
@@ -26,14 +51,19 @@ def _redact_text(text: str) -> str:
     )
 
 
-def _redact_json(value: Any) -> Any:
+def _redact_json(value: Any, field_name: str | None = None) -> Any:
     if isinstance(value, str):
+        if field_name in _PROTOCOL_STRING_FIELDS:
+            return value
         return _redact_text(value)
     if isinstance(value, list):
         return [_redact_json(item) for item in value]
     if isinstance(value, dict):
         return {
-            _redact_text(key) if isinstance(key, str) else key: _redact_json(item)
+            _redact_text(key) if isinstance(key, str) else key: _redact_json(
+                item,
+                key if isinstance(key, str) else None,
+            )
             for key, item in value.items()
         }
     return value
@@ -45,8 +75,10 @@ def _safe_text(value: object) -> str:
 
 def _write(message: dict[str, Any]) -> None:
     safe_message = _redact_json(message)
-    sys.stdout.write(json.dumps(safe_message, ensure_ascii=False, separators=(",", ":")) + "\n")
-    sys.stdout.flush()
+    serialized = json.dumps(safe_message, ensure_ascii=False, separators=(",", ":"))
+    with _PROTOCOL_WRITE_LOCK:
+        _PROTOCOL_STDOUT.write(serialized + "\n")
+        _PROTOCOL_STDOUT.flush()
 
 
 def _error_code(error: BaseException) -> str:
@@ -72,7 +104,8 @@ def _error_message(error: BaseException) -> str:
 
 
 def _start_harness(config: dict[str, Any]) -> Any:
-    if sys.version_info < (3, 10):
+    python_version = (sys.version_info.major, sys.version_info.minor)
+    if python_version < (3, 10):
         raise RuntimeError("DeepSeek Harness requires Python 3.10 or newer")
 
     try:
@@ -134,7 +167,7 @@ def _run_request(harness: Any, request: dict[str, Any], request_id: str) -> None
             },
         }
     )
-    result = session.run(_redact_text(request["prompt"]), on_notification=on_notification)
+    result = session.run(request["prompt"], on_notification=on_notification)
     _write(
         {
             "kind": "result",

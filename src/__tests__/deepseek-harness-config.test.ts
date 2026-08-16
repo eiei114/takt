@@ -1,5 +1,10 @@
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { normalizeProviderOptions, mergeProviderOptions } from '../infra/config/providerOptions.js';
+import {
+  normalizeProviderOptions,
+  mergeProviderOptions,
+  resolveTrustedDeepSeekHarnessPaths,
+} from '../infra/config/providerOptions.js';
 import { denormalizeProviderOptions } from '../infra/config/configNormalizers.js';
 import { redactProviderOptions } from '../core/workflow/providerOptionsRedaction.js';
 import { StepProviderOptionsObjectSchema } from '../core/models/schema-base.js';
@@ -91,6 +96,85 @@ describe('DeepSeek Harness provider options', () => {
       getOrigin: () => 'env',
     })).toEqual({
       deepseekHarness: { pythonPath: '/opt/user-python' },
+    });
+  });
+
+  it('rejects absolute and traversing session roots from project or workflow config', () => {
+    for (const sessionRoot of [
+      '/tmp/shared-sessions',
+      ' /tmp/shared-sessions',
+      '../shared-sessions',
+      ' ../shared-sessions',
+      '..\\\\shared-sessions',
+      'C:\\\\shared-sessions',
+    ]) {
+      expect(() => normalizeProviderOptions({
+        deepseek_harness: { session_root: sessionRoot },
+      }, {
+        pathTrust: 'untrusted',
+        pathPrefix: 'workflow.provider_options',
+      })).toThrow('project/session boundary');
+    }
+  });
+
+  it('rejects Cordis selection from project or workflow config', () => {
+    expect(() => normalizeProviderOptions({
+      deepseek_harness: { cordis: '.takt/cordis.yml' },
+    }, {
+      pathTrust: 'untrusted',
+      cordisTrust: 'untrusted',
+      pathPrefix: 'workflow.provider_options',
+    })).toThrow('trusted user configuration');
+  });
+
+  it('allows trusted environment overrides for session root and Cordis paths', () => {
+    expect(normalizeProviderOptions({
+      deepseek_harness: {
+        session_root: '/tmp/user-deepseek-sessions',
+        cordis: '/tmp/user-cordis.yml',
+      },
+    }, {
+      pathTrust: 'local-untrusted',
+      cordisTrust: 'local-untrusted',
+      getOrigin: () => 'env',
+    })).toEqual({
+      deepseekHarness: {
+        sessionRoot: '/tmp/user-deepseek-sessions',
+        cordis: '/tmp/user-cordis.yml',
+      },
+    });
+  });
+
+  it('resolves trusted relative global and environment paths from the execution directory', () => {
+    const resolved = resolveTrustedDeepSeekHarnessPaths({
+      deepseekHarness: {
+        sessionRoot: '../shared-sessions',
+        cordis: 'config/cordis.yml',
+      },
+    }, '/project/worktree', {
+      'deepseekHarness.sessionRoot': 'global',
+      'deepseekHarness.cordis': 'env',
+    });
+
+    expect(resolved).toEqual({
+      deepseekHarness: {
+        sessionRoot: path.resolve('/project/worktree', '../shared-sessions'),
+        cordis: path.resolve('/project/worktree', 'config/cordis.yml'),
+      },
+    });
+  });
+
+  it('preserves absolute trusted global session and Cordis paths', () => {
+    expect(normalizeProviderOptions({
+      deepseek_harness: {
+        session_root: '/var/lib/takt/deepseek-sessions',
+        cordis: '/etc/takt/cordis.yml',
+      },
+    })).toEqual({
+      deepseekHarness: {
+        sessionRoot: '/var/lib/takt/deepseek-sessions',
+        cordis: '/etc/takt/cordis.yml',
+      },
     });
   });
 });

@@ -26,6 +26,7 @@ describe('DeepSeekHarnessProvider', () => {
 
     expect(provider.supportsStructuredOutput).toBe(false);
     expect(provider.supportsNativeImageInput).toBe(false);
+    expect(provider.supportsPermissionControls?.()).toBe(false);
     expect(provider.getRuntimeInstructions()).toBeNull();
   });
 
@@ -71,6 +72,23 @@ describe('DeepSeekHarnessProvider', () => {
     });
   });
 
+  it.each([
+    ['permissionMode', { permissionMode: 'readonly' as const }],
+    ['bypassPermissions', { bypassPermissions: true }],
+    ['allowedTools', { allowedTools: ['Read'] }],
+  ] as const)('returns an error before bridge invocation for unsupported %s constraints', async (_name, constraint) => {
+    mockCallDeepSeekHarness.mockClear();
+
+    const response = await new DeepSeekHarnessProvider().setup({ name: 'worker' }).call('implement', {
+      cwd: '/tmp/work',
+      ...constraint,
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.error).toContain('cannot honor');
+    expect(mockCallDeepSeekHarness).not.toHaveBeenCalled();
+  });
+
   it('warns when TAKT options have no official SDK equivalent', async () => {
     mockCallDeepSeekHarness.mockResolvedValue({
       persona: 'worker',
@@ -82,10 +100,8 @@ describe('DeepSeekHarnessProvider', () => {
 
     await new DeepSeekHarnessProvider().setup({ name: 'worker' }).call('implement', {
       cwd: '/tmp/work',
-      permissionMode: 'readonly',
       onPermissionRequest: vi.fn(),
       onAskUserQuestion: vi.fn(),
-      allowedTools: ['Read'],
       mcpServers: { docs: { command: 'node', args: ['server.js'] } },
       maxTurns: 3,
       outputSchema: { type: 'object' },
@@ -93,13 +109,7 @@ describe('DeepSeekHarnessProvider', () => {
     });
 
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      'DeepSeek Harness does not expose permission mode through the Python SDK; ignoring',
-    );
-    expect(mockLogger.warn).toHaveBeenCalledWith(
       'DeepSeek Harness does not expose TAKT permission callbacks through the Python SDK; ignoring',
-    );
-    expect(mockLogger.warn).toHaveBeenCalledWith(
-      'DeepSeek Harness owns its Cordis tool composition; ignoring allowedTools',
     );
     expect(mockLogger.warn).toHaveBeenCalledWith(
       'DeepSeek Harness does not support TAKT mcpServers; configure tools in Cordis',

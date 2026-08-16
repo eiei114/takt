@@ -173,7 +173,7 @@ This approach works with any CI system that supports Node.js, including GitLab C
 
 ## Environment Variables
 
-For authentication in CI environments, set the appropriate API key environment variable where applicable. These use TAKT-specific prefixes to avoid conflicts with other tools.
+For authentication in CI environments, set the appropriate API key environment variable where applicable. These use TAKT-specific prefixes to avoid conflicts with other tools, except where an official provider-native name is required. The official DeepSeek Harness SDK uses `DEEPSEEK_API_KEY` and `DEEPSEEK_BASE_URL`.
 
 ```bash
 # For Claude (Anthropic)
@@ -188,7 +188,7 @@ export TAKT_OPENCODE_API_KEY=...
 # For Pi
 # Use the Pi SDK credential store or provider-native environment variables
 
-# For the official DeepSeek Harness SDK (Python 3.10+)
+# For the official DeepSeek Harness SDK (Python 3.10+; official names are a prefix exception)
 export DEEPSEEK_API_KEY=...
 # Optional: export DEEPSEEK_BASE_URL=https://...
 

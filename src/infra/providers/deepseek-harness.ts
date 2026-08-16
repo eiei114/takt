@@ -19,6 +19,29 @@ async function callDeepSeekHarnessLazy(
   return callDeepSeekHarness(agentType, prompt, options);
 }
 
+function unsupportedConstraintResponse(
+  agentType: string,
+  options: ProviderCallOptions,
+): AgentResponse | undefined {
+  const constraint = options.permissionMode !== undefined || options.bypassPermissions === true
+    ? 'permission controls'
+    : options.allowedTools !== undefined
+      ? 'allowedTools'
+      : undefined;
+  if (constraint === undefined) {
+    return undefined;
+  }
+  const content = `DeepSeek Harness cannot honor ${constraint}; configure the constraint in Cordis or use a compatible provider`;
+  return {
+    persona: agentType,
+    status: 'error',
+    content,
+    error: content,
+    failureCategory: 'provider_error',
+    timestamp: new Date(),
+  };
+}
+
 function toDeepSeekHarnessOptions(
   options: ProviderCallOptions,
   systemPrompt: string | undefined,
@@ -26,14 +49,8 @@ function toDeepSeekHarnessOptions(
   if (systemPrompt !== undefined) {
     log.warn('DeepSeek Harness does not support per-run system prompts; configure system prompt in Cordis');
   }
-  if (options.permissionMode !== undefined || options.bypassPermissions !== undefined) {
-    log.warn('DeepSeek Harness does not expose permission mode through the Python SDK; ignoring');
-  }
   if (options.onPermissionRequest !== undefined || options.onAskUserQuestion !== undefined) {
     log.warn('DeepSeek Harness does not expose TAKT permission callbacks through the Python SDK; ignoring');
-  }
-  if (options.allowedTools !== undefined) {
-    log.warn('DeepSeek Harness owns its Cordis tool composition; ignoring allowedTools');
   }
   if (options.mcpServers !== undefined && Object.keys(options.mcpServers).length > 0) {
     log.warn('DeepSeek Harness does not support TAKT mcpServers; configure tools in Cordis');
@@ -68,14 +85,27 @@ export class DeepSeekHarnessProvider implements Provider {
     return null;
   }
 
+  supportsPermissionControls(): boolean {
+    return false;
+  }
+
   keepsAllowedToolWithoutEdit(_tool: string): boolean {
     return true;
   }
 
   setup(config: AgentSetup): ProviderAgent {
     return {
-      call: (prompt: string, options: ProviderCallOptions): Promise<AgentResponse> =>
-        callDeepSeekHarnessLazy(config.name, prompt, toDeepSeekHarnessOptions(options, config.systemPrompt)),
+      call: (prompt: string, options: ProviderCallOptions): Promise<AgentResponse> => {
+        const unsupported = unsupportedConstraintResponse(config.name, options);
+        if (unsupported !== undefined) {
+          return Promise.resolve(unsupported);
+        }
+        return callDeepSeekHarnessLazy(
+          config.name,
+          prompt,
+          toDeepSeekHarnessOptions(options, config.systemPrompt),
+        );
+      },
     };
   }
 }

@@ -1,6 +1,11 @@
 import * as globalConfigModule from './global/globalConfig.js';
 import { loadGlobalConfigTraceState } from './global/globalConfigCore.js';
-import { mergeProviderOptions, resolveEffectiveProviderOptions } from './providerOptions.js';
+import {
+  mergeProviderOptions,
+  resolveEffectiveProviderOptions,
+  resolveProviderOptionsSources,
+  resolveTrustedDeepSeekHarnessPaths,
+} from './providerOptions.js';
 import { loadProjectConfig, loadProjectConfigTraceState } from './project/projectConfig.js';
 import { expandOptionalHomePath } from './pathExpansion.js';
 import { resolveObservabilityConfig } from './observabilityConfig.js';
@@ -609,10 +614,18 @@ export function resolveNonWorkflowProviderOptions(
   codexSkillDefaults?: CodexSkillDefaults,
 ): StepProviderOptions | undefined {
   const resolved = resolveProviderOptionsWithTrace(projectDir, codexSkillDefaults);
-  return resolveEffectiveProviderOptions(
+  const providerOptions = resolveEffectiveProviderOptions(
     resolved.source,
     resolved.originResolver,
     resolved.value,
     callOptions,
   );
+  const providerOptionsSources = resolveProviderOptionsSources(
+    callOptions,
+    [],
+    resolved.value,
+    resolved.originResolver,
+    resolved.source,
+  );
+  return resolveTrustedDeepSeekHarnessPaths(providerOptions, projectDir, providerOptionsSources);
 }

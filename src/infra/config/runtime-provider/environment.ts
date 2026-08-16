@@ -38,6 +38,7 @@ import type { ProviderResolutionSource } from '../../../core/workflow/provider-o
 import {
   mergeProviderOptions,
   normalizeProviderOptions,
+  resolveTrustedDeepSeekHarnessPaths,
   type NormalizeProviderOptionsOptions,
 } from '../providerOptions.js';
 import { resolveCapabilitySets } from '../loaders/capabilitySetResolver.js';
@@ -591,10 +592,29 @@ function resolveProfileProviderOptions(
     : 'untrusted';
   const normalizationOptions: NormalizeProviderOptionsOptions = profile.provider === 'deepseek-harness'
     && !isTrustedGlobalProfile
-    ? { pythonPathTrust, baseUrlTrust: 'loopback-only' }
+    ? {
+        pythonPathTrust,
+        pathTrust: 'untrusted',
+        cordisTrust: 'untrusted',
+        baseUrlTrust: 'loopback-only',
+      }
     : { pythonPathTrust };
-  return mergeProviderOptions(
-    capabilityOptions,
-    normalizeProviderOptions({ [rawKey]: profile.options }, normalizationOptions),
+  const profileOptions = normalizeProviderOptions({ [rawKey]: profile.options }, normalizationOptions);
+  const mergedOptions = mergeProviderOptions(capabilityOptions, profileOptions);
+  const globalPathBaseDir = resolutionContext !== undefined
+    && 'profileOrigins' in resolutionContext
+    && resolutionContext.profileOrigins?.get(profileName) === 'global'
+    ? (resolutionContext.executionDir ?? resolutionContext.projectDir)
+    : undefined;
+  if (globalPathBaseDir === undefined) {
+    return mergedOptions;
+  }
+  return resolveTrustedDeepSeekHarnessPaths(
+    mergedOptions,
+    globalPathBaseDir,
+    {
+      'deepseekHarness.sessionRoot': 'global',
+      'deepseekHarness.cordis': 'global',
+    },
   );
 }

@@ -114,6 +114,8 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
   const projectProviderOptionsPolicy = {
     baseUrlTrust: 'local-loopback-only' as const,
     pythonPathTrust: 'local-untrusted' as const,
+    pathTrust: 'local-untrusted' as const,
+    cordisTrust: 'local-untrusted' as const,
     getOrigin: trace.getOrigin,
   };
   const normalizedProvider = normalizeConfigProviderReference(

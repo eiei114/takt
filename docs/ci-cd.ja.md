@@ -173,7 +173,7 @@ takt --pipeline --task "Fix bug" --auto-pr --repo owner/repo
 
 ## 環境変数
 
-CI 環境での認証には、該当する場合は適切な API キー環境変数を設定してください。これらは他のツールとの衝突を避けるため TAKT 固有のプレフィックスを使用しています。
+CI 環境での認証には、該当する場合は適切な API キー環境変数を設定してください。これらは他のツールとの衝突を避けるため TAKT 固有のプレフィックスを使用しますが、公式 provider が指定する名前は例外です。公式 DeepSeek Harness SDK は `DEEPSEEK_API_KEY` と `DEEPSEEK_BASE_URL` を使用します。
 
 ```bash
 # Claude（Anthropic）用
@@ -188,7 +188,7 @@ export TAKT_OPENCODE_API_KEY=...
 # Pi 用
 # Pi SDK の credential store または provider-native 環境変数を使用
 
-# 公式 DeepSeek Harness SDK 用（Python 3.10+）
+# 公式 DeepSeek Harness SDK 用（Python 3.10+。公式名のためプレフィックス規則の例外）
 export DEEPSEEK_API_KEY=...
 # 任意: export DEEPSEEK_BASE_URL=https://...
 

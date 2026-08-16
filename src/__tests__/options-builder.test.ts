@@ -835,6 +835,36 @@ describe('OptionsBuilder.buildResumeOptions', () => {
     expect(options.sessionId).toBe('session-123');
   });
 
+  it('omits unsupported read-only controls from DeepSeek Harness report phases', () => {
+    const step = createStep({ provider: 'deepseek-harness', model: 'deepseek-v4-flash' });
+    const builder = createBuilder(step);
+
+    const resumeOptions = builder.buildResumeOptions(step, 'session-123', { maxTurns: 3 });
+    const newSessionOptions = builder.buildNewSessionReportOptions(step, {
+      allowedTools: ['Read'],
+      maxTurns: 3,
+    });
+
+    expect(resumeOptions.permissionMode).toBeUndefined();
+    expect(resumeOptions.allowedTools).toBeUndefined();
+    expect(newSessionOptions.permissionMode).toBeUndefined();
+    expect(newSessionOptions.allowedTools).toBeUndefined();
+
+    const fallbackBuilder = createBuilder(
+      createStep({ provider: 'opencode', model: 'opencode/report-model' }),
+      { reportFallbackProvider: { provider: 'deepseek-harness', model: 'deepseek-v4-flash' } },
+    );
+    const fallbackOptions = fallbackBuilder.buildFallbackReportOptions(
+      createStep({ provider: 'opencode', model: 'opencode/report-model' }),
+      { cwd: '/project', resolvedProvider: 'opencode' },
+      { allowedTools: [], maxTurns: 3 },
+    );
+
+    expect(fallbackOptions).toBeDefined();
+    expect(fallbackOptions?.permissionMode).toBeUndefined();
+    expect(fallbackOptions?.allowedTools).toBeUndefined();
+  });
+
   it('report/status phase では takt-default の implement でも process safety を付与しない', () => {
     const step = createStep({ name: 'implement' });
     const builder = createBuilder(step, {

@@ -1,3 +1,4 @@
+import { resolve as resolvePath } from 'node:path';
 import type {
   ClaudeEffort,
   ClaudeTerminalProviderOptions,
@@ -19,6 +20,7 @@ import type {
 } from '../../core/workflow/provider-options-trace.js';
 import { resolveWorkflowStepTarget } from '../../core/workflow/provider-target-resolution.js';
 import type { ProviderType } from '../../shared/types/provider.js';
+import { isAbsolutePathLike } from '../../shared/utils/pathBoundary.js';
 import { providerSupportsClaudeAllowedTools } from '../providers/provider-capabilities.js';
 
 type RawProviderGuardOptions = {
@@ -105,10 +107,14 @@ type RawProviderOptions = {
 
 type ProviderBaseUrlTrust = 'trusted' | 'loopback-only' | 'local-loopback-only';
 type ProviderPythonPathTrust = 'trusted' | 'untrusted' | 'local-untrusted';
+type ProviderPathTrust = 'trusted' | 'untrusted' | 'local-untrusted';
+type ProviderCordisTrust = 'trusted' | 'untrusted' | 'local-untrusted';
 
 export interface NormalizeProviderOptionsOptions {
   baseUrlTrust?: ProviderBaseUrlTrust;
   pythonPathTrust?: ProviderPythonPathTrust;
+  pathTrust?: ProviderPathTrust;
+  cordisTrust?: ProviderCordisTrust;
   pathPrefix?: string;
   getOrigin?: (path: string) => ProviderOptionsTraceOrigin;
 }
@@ -222,6 +228,61 @@ function assertAllowedProviderPythonPath(
   throw new Error(
     `Configuration error: ${path} may only be set by trusted user configuration. `
     + 'Use global config or TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH.',
+  );
+}
+
+function hasParentPathSegment(value: string): boolean {
+  return value.split(/[\\\\/]/u).some((segment) => segment === '..');
+}
+
+function assertTrustedProjectPath(
+  path: string,
+  value: string | undefined,
+  options: NormalizeProviderOptionsOptions,
+): void {
+  if (value === undefined) {
+    return;
+  }
+  const trust = options.pathTrust ?? 'trusted';
+  if (trust === 'trusted') {
+    return;
+  }
+  if (trust === 'local-untrusted') {
+    const origin = options.getOrigin?.(path) ?? 'default';
+    if (origin !== 'local' && origin !== 'default') {
+      return;
+    }
+  }
+  const trimmed = value.trim();
+  if (!isAbsolutePathLike(trimmed) && !hasParentPathSegment(trimmed)) {
+    return;
+  }
+  throw new Error(
+    `Configuration error: ${path} must be a relative path without '..' traversal inside the project/session boundary.`,
+  );
+}
+
+function assertAllowedProviderCordis(
+  path: string,
+  value: string | undefined,
+  options: NormalizeProviderOptionsOptions,
+): void {
+  if (value === undefined) {
+    return;
+  }
+  const trust = options.cordisTrust ?? options.pathTrust ?? 'trusted';
+  if (trust === 'trusted') {
+    return;
+  }
+  if (trust === 'local-untrusted') {
+    const origin = options.getOrigin?.(path) ?? 'default';
+    if (origin !== 'local' && origin !== 'default') {
+      return;
+    }
+  }
+  throw new Error(
+    `Configuration error: ${path} may only be set by trusted user configuration. `
+    + 'Use global config or TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS.',
   );
 }
 
@@ -420,6 +481,16 @@ export function normalizeProviderOptions(
       options.deepseek_harness.python_path,
       normalizationOptions,
     );
+    assertTrustedProjectPath(
+      `${deepseekOptionsPath}.session_root`,
+      options.deepseek_harness.session_root,
+      normalizationOptions,
+    );
+    assertAllowedProviderCordis(
+      `${deepseekOptionsPath}.cordis`,
+      options.deepseek_harness.cordis,
+      normalizationOptions,
+    );
     const deepseekHarness: DeepSeekHarnessProviderOptions = {
       ...(options.deepseek_harness.python_path !== undefined
         ? { pythonPath: options.deepseek_harness.python_path }
@@ -496,6 +567,59 @@ export function normalizeProviderOptions(
   const normalized = Object.keys(result).length > 0 ? result : undefined;
   assertValidCodexProviderOptions(normalized);
   return normalized;
+}
+
+const TRUSTED_DEEPSEEK_PATH_SOURCES = new Set<ProviderResolutionSource>([
+  'env',
+  'global',
+]);
+
+function resolveTrustedDeepSeekPath(
+  value: string,
+  cwd: string,
+  source: ProviderResolutionSource | undefined,
+): string {
+  if (source === undefined || !TRUSTED_DEEPSEEK_PATH_SOURCES.has(source)) {
+    return value;
+  }
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? value : resolvePath(cwd, trimmed);
+}
+
+export function resolveTrustedDeepSeekHarnessPaths(
+  providerOptions: StepProviderOptions | undefined,
+  cwd: string,
+  providerOptionsSources: Readonly<Record<string, ProviderResolutionSource>> | undefined,
+): StepProviderOptions | undefined {
+  const deepseekHarness = providerOptions?.deepseekHarness;
+  if (deepseekHarness === undefined) {
+    return providerOptions;
+  }
+  const sessionRoot = deepseekHarness.sessionRoot === undefined
+    ? undefined
+    : resolveTrustedDeepSeekPath(
+        deepseekHarness.sessionRoot,
+        cwd,
+        providerOptionsSources?.['deepseekHarness.sessionRoot'],
+      );
+  const cordis = deepseekHarness.cordis === undefined
+    ? undefined
+    : resolveTrustedDeepSeekPath(
+        deepseekHarness.cordis,
+        cwd,
+        providerOptionsSources?.['deepseekHarness.cordis'],
+      );
+  if (sessionRoot === deepseekHarness.sessionRoot && cordis === deepseekHarness.cordis) {
+    return providerOptions;
+  }
+  return {
+    ...providerOptions,
+    deepseekHarness: {
+      ...deepseekHarness,
+      ...(sessionRoot === undefined ? {} : { sessionRoot }),
+      ...(cordis === undefined ? {} : { cordis }),
+    },
+  };
 }
 
 /** Deep merge provider options. Later sources override earlier ones. */

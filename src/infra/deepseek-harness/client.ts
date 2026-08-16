@@ -1,12 +1,13 @@
 import { createHash } from 'node:crypto';
+import { realpathSync } from 'node:fs';
 import { createInterface, type Interface } from 'node:readline';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ChildProcess } from 'node:child_process';
 import type { AgentResponse } from '../../core/models/index.js';
 import {
-  buildEnvWithNestedObservabilitySnapshot,
   getNestedObservabilityEnvFingerprint,
+  pickNestedObservabilityEnv,
 } from '../../shared/telemetry/index.js';
 import {
   classifyAbortSignalReason,
@@ -17,16 +18,21 @@ import {
   type AgentFailureDetail,
 } from '../../shared/types/agent-failure.js';
 import type { StreamCallback, StreamEvent } from '../../shared/types/provider.js';
-import { getErrorMessage, spawnManagedProcess, type ManagedProcess } from '../../shared/utils/index.js';
+import {
+  assertPathSegmentsAreSafe,
+  getErrorMessage,
+  isAbsolutePathLike,
+  spawnManagedProcess,
+  type ManagedProcess,
+} from '../../shared/utils/index.js';
 import {
   sanitizeSensitiveTextWithKnownValues,
   sanitizeSensitiveValueWithKnownValues,
   createSensitiveTextStreamRedactor,
 } from '../../shared/utils/sensitiveText.js';
 import type { DeepSeekHarnessProviderOptions } from '../../core/models/workflow-types.js';
+import { DEEPSEEK_HARNESS_DEFAULT_MODEL } from './constants.js';
 import type { DeepSeekHarnessCallOptions } from './types.js';
-
-const DEEPSEEK_HARNESS_DEFAULT_MODEL = 'deepseek-v4-flash';
 const DEEPSEEK_HARNESS_STARTUP_TIMEOUT_MS = 30_000;
 const DEEPSEEK_HARNESS_CALL_TIMEOUT_MS = 3_600_000;
 const DEEPSEEK_HARNESS_SHUTDOWN_TIMEOUT_MS = 1_000;
@@ -34,6 +40,7 @@ const DEEPSEEK_HARNESS_MAX_STDERR_BYTES = 32 * 1024;
 const DEEPSEEK_HARNESS_MAX_ERROR_BYTES = 8 * 1024;
 const DEEPSEEK_HARNESS_MAX_NODE_TIMER_MS = 2_147_483_647;
 const DEEPSEEK_HARNESS_BRIDGE_PROTOCOL_VERSION = 1;
+const DEEPSEEK_HARNESS_RUNTIME_ENV_NAMES = ['PATH'] as const;
 const DEEPSEEK_HARNESS_BRIDGE_PATH = new URL('./bridge.py', import.meta.url);
 
 interface BridgeErrorPayload {
@@ -69,7 +76,6 @@ interface HarnessRunResult {
 interface HarnessStreamState {
   initializedSessions: Set<string>;
   sawTextBySession: Set<string>;
-  sawThinkingBySession: Set<string>;
   pendingTextDeltasBySession: Set<string>;
   pendingThinkingDeltasBySession: Set<string>;
   emittedToolUses: Set<string>;
@@ -178,6 +184,87 @@ function resolveOptionalPath(value: string | undefined, cwd: string): string | u
   return path.resolve(cwd, trimmed);
 }
 
+function canonicalizePathWithMissingTail(pathValue: string): string {
+  const missingSegments: string[] = [];
+  let current = pathValue;
+  while (true) {
+    try {
+      const canonicalPath = realpathSync(current);
+      return missingSegments.reduceRight(
+        (parent, segment) => path.join(parent, segment),
+        canonicalPath,
+      );
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'ENOTDIR') {
+        throw new Error(`DeepSeek Harness path cannot be resolved: ${pathValue}`, { cause: error });
+      }
+      const parent = path.dirname(current);
+      if (parent === current) {
+        throw new Error(`DeepSeek Harness path cannot be resolved: ${pathValue}`, { cause: error });
+      }
+      missingSegments.push(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+function assertProjectPathBoundary(cwd: string, targetPath: string, optionName: 'session_root' | 'cordis'): void {
+  assertPathSegmentsAreSafe(
+    cwd,
+    targetPath,
+    (violation) => new Error(
+      `DeepSeek Harness ${optionName} must remain inside the project/session boundary `
+      + `and must not traverse symlinks (${violation})`,
+    ),
+  );
+}
+
+function assertSafeSessionId(sessionId: string | undefined): void {
+  if (sessionId === undefined) {
+    return;
+  }
+  if (
+    sessionId.length === 0
+    || sessionId === '.'
+    || sessionId === '..'
+    || [0, 10, 13].some((code) => sessionId.includes(String.fromCharCode(code)))
+    || path.isAbsolute(sessionId)
+    || path.win32.isAbsolute(sessionId)
+    || /^[A-Za-z]:/u.test(sessionId)
+    || sessionId.includes('/')
+    || sessionId.includes('\\')
+  ) {
+    throw new Error(
+      'DeepSeek Harness sessionId must be a non-empty path-safe identifier without NUL, '
+      + 'carriage-return, line-feed, or path separators',
+    );
+  }
+}
+
+function assertOpaqueProtocolIdentifier(
+  identifier: string,
+  knownSecrets: Record<string, string>,
+  description: string,
+): void {
+  if (sanitizeKnownSecrets(identifier, knownSecrets) !== identifier) {
+    throw new Error(`DeepSeek Harness ${description} must not contain configured secret values`);
+  }
+}
+
+function assertOpaqueSessionId(
+  sessionId: string | undefined,
+  knownSecrets: Record<string, string>,
+): void {
+  if (sessionId !== undefined) {
+    assertOpaqueProtocolIdentifier(sessionId, knownSecrets, 'sessionId');
+  }
+}
+
+function assertOpaqueToolId(id: string, knownSecrets: Record<string, string>): void {
+  assertOpaqueProtocolIdentifier(id, knownSecrets, 'tool ID');
+}
+
 function assertSupportedPlatform(): void {
   const supported = (
     (process.platform === 'linux' && (process.arch === 'x64' || process.arch === 'arm64'))
@@ -197,20 +284,14 @@ function resolveBridgeConfiguration(
   options: DeepSeekHarnessCallOptions,
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
 ): ResolvedBridgeConfiguration {
-  const cwd = path.resolve(options.cwd);
   const model = options.model === undefined
     ? DEEPSEEK_HARNESS_DEFAULT_MODEL
     : options.model.trim();
   if (model.length === 0) {
     throw new Error('DeepSeek Harness model must not be empty');
   }
-  if (
-    options.sessionId !== undefined
-    && (options.sessionId.length === 0
-      || [0, 10, 13].some((code) => options.sessionId?.includes(String.fromCharCode(code)) === true))
-  ) {
-    throw new Error('DeepSeek Harness sessionId must not be empty or contain NUL, carriage-return, or line-feed characters');
-  }
+  assertSafeSessionId(options.sessionId);
+  const cwd = canonicalizePathWithMissingTail(path.resolve(options.cwd));
   const maxTokens = requirePositiveSafeInteger(providerOptions?.maxTokens, 'maxTokens');
   const requestTimeoutMs = requirePositiveSafeInteger(
     providerOptions?.requestTimeoutMs,
@@ -222,8 +303,30 @@ function resolveBridgeConfiguration(
     'shutdownTimeoutMs',
     DEEPSEEK_HARNESS_MAX_NODE_TIMER_MS,
   ) ?? DEEPSEEK_HARNESS_SHUTDOWN_TIMEOUT_MS;
-  const sessionRoot = resolveOptionalPath(providerOptions?.sessionRoot, cwd);
-  const cordis = resolveOptionalPath(providerOptions?.cordis, cwd);
+  const sessionRootValue = providerOptions?.sessionRoot;
+  const resolvedSessionRoot = resolveOptionalPath(sessionRootValue, cwd);
+  if (
+    resolvedSessionRoot !== undefined
+    && sessionRootValue !== undefined
+    && !isAbsolutePathLike(sessionRootValue.trim())
+  ) {
+    assertProjectPathBoundary(cwd, resolvedSessionRoot, 'session_root');
+  }
+  const sessionRoot = resolvedSessionRoot === undefined
+    ? undefined
+    : canonicalizePathWithMissingTail(resolvedSessionRoot);
+  const cordisValue = providerOptions?.cordis;
+  const resolvedCordis = resolveOptionalPath(cordisValue, cwd);
+  if (
+    resolvedCordis !== undefined
+    && cordisValue !== undefined
+    && !isAbsolutePathLike(cordisValue.trim())
+  ) {
+    assertProjectPathBoundary(cwd, resolvedCordis, 'cordis');
+  }
+  const cordis = resolvedCordis === undefined
+    ? undefined
+    : canonicalizePathWithMissingTail(resolvedCordis);
   return {
     provider: 'deepseek-official',
     model,
@@ -236,40 +339,97 @@ function resolveBridgeConfiguration(
   };
 }
 
+function resolveUrlUserinfoSecrets(baseUrl: string | undefined): readonly string[] {
+  if (baseUrl === undefined) {
+    return [];
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch (error) {
+    throw new Error('DeepSeek Harness baseUrl must be a valid URL', { cause: error });
+  }
+  const encodedValues = [parsed.username, parsed.password].filter((value) => value.length > 0);
+  return [...new Set(encodedValues.flatMap((value) => {
+    const decoded = decodeURIComponent(value);
+    return decoded === value ? [value] : [value, decoded];
+  }))];
+}
+
+interface ConfiguredDeepSeekSecrets {
+  apiKey: string | undefined;
+  baseUrl: string | undefined;
+}
+
+function resolveConfiguredDeepSeekSecrets(
+  providerOptions: DeepSeekHarnessProviderOptions | undefined,
+  childProcessEnv: Readonly<Record<string, string>> | undefined,
+): ConfiguredDeepSeekSecrets {
+  return {
+    apiKey: childProcessEnv?.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY,
+    baseUrl: providerOptions?.baseUrl
+      ?? childProcessEnv?.DEEPSEEK_BASE_URL
+      ?? process.env.DEEPSEEK_BASE_URL,
+  };
+}
+
 function resolveKnownSecrets(
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
   childProcessEnv: Readonly<Record<string, string>> | undefined,
 ): Record<string, string> {
-  const apiKey = childProcessEnv?.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY;
-  const configuredBaseUrl = providerOptions?.baseUrl
-    ?? childProcessEnv?.DEEPSEEK_BASE_URL
-    ?? process.env.DEEPSEEK_BASE_URL;
+  const configured = resolveConfiguredDeepSeekSecrets(providerOptions, childProcessEnv);
+  const urlUserinfoSecrets = resolveUrlUserinfoSecrets(configured.baseUrl);
   return {
-    ...(apiKey === undefined ? {} : { DEEPSEEK_API_KEY: apiKey }),
-    ...(configuredBaseUrl === undefined ? {} : { DEEPSEEK_BASE_URL: configuredBaseUrl }),
+    ...(configured.apiKey === undefined ? {} : { DEEPSEEK_API_KEY: configured.apiKey }),
+    ...(configured.baseUrl === undefined ? {} : { DEEPSEEK_BASE_URL: configured.baseUrl }),
+    ...Object.fromEntries(
+      urlUserinfoSecrets.map((value, index) => [`DEEPSEEK_URL_CREDENTIAL_${index}`, value]),
+    ),
   };
+}
+
+// URL validation can fail before the process record exists; retain raw configured values so
+// reporting that failure does not throw again before the redactor can sanitize it.
+function resolveKnownSecretsForFailure(
+  providerOptions: DeepSeekHarnessProviderOptions | undefined,
+  childProcessEnv: Readonly<Record<string, string>> | undefined,
+): Record<string, string> {
+  const configured = resolveConfiguredDeepSeekSecrets(providerOptions, childProcessEnv);
+  return {
+    ...(configured.apiKey === undefined ? {} : { DEEPSEEK_API_KEY: configured.apiKey }),
+    ...(configured.baseUrl === undefined ? {} : { DEEPSEEK_BASE_URL: configured.baseUrl }),
+  };
+}
+
+function getAmbientEnvironment(): Record<string, string> {
+  const environment: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) {
+      environment[key] = value;
+    }
+  }
+  return environment;
 }
 
 function getProcessNestedObservabilityFingerprint(
   childProcessEnv: Readonly<Record<string, string>> | undefined,
 ): string {
-  if (childProcessEnv !== undefined) {
-    return getNestedObservabilityEnvFingerprint(childProcessEnv);
-  }
-  const ambientEnvironment: Record<string, string> = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) {
-      ambientEnvironment[key] = value;
-    }
-  }
-  return getNestedObservabilityEnvFingerprint(ambientEnvironment);
+  return getNestedObservabilityEnvFingerprint(childProcessEnv ?? getAmbientEnvironment());
 }
 
 function resolveProcessEnvironment(
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
   childProcessEnv: Readonly<Record<string, string>> | undefined,
 ): ProcessEnvironmentResolution {
-  const env = buildEnvWithNestedObservabilitySnapshot(process.env, childProcessEnv);
+  const env: NodeJS.ProcessEnv = {};
+  for (const name of DEEPSEEK_HARNESS_RUNTIME_ENV_NAMES) {
+    const value = childProcessEnv?.[name] ?? process.env[name];
+    if (value !== undefined) {
+      env[name] = value;
+    }
+  }
+  Object.assign(env, pickNestedObservabilityEnv(childProcessEnv ?? getAmbientEnvironment()));
+
   const apiKey = childProcessEnv?.DEEPSEEK_API_KEY ?? process.env.DEEPSEEK_API_KEY;
   const configuredBaseUrl = providerOptions?.baseUrl
     ?? childProcessEnv?.DEEPSEEK_BASE_URL
@@ -282,9 +442,6 @@ function resolveProcessEnvironment(
   }
   if (providerOptions?.runtimeMode !== undefined) {
     env.DSH_RUNTIME_MODE = providerOptions.runtimeMode;
-  } else {
-    // Do not let an ambient development override silently select the Node carrier.
-    delete env.DSH_RUNTIME_MODE;
   }
   return {
     env,
@@ -317,7 +474,13 @@ function processKey(
     .digest('hex');
   const nonSecretProviderOptions = providerOptions === undefined
     ? undefined
-    : { ...providerOptions, baseUrl: undefined };
+    : {
+        ...providerOptions,
+        baseUrl: undefined,
+        ...(providerOptions.sessionRoot === undefined
+          ? {}
+          : { sessionRoot: configuration.sessionRoot }),
+      };
   return JSON.stringify({
     configuration,
     providerOptions: stableValue(nonSecretProviderOptions),
@@ -392,9 +555,25 @@ function invokeStream(
   onStream: StreamCallback | undefined,
   event: StreamEvent,
   knownSecrets: Record<string, string>,
+  preserveValidatedField?: 'sessionId' | 'id',
 ): void {
   const sanitized = sanitizeSensitiveValueWithKnownValues(event, knownSecrets) as StreamEvent;
-  onStream?.(sanitized);
+  if (preserveValidatedField === undefined) {
+    onStream?.(sanitized);
+    return;
+  }
+  const value = (event.data as unknown as Record<string, unknown>)[preserveValidatedField];
+  if (typeof value !== 'string') {
+    onStream?.(sanitized);
+    return;
+  }
+  onStream?.({
+    ...sanitized,
+    data: {
+      ...(sanitized.data as unknown as Record<string, unknown>),
+      [preserveValidatedField]: value,
+    },
+  } as unknown as StreamEvent);
 }
 
 function eventData(event: Record<string, unknown>): Record<string, unknown> {
@@ -485,7 +664,6 @@ function normalizeHarnessEvent(
     } else if (chunkType === 'reasoning-delta') {
       const thinking = requireString(chunk.text, 'assistant reasoning delta');
       if (thinking.length > 0) {
-        state.sawThinkingBySession.add(sessionId);
         state.pendingThinkingDeltasBySession.add(sessionId);
         invokeStream(onStream, { type: 'thinking', data: { thinking } }, knownSecrets);
       }
@@ -509,27 +687,28 @@ function normalizeHarnessEvent(
       .map((block) => requireString(block.text, 'reasoning content block'))
       .join('');
     if (!hasThinkingDelta && thinking.length > 0) {
-      state.sawThinkingBySession.add(sessionId);
       invokeStream(onStream, { type: 'thinking', data: { thinking } }, knownSecrets);
     }
     for (const block of blocks) {
       if (block.type === 'tool-call') {
         const id = requireString(block.id, 'tool-call id');
+        assertOpaqueToolId(id, knownSecrets);
         const name = requireString(block.name, 'tool-call name');
         if (!state.emittedToolUses.has(id)) {
           state.emittedToolUses.add(id);
-          invokeStream(onStream, toolUseEvent(id, name, parseToolArguments(block.arguments)), knownSecrets);
+          invokeStream(onStream, toolUseEvent(id, name, parseToolArguments(block.arguments)), knownSecrets, 'id');
         }
       }
       if (block.type === 'tool-result') {
         const id = requireString(block.toolCallId, 'tool-result id');
+        assertOpaqueToolId(id, knownSecrets);
         if (!state.emittedToolResults.has(id)) {
           state.emittedToolResults.add(id);
           invokeStream(onStream, toolResultEvent(
             id,
             textFromContentBlocks(block.content),
             block.isError === true,
-          ), knownSecrets);
+          ), knownSecrets, 'id');
         }
       }
     }
@@ -539,10 +718,11 @@ function normalizeHarnessEvent(
   if (type === 'tool/call') {
     const data = eventData(event);
     const id = requireString(data.callId, 'tool-call id');
+    assertOpaqueToolId(id, knownSecrets);
     const name = requireString(data.name, 'tool-call name');
     if (!state.emittedToolUses.has(id)) {
       state.emittedToolUses.add(id);
-      invokeStream(onStream, toolUseEvent(id, name, parseToolArguments(data.arguments)), knownSecrets);
+      invokeStream(onStream, toolUseEvent(id, name, parseToolArguments(data.arguments)), knownSecrets, 'id');
     }
     return;
   }
@@ -552,6 +732,7 @@ function normalizeHarnessEvent(
     const message = requireRecord(data.message, 'tool-result message');
     const source = requireRecord(message.source, 'tool-result source');
     const id = requireString(source.callId, 'tool-result id');
+    assertOpaqueToolId(id, knownSecrets);
     if (!state.emittedToolResults.has(id)) {
       state.emittedToolResults.add(id);
       const messageBlocks = contentBlocks(message.content);
@@ -563,7 +744,7 @@ function normalizeHarnessEvent(
         id,
         resultContent,
         toolResultBlock?.isError === true || (data.error !== undefined && data.error !== null),
-      ), knownSecrets);
+      ), knownSecrets, 'id');
     }
     return;
   }
@@ -593,10 +774,12 @@ function normalizeHarnessNotification(
   }
   const payload = requireRecord(notification.payload, 'session notification payload');
   const sessionId = requireString(payload.sessionId, 'session notification sessionId');
+  assertSafeSessionId(sessionId);
+  assertOpaqueSessionId(sessionId, knownSecrets);
   if (method === 'session.started') {
     if (!state.initializedSessions.has(sessionId)) {
       state.initializedSessions.add(sessionId);
-      invokeStream(onStream, { type: 'init', data: { model, sessionId } }, knownSecrets);
+      invokeStream(onStream, { type: 'init', data: { model, sessionId } }, knownSecrets, 'sessionId');
     }
     return;
   }
@@ -1008,13 +1191,12 @@ class DeepSeekHarnessProcess {
       activityStarted = true;
       await this.start(abortSignal);
       const requestId = this.nextRequestId();
-      const safePrompt = sanitizeKnownSecrets(prompt, this.knownSecrets);
       const raw = await this.request(
         {
           type: 'run',
           protocolVersion: DEEPSEEK_HARNESS_BRIDGE_PROTOCOL_VERSION,
           id: requestId,
-          prompt: safePrompt,
+          prompt,
           ...(sessionId === undefined ? {} : { sessionId }),
         },
         (notification) => normalizeHarnessNotification(
@@ -1029,6 +1211,8 @@ class DeepSeekHarnessProcess {
       );
       const result = requireRecord(raw, 'run result') as BridgeResultPayload;
       const activeSessionId = requireString(result.sessionId, 'run result sessionId');
+      assertSafeSessionId(activeSessionId);
+      assertOpaqueSessionId(activeSessionId, this.knownSecrets);
       if (sessionId !== undefined && activeSessionId !== sessionId) {
         throw new DeepSeekHarnessProtocolError(
           'DeepSeek Harness returned a sessionId different from the requested session',
@@ -1038,7 +1222,7 @@ class DeepSeekHarnessProcess {
       const finishReason = result.finishReason === null
         ? null
         : requireString(result.finishReason, 'run result finishReason');
-      if (state.finishReason === undefined || state.finishReason !== finishReason) {
+      if (state.finishReason !== finishReason) {
         throw new DeepSeekHarnessProtocolError(
           'DeepSeek Harness run result finishReason did not match the root session turn/end event',
         );
@@ -1169,7 +1353,18 @@ async function waitForAbortable(
   });
 }
 
+interface SessionBinding {
+  identity: string;
+}
+
+interface SessionRootBinding {
+  cwd: string;
+  processes: Set<DeepSeekHarnessProcess>;
+}
+
 const processes = new Map<string, DeepSeekHarnessProcess>();
+const sessionBindings = new Map<string, SessionBinding>();
+const sessionRootBindings = new Map<string, SessionRootBinding>();
 let oneShotProcessSequence = 0;
 let exitCleanupRegistered = false;
 
@@ -1191,6 +1386,50 @@ function removeProcess(processRecord: DeepSeekHarnessProcess): void {
       processes.delete(key);
     }
   }
+  for (const binding of sessionRootBindings.values()) {
+    binding.processes.delete(processRecord);
+  }
+}
+
+function registerProcessBindings(
+  processRecord: DeepSeekHarnessProcess,
+  configuration: ResolvedBridgeConfiguration,
+  sessionId: string | undefined,
+  identity: string,
+): void {
+  if (sessionId !== undefined) {
+    const existingSession = sessionBindings.get(sessionId);
+    if (existingSession !== undefined && existingSession.identity !== identity) {
+      throw new Error(
+        'DeepSeek Harness sessionId is already bound to a different project, session root, or bridge configuration',
+      );
+    }
+  }
+
+  if (configuration.sessionRoot !== undefined) {
+    const existingRoot = sessionRootBindings.get(configuration.sessionRoot);
+    if (existingRoot !== undefined) {
+      for (const boundProcess of existingRoot.processes) {
+        if (boundProcess.isClosed) {
+          existingRoot.processes.delete(boundProcess);
+        }
+      }
+      if (existingRoot.cwd !== configuration.cwd) {
+        throw new Error(
+          'DeepSeek Harness session_root is already bound to a different project in this process',
+        );
+      }
+    }
+    const rootBinding = existingRoot ?? {
+      cwd: configuration.cwd,
+      processes: new Set<DeepSeekHarnessProcess>(),
+    };
+    rootBinding.processes.add(processRecord);
+    sessionRootBindings.set(configuration.sessionRoot, rootBinding);
+  }
+  if (sessionId !== undefined) {
+    sessionBindings.set(sessionId, { identity });
+  }
 }
 
 function getOrCreateProcess(options: DeepSeekHarnessCallOptions): DeepSeekHarnessProcess {
@@ -1198,6 +1437,7 @@ function getOrCreateProcess(options: DeepSeekHarnessCallOptions): DeepSeekHarnes
   const providerOptions = options.providerOptions;
   const configuration = resolveBridgeConfiguration(options, providerOptions);
   const environment = resolveProcessEnvironment(providerOptions, options.childProcessEnv);
+  assertOpaqueSessionId(options.sessionId, environment.knownSecrets);
   const baseKey = processKey(configuration, providerOptions, environment);
   const key = options.sessionId === undefined
     ? `${baseKey}:one-shot:${++oneShotProcessSequence}`
@@ -1208,7 +1448,7 @@ function getOrCreateProcess(options: DeepSeekHarnessCallOptions): DeepSeekHarnes
       return existing;
     }
     if (existing !== undefined) {
-      processes.delete(key);
+      removeProcess(existing);
     }
   }
   const configuredPythonPath = providerOptions?.pythonPath;
@@ -1218,6 +1458,12 @@ function getOrCreateProcess(options: DeepSeekHarnessCallOptions): DeepSeekHarnes
   }
   const processRecord = new DeepSeekHarnessProcess(configuration, pythonPath, environment);
   processes.set(key, processRecord);
+  try {
+    registerProcessBindings(processRecord, configuration, options.sessionId, baseKey);
+  } catch (error) {
+    removeProcess(processRecord);
+    throw error;
+  }
   registerExitCleanup();
   return processRecord;
 }
@@ -1247,6 +1493,7 @@ function emitFailure(
   detail: AgentFailureDetail,
   responseStatus: 'blocked' | 'error',
   knownSecrets: Record<string, string>,
+  preserveSessionId: boolean,
 ): void {
   invokeStream(onStream, { type: 'error', data: { message: content, raw: content } }, knownSecrets);
   invokeStream(onStream, {
@@ -1258,7 +1505,7 @@ function emitFailure(
       error: content,
       ...(responseStatus === 'error' ? { failureCategory: detail.category } : {}),
     },
-  }, knownSecrets);
+  }, knownSecrets, preserveSessionId ? 'sessionId' : undefined);
 }
 
 function finishReasonFailure(state: HarnessStreamState): Error {
@@ -1306,7 +1553,8 @@ function createSuccessResponse(
     );
   }
   const finalResponse = sanitizeKnownSecrets(result.finalResponse, knownSecrets);
-  const safeSessionId = sanitizeKnownSecrets(result.sessionId, knownSecrets);
+  assertSafeSessionId(result.sessionId);
+  assertOpaqueSessionId(result.sessionId, knownSecrets);
   if (finalResponse.length === 0) {
     throw new DeepSeekHarnessProtocolError('DeepSeek Harness returned no assistant text');
   }
@@ -1320,13 +1568,13 @@ function createSuccessResponse(
       success: true,
       sessionId: result.sessionId,
     },
-  }, knownSecrets);
+  }, knownSecrets, 'sessionId');
   return {
     persona: agentType,
     status: 'done',
     content: finalResponse,
     timestamp: new Date(),
-    sessionId: safeSessionId,
+    sessionId: result.sessionId,
   };
 }
 
@@ -1342,7 +1590,6 @@ export async function callDeepSeekHarness(
     const state: HarnessStreamState = {
       initializedSessions: new Set(),
       sawTextBySession: new Set(),
-      sawThinkingBySession: new Set(),
       pendingTextDeltasBySession: new Set(),
       pendingThinkingDeltasBySession: new Set(),
       emittedToolUses: new Set(),
@@ -1369,13 +1616,22 @@ export async function callDeepSeekHarness(
     return response;
   } catch (error) {
     const knownSecrets = processRecord?.knownSecrets
-      ?? resolveKnownSecrets(options.providerOptions, options.childProcessEnv);
+      ?? resolveKnownSecretsForFailure(options.providerOptions, options.childProcessEnv);
     const detail = failureDetail(error, options, knownSecrets);
     const content = formatAgentFailure(detail);
     const responseStatus = error instanceof DeepSeekHarnessTurnEndError
       ? error.responseStatus
       : 'error';
-    emitFailure(options.onStream, content, requestedSessionId, detail, responseStatus, knownSecrets);
+    const preserveRequestedSessionId = processRecord !== undefined && requestedSessionId !== undefined;
+    emitFailure(
+      options.onStream,
+      content,
+      requestedSessionId,
+      detail,
+      responseStatus,
+      knownSecrets,
+      preserveRequestedSessionId,
+    );
     if (requestedSessionId === undefined && processRecord !== undefined) {
       await processRecord.close();
       removeProcess(processRecord);
@@ -1395,9 +1651,7 @@ export async function callDeepSeekHarness(
       error: content,
       ...(responseStatus === 'error' ? { failureCategory: detail.category } : {}),
       timestamp: new Date(),
-      sessionId: requestedSessionId === undefined
-        ? undefined
-        : sanitizeKnownSecrets(requestedSessionId, knownSecrets),
+      sessionId: preserveRequestedSessionId ? requestedSessionId : undefined,
     };
   }
 }
@@ -1405,5 +1659,7 @@ export async function callDeepSeekHarness(
 export async function closeDeepSeekHarnessProcesses(): Promise<void> {
   const active = [...processes.values()];
   processes.clear();
+  sessionBindings.clear();
+  sessionRootBindings.clear();
   await Promise.all(active.map((processRecord) => processRecord.close()));
 }
