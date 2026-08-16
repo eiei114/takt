@@ -34,6 +34,7 @@ import type {
 } from '../../../core/models/config-types.js';
 import type { StepProviderOptions } from '../../../core/models/workflow-types.js';
 import type { PermissionMode } from '../../../core/models/types.js';
+import { StepProviderOptionsObjectSchema } from '../../../core/models/schema-base.js';
 import type { ProviderResolutionSource } from '../../../core/workflow/provider-options-trace.js';
 import {
   mergeProviderOptions,
@@ -584,27 +585,31 @@ function resolveProfileProviderOptions(
       `runtime.yaml profile \`options\` are not supported for provider "${profile.provider}"`,
     );
   }
-  const isTrustedGlobalProfile = resolutionContext !== undefined
+  const runtimeResolutionContext = resolutionContext !== undefined
     && 'profileOrigins' in resolutionContext
-    && resolutionContext.profileOrigins?.get(profileName) === 'global';
+    ? resolutionContext
+    : undefined;
+  const isTrustedGlobalProfile = runtimeResolutionContext?.profileOrigins?.get(profileName) === 'global';
   const pythonPathTrust: NormalizeProviderOptionsOptions['pythonPathTrust'] = isTrustedGlobalProfile
     ? 'trusted'
     : 'untrusted';
-  const normalizationOptions: NormalizeProviderOptionsOptions = profile.provider === 'deepseek-harness'
-    && !isTrustedGlobalProfile
+  const normalizationOptions: NormalizeProviderOptionsOptions = !isTrustedGlobalProfile
     ? {
         pythonPathTrust,
-        pathTrust: 'untrusted',
-        cordisTrust: 'untrusted',
         baseUrlTrust: 'loopback-only',
+        ...(profile.provider === 'deepseek-harness'
+          ? {
+              pathTrust: 'untrusted' as const,
+              cordisTrust: 'untrusted' as const,
+            }
+          : {}),
       }
     : { pythonPathTrust };
-  const profileOptions = normalizeProviderOptions({ [rawKey]: profile.options }, normalizationOptions);
+  const validatedProfileOptions = StepProviderOptionsObjectSchema.parse({ [rawKey]: profile.options });
+  const profileOptions = normalizeProviderOptions(validatedProfileOptions, normalizationOptions);
   const mergedOptions = mergeProviderOptions(capabilityOptions, profileOptions);
-  const globalPathBaseDir = resolutionContext !== undefined
-    && 'profileOrigins' in resolutionContext
-    && resolutionContext.profileOrigins?.get(profileName) === 'global'
-    ? (resolutionContext.executionDir ?? resolutionContext.projectDir)
+  const globalPathBaseDir = isTrustedGlobalProfile
+    ? (runtimeResolutionContext?.executionDir ?? runtimeResolutionContext?.projectDir)
     : undefined;
   if (globalPathBaseDir === undefined) {
     return mergedOptions;

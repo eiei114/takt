@@ -115,7 +115,10 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
     baseUrlTrust: 'local-loopback-only' as const,
     pythonPathTrust: 'local-untrusted' as const,
     pathTrust: 'local-untrusted' as const,
-    cordisTrust: 'local-untrusted' as const,
+    // Cordis selects executable tool composition and is therefore never
+    // accepted from repository/project configuration. Keep it restricted to
+    // trusted global or explicit environment configuration.
+    cordisTrust: 'untrusted' as const,
     getOrigin: trace.getOrigin,
   };
   const normalizedProvider = normalizeConfigProviderReference(

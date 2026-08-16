@@ -514,6 +514,8 @@ export class OptionsBuilder {
       workflowBundleResourceRoot: baseOptions.workflowBundleResourceRoot,
       resolvedProvider: baseOptions.resolvedProvider,
       resolvedModel: baseOptions.resolvedModel,
+      permissionMode: baseOptions.permissionMode,
+      permissionResolution: baseOptions.permissionResolution,
       providerOptions: baseOptions.providerOptions,
       resolvedProviderOptions: baseOptions.resolvedProviderOptions,
       language: baseOptions.language,
@@ -626,12 +628,22 @@ export class OptionsBuilder {
     step: WorkflowStep,
     allowedTools: string[] | undefined,
     runtime?: RuntimeStepResolution,
-  ): Pick<RunAgentOptions, 'permissionMode' | 'allowedTools'> {
+  ): Pick<RunAgentOptions, 'permissionMode' | 'permissionResolution' | 'allowedTools'> {
     const { provider: resolvedProvider } = this.resolveStepProviderModel(step, runtime);
     const supportsPermissionControls = providerSupportsPermissionControls(resolvedProvider);
-    return supportsPermissionControls === false
-      ? {}
-      : { permissionMode: 'readonly' as const, allowedTools };
+    if (supportsPermissionControls === false) {
+      // Empty tools are the synthetic report-phase default. Preserve a
+      // non-empty caller constraint so unsupported providers can reject it at
+      // their boundary instead of silently running without the constraint.
+      return allowedTools !== undefined && allowedTools.length > 0
+        ? { allowedTools }
+        : {};
+    }
+    return {
+      permissionMode: 'readonly' as const,
+      permissionResolution: undefined,
+      allowedTools,
+    };
   }
 
   /**

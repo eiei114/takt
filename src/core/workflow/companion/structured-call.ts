@@ -75,7 +75,7 @@ export class CompanionStructuredCaller {
         provider: request.provider.provider,
         model: request.provider.model,
         providerOptions: request.provider.providerOptions,
-        permissionMode: 'readonly',
+        permissionMode: request.provider.permissionMode ?? 'readonly',
       },
       abortSignal: signal,
       validateResponse: request.validateResponse,
@@ -120,7 +120,7 @@ export class CompanionStructuredCaller {
               provider: options.resolution.provider,
               model: options.resolution.model,
               providerOptions: options.resolution.providerOptions,
-              permissionMode: 'readonly',
+              permissionMode: request.provider.permissionMode ?? 'readonly',
               permissionModeSource: request.provider.permissionMode === undefined ? 'synthetic' : 'explicit',
             },
           });

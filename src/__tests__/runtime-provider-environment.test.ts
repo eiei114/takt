@@ -253,6 +253,42 @@ describe('compileRuntimeProviderEnvironment (profile options)', () => {
     expect(() => compileRuntimeProviderEnvironment(section, projectRuntimeResolutionContext))
       .toThrow('base_url');
   });
+
+  it.each(['codex', 'claude'] as const)('rejects a non-loopback %s endpoint from a project runtime profile', (provider) => {
+    const section: RuntimeProviderSection = {
+      defaults: { profile: 'p' },
+      profiles: {
+        p: {
+          provider,
+          model: 'runtime-model',
+          options: { base_url: 'https://proxy.example.test/v1' },
+        },
+      },
+    };
+
+    expect(() => compileRuntimeProviderEnvironment(section, projectRuntimeResolutionContext))
+      .toThrow('base_url');
+  });
+
+  it.each([
+    { runtime_mode: 'invalid' },
+    { request_timeout_ms: 'slow' },
+    { unknown_option: true },
+  ])('rejects an invalid DeepSeek runtime profile option before normalization', (options) => {
+    const section: RuntimeProviderSection = {
+      defaults: { profile: 'p' },
+      profiles: {
+        p: {
+          provider: 'deepseek-harness',
+          model: 'deepseek-v4-flash',
+          options,
+        },
+      },
+    };
+
+    expect(() => compileRuntimeProviderEnvironment(section, projectRuntimeResolutionContext))
+      .toThrow();
+  });
 });
 
 describe('compileRuntimeProviderEnvironment (auto routing)', () => {

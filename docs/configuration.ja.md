@@ -286,10 +286,10 @@ ignore_exceed: false          # takt run / takt watch で --ignore-exceed 相当
 #     extensions: [npm:pi-fff]
 #     no_skills: true
 #   deepseek_harness:
-#     python_path: /usr/bin/python3
+#     # python_path と cordis は trusted global / env 専用。project config
+#     # では既定の python3 を使い、Cordis の実行設定は選択できません。
 #     base_url: http://127.0.0.1:8787/v1
 #     session_root: .takt/deepseek-sessions
-#     cordis: .takt/cordis.yml
 #     max_tokens: 4096
 #     request_timeout_ms: 3600000
 #     shutdown_timeout_ms: 1000
@@ -967,17 +967,15 @@ provider: deepseek-harness
 model: deepseek-v4-flash
 provider_options:
   deepseek_harness:
-    python_path: /usr/bin/python3       # デフォルト: python3
     base_url: http://127.0.0.1:8787/v1  # 任意。project/workflow config では loopback
     session_root: .takt/deepseek-sessions
-    cordis: .takt/cordis.yml
     max_tokens: 4096
     request_timeout_ms: 3600000
     shutdown_timeout_ms: 1000
     runtime_mode: exe                  # exe または node
 ```
 
-credential safety のため、`python_path` は信頼できる global config または `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH` からのみ設定できます。workflow と project-local provider options では既定の `python3` executable を使用してください。同じ制約は project の `runtime.yaml` profile にも適用されます。global runtime profile では信頼できる executable を選択できます。project runtime profile の `base_url` は loopback のみ使用できます。
+credential safety のため、`python_path` は信頼できる global config または `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH` からのみ設定できます。workflow と project-local provider options では既定の `python3` executable を使用してください。`cordis` も実行する tool composition を選択するため、信頼できる global config または `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS` からのみ設定できます。上の例では両方の項目を意図的に省略しています。同じ制約は project の `runtime.yaml` profile にも適用されます。global runtime profile では信頼できる値を選択できます。project runtime profile の `base_url` は loopback のみ使用できます。
 
 `session_root` と `cordis` は設定された作業ディレクトリからの相対パスとして解決されます。workflow が `session_key` を指定するとセッションを再利用し、one-shot call は bridge を直ちに close します。`request_timeout_ms` は Python bridge request 全体を終了させ、TAKT call の abort は bridge の process tree を終了させます。公式 `session.event` notification は TAKT の text、thinking、tool-use、tool-result、error、result event へ変換されます。system prompt、TAKT の `allowed_tools`、MCP server map、画像添付、structured output、permission mode、`maxTurns` は公式 SDK の call に存在しないため warning とともに無視されます。system/tool composition は Cordis で設定してください。
 

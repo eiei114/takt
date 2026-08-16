@@ -180,7 +180,7 @@ export class DynamicFacetSelectorCoordinator {
             provider: selectorProvider.provider,
             model: selectorProvider.model,
             providerOptions: selectorProvider.providerOptions ?? {},
-            permissionMode: 'readonly',
+            permissionMode: selectorProvider.permissionMode ?? 'readonly',
             permissionModeSource: selectorProvider.permissionMode === undefined ? 'synthetic' : 'explicit',
           },
         },

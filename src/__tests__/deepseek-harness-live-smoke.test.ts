@@ -1,3 +1,6 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { callDeepSeekHarness } from '../infra/deepseek-harness/index.js';
 import { DEEPSEEK_HARNESS_DEFAULT_MODEL } from '../infra/deepseek-harness/constants.js';
@@ -18,17 +21,22 @@ describe('DeepSeek Harness live smoke', () => {
       throw new Error('DEEPSEEK_API_KEY must be set for the DeepSeek Harness live smoke');
     }
 
-    const response = await callDeepSeekHarness(
-      'live-smoke',
-      'Reply with a short confirmation that the DeepSeek Harness workspace smoke test completed.',
-      {
-        cwd: process.cwd(),
-        model: DEEPSEEK_HARNESS_DEFAULT_MODEL,
-        providerOptions: { requestTimeoutMs: 30_000 },
-      },
-    );
+    const workspace = await mkdtemp(path.join(os.tmpdir(), 'takt-deepseek-live-smoke-'));
+    try {
+      const response = await callDeepSeekHarness(
+        'live-smoke',
+        'Reply with a short confirmation that the DeepSeek Harness workspace smoke test completed.',
+        {
+          cwd: workspace,
+          model: DEEPSEEK_HARNESS_DEFAULT_MODEL,
+          providerOptions: { requestTimeoutMs: 30_000 },
+        },
+      );
 
-    expect(response.status).toBe('done');
-    expect(response.content.trim().length).toBeGreaterThan(0);
+      expect(response.status).toBe('done');
+      expect(response.content.trim().length).toBeGreaterThan(0);
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
   }, 45_000);
 });

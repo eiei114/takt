@@ -217,6 +217,7 @@ def _handle_request(harness: Any, request: dict[str, Any]) -> Any:
                 }
             )
             if code in {"transport-closed", "malformed-response"}:
+                _close_harness(harness)
                 return None
         return harness
 

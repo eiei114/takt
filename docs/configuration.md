@@ -286,10 +286,10 @@ ignore_exceed: false          # Applies to takt run and takt watch like --ignore
 #     extensions: [npm:pi-fff]
 #     no_skills: true
 #   deepseek_harness:
-#     python_path: /usr/bin/python3
+#     # python_path and cordis are trusted-global/env-only; project config
+#     # uses the default python3 and cannot select a Cordis executable config.
 #     base_url: http://127.0.0.1:8787/v1
 #     session_root: .takt/deepseek-sessions
-#     cordis: .takt/cordis.yml
 #     max_tokens: 4096
 #     request_timeout_ms: 3600000
 #     shutdown_timeout_ms: 1000
@@ -1010,17 +1010,15 @@ provider: deepseek-harness
 model: deepseek-v4-flash
 provider_options:
   deepseek_harness:
-    python_path: /usr/bin/python3       # default: python3
     base_url: http://127.0.0.1:8787/v1  # optional; loopback in project/workflow config
     session_root: .takt/deepseek-sessions
-    cordis: .takt/cordis.yml
     max_tokens: 4096
     request_timeout_ms: 3600000
     shutdown_timeout_ms: 1000
     runtime_mode: exe                  # exe or node; node is for explicit SDK development mode
 ```
 
-For credential safety, `python_path` is accepted only from trusted global configuration or `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH`; workflow and project-local provider options must use the default `python3` executable. The same restriction applies to project `runtime.yaml` profiles; global runtime profiles may select a trusted executable. Project runtime profiles may use only loopback `base_url` values.
+For credential safety, `python_path` is accepted only from trusted global configuration or `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH`; workflow and project-local provider options must use the default `python3` executable. `cordis` is also accepted only from trusted global configuration or `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS`, because it selects executable tool composition. The example above intentionally omits both fields. The same restrictions apply to project `runtime.yaml` profiles; global runtime profiles may select trusted values. Project runtime profiles may use only loopback `base_url` values.
 
 `session_root` and `cordis` are resolved relative to the configured working directory. Sessions are reused when a workflow supplies `session_key`; one-shot calls close the bridge immediately. `request_timeout_ms` terminates the complete Python bridge request, and aborting a TAKT call terminates the bridge process tree. Stream events are converted from official `session.event` notifications into TAKT text, thinking, tool-use, tool-result, error, and result events. System prompts, TAKT `allowed_tools`, MCP server maps, image attachments, structured output, permission modes, and `maxTurns` are not part of the official SDK call and are ignored with a warning; configure system/tool composition through Cordis instead.
 
