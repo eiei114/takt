@@ -69,7 +69,6 @@ steps:
     tags: [implementation, edit]     # provider routing tag（可选）
     policy: coding                   # policy key（单值或数组）
     knowledge: architecture          # knowledge key（单值或数组）
-    instruction: implement           # instruction key（引用 instructions map）
     edit: true                       # step 是否可以编辑文件
     required_permission_mode: edit   # 最低权限：readonly、edit 或 full
     capabilities: edit               # 可选 capability preset
@@ -355,7 +354,7 @@ steps:
     knowledge: architecture
     dynamic_facets:
       pool: fix
-      max_selected: 4
+      max_selected: 3
     instruction: fix
     edit: true
     rules:

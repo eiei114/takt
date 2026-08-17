@@ -442,6 +442,8 @@ Separately from config-key overrides, `TAKT_NOTIFY_WEBHOOK` sets a Slack Incomin
 
 TAKT supports Claude, Codex, OpenCode, Pi, the official DeepSeek Harness SDK, Cursor, Copilot, and Kiro providers. Claude/Codex/OpenCode use their SDK credentials, Pi uses the Pi SDK credential store or provider environment variables, DeepSeek Harness uses the official `DEEPSEEK_API_KEY` environment variable, Kiro uses an API key, Cursor can use either API key or existing `cursor-agent login` session, and Copilot uses a GitHub token.
 
+The global configuration schema also retains API-key fields for some legacy or provider integrations that are not currently selectable as top-level providers. These fields do not activate a provider by themselves; use the authentication variables and keys documented for the selected provider below.
+
 ### Environment Variables (Recommended)
 
 ```bash
