@@ -1,6 +1,6 @@
 # 設定
 
-[English](./configuration.md)
+[English](./configuration.md) | [日本語](./configuration.ja.md) | [简体中文](./configuration.zh-CN.md)
 
 このドキュメントは TAKT の全設定オプションのリファレンスです。クイックスタートについては [README](../README.md) を参照してください。
 phase 粒度の usage events と集計方法は [Observability Guide](./observability.ja.md) を参照してください。

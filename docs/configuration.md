@@ -1,6 +1,6 @@
 # Configuration
 
-[日本語](./configuration.ja.md)
+[English](./configuration.md) | [日本語](./configuration.ja.md) | [简体中文](./configuration.zh-CN.md)
 
 This document is a reference for all TAKT configuration options. For a quick start, see the main [README](../README.md).
 For phase-level usage events and analysis, see the [Observability Guide](./observability.md).
