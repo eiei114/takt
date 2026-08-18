@@ -307,7 +307,7 @@ ignore_exceed: false          # 对 takt run 和 takt watch 应用 --ignore-exce
 #       ai_review: readonly
 ```
 
-项目配置在同时设置时覆盖全局配置。项目 schema 是严格的：`logging`、`disabled_builtins`、`enable_builtin_workflows`、通知设置、API key 和 CLI 路径等全局专属 key 写入 `.takt/config.yaml` 会在启动时触发配置验证错误。
+项目配置在同时设置时覆盖全局配置。项目 schema 是严格的：`logging`、`disabled_builtins`、`enable_builtin_workflows`、通知设置、API key 和 CLI 路径等全局专属 key 写入 `.takt/config.yaml` 会在启动时触发配置验证错误。Provider credential 应通过环境变量或全局 `~/.takt/config.yaml` 配置。
 
 ### Pi provider session 边界
 
@@ -334,13 +334,13 @@ steps:
 
 ### Provider inactivity deadline 与 OpenCode execution guard
 
-所有 provider 都使用 `guards.call_timeout_ms` 作为没有可观察 provider event 时允许的最长时间。每个 stream/tool event、阶段完成和新的 provider attempt 都会重置计时器；累计执行时间没有上限。它适用于 `codex`、`opencode`、`claude`（包括 `claude-sdk`）、`claude_terminal`、`cursor`、`copilot`、`kiro` 和 `pi`。取值是 60,000 到 86,400,000 之间的整数毫秒，默认 3,600,000 ms（60 分钟）。`claude_terminal.timeout_ms` 为兼容性保留，仅在未设置 `guards.call_timeout_ms` 时使用。
+所有 provider 都使用 `guards.call_timeout_ms` 作为没有可观察 provider event 时允许的最长时间。每个 stream/tool event、阶段完成和新的 provider attempt 都会重置计时器；累计执行时间没有上限。它适用于 `codex`、`opencode`、`claude`（包括 `claude-sdk`）、`claude_terminal`、`cursor`、`copilot`、`kiro` 和 `pi`。取值是 60,000 到 86,400,000 之间的整数毫秒，默认 3,600,000 ms（60 分钟）。通常的 `provider_options` profile 解析路径会将该值应用到 engine 的 parent-step deadline，并向所有 provider 传递同一个 `AbortSignal`。`claude_terminal.timeout_ms` 为兼容性保留，仅在未设置 `guards.call_timeout_ms` 时使用。
 
 `provider_options.opencode.guards.profile` 默认是 `standard`。`minimal` 只关闭启发式循环检测；时间、资源上限、完整性和严格修正 guard 仍然强制启用。`model_profiles` 按解析出的 model 字符串以声明顺序选择 profile，唯一通配符是 `*`。guard leaf 在 provider-option 层之间独立合并；较高优先级的 `model_profiles` 值会替换较低优先级的完整 map。
 
 每次 OpenCode 调用都有 3,600,000 ms 的 provider-event 不活跃上限。只要持续收到 event，健康调用可以超过该时间。`event_limit` 默认 500,000，可由 `TAKT_OPENCODE_STREAM_EVENT_LIMIT` 覆盖；`text_byte_limit` 默认 1 MiB，`reasoning_byte_limit` 默认 4 MiB。
 
-TAKT 观察实际收到的 provider event，不会合成 keepalive。OpenCode 从 tool-start event 到终止 event 的期间视为 in-flight，并暂停普通不活跃检查；若终止 event 缺失或完全挂起，in-flight 状态在 `call_timeout_ms` 的六倍后过期并以 `PART_TIMEOUT` 结束。`guards.*` 下的无效数值会快速失败；实验性 `TAKT_OPENCODE_*` 覆盖中的无效值会忽略并使用默认值。旧的 `TAKT_OPENCODE_TOOL_ERROR_BUDGET`、`TAKT_OPENCODE_TOOL_SIGNATURE_ABSOLUTE`、`TAKT_OPENCODE_TOOL_SIGNATURE_REPEATS`、`TAKT_OPENCODE_TOOL_SUCCESS_REPEATS` 和 `TAKT_OPENCODE_TOOL_RESULT_STAGNATION_REPEATS` 不再控制 guard，会被忽略并发出一次性警告。
+TAKT 观察实际收到的 provider event，不会合成 keepalive。OpenCode 从 tool-start event 到终止 event 的期间视为 in-flight，并暂停普通不活跃检查；若终止 event 缺失或完全挂起，in-flight 状态在 `call_timeout_ms` 的六倍后过期并以 `PART_TIMEOUT` 结束。`guards.*` 下的无效数值（包括通过 `TAKT_PROVIDER_OPTIONS_*` 设置的值）属于声明式配置，如果不是有效的正整数则会快速失败并报错；实验性 `TAKT_OPENCODE_*` 覆盖中的无效值会被忽略并使用默认值。旧的 `TAKT_OPENCODE_TOOL_ERROR_BUDGET`、`TAKT_OPENCODE_TOOL_SIGNATURE_ABSOLUTE`、`TAKT_OPENCODE_TOOL_SIGNATURE_REPEATS`、`TAKT_OPENCODE_TOOL_SUCCESS_REPEATS` 和 `TAKT_OPENCODE_TOOL_RESULT_STAGNATION_REPEATS` 不再控制 guard，会被忽略并发出一次性警告。
 
 ### 项目配置字段参考
 
@@ -360,7 +360,7 @@ TAKT 观察实际收到的 provider event，不会合成 keepalive。OpenCode �
 | `auto_requeue_max_attempts` | 非负整数 | `0` | 失败 workflow task 的自动 requeue 上限 |
 | `ignore_exceed` | boolean | `false` | `takt run` / `takt watch` 的迭代限制绕过 |
 | `base_branch` | string | - | 创建 clone 的基分支 |
-| `assistant.init_files` | string[] | - | 仅项目级的 assistant 初始上下文文件；必须是项目根内的相对路径，最多 16 个文件，每个最多 256 KiB，合计最多 1 MiB |
+| `assistant.init_files` | string[] | - | 仅项目级的 assistant 初始上下文文件。路径必须相对于项目根；绝对路径、解析到项目根之外的路径，以及 `.env*`、`.npmrc`、`.pypirc`、`.netrc`、`*.pem`、`*.key` 和 `.git/**` 等敏感文件模式会被拒绝。路径不存在、指向目录或文件不可读时会明确报错。最多 16 个文件，每个最多 256 KiB，合计最多 1 MiB。未设置或为空时，TAKT 不会自动发现 `CLAUDE.md`、`AGENT.md`、`AGENTS.md`、`TAKT.md` 或其他文件。 |
 | `assistant.gherkin` | boolean | `false` | 项目级的任务指令 Gherkin 设置 |
 | `provider_options` | object | - | provider 专属选项 |
 | `provider_profiles` | object | - | provider 专属权限 profile |
