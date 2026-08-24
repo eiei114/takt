@@ -94,7 +94,10 @@ class DeepSeekHarnessProtocolError extends Error {
 }
 
 class DeepSeekHarnessTransportError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly bridgeCode?: string,
+  ) {
     super(message);
     this.name = 'DeepSeekHarnessTransportError';
   }
@@ -528,7 +531,17 @@ function bridgeError(error: BridgeErrorPayload | undefined, knownSecrets: Record
   if (code === 'malformed-response' || code === 'protocol-error') {
     return new DeepSeekHarnessProtocolError(formatted);
   }
-  return new DeepSeekHarnessTransportError(formatted);
+  return new DeepSeekHarnessTransportError(formatted, code);
+}
+
+function isRuntimeSetupFailure(error: unknown, diagnostic: string): boolean {
+  if (error instanceof DeepSeekHarnessTransportError) {
+    return error.bridgeCode === 'runtime-unavailable';
+  }
+  return (
+    diagnostic.includes('ENOENT')
+    || diagnostic.toLowerCase().includes('no such file or directory')
+  );
 }
 
 function abortError(reason: unknown): Error {
@@ -894,20 +907,20 @@ class DeepSeekHarnessProcess {
       this.ready = true;
     } catch (error) {
       await this.terminate();
-      if (
-        error instanceof DeepSeekHarnessTransportError
-        || error instanceof DeepSeekHarnessProviderError
-      ) {
-        throw error;
-      }
       const diagnostic = safeMessage(error, this.knownSecrets);
-      if (diagnostic.includes('ENOENT') || diagnostic.toLowerCase().includes('not found')) {
+      if (isRuntimeSetupFailure(error, diagnostic)) {
         throw new Error(
           `Unable to start DeepSeek Harness Python bridge with "${this.pythonPath}". `
           + 'Install Python 3.10+ and deepseek-harness-sdk with its matching runtime wheel, '
           + 'or set provider_options.deepseek_harness.python_path.',
           { cause: error },
         );
+      }
+      if (
+        error instanceof DeepSeekHarnessTransportError
+        || error instanceof DeepSeekHarnessProviderError
+      ) {
+        throw error;
       }
       throw error;
     }

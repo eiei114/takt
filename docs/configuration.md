@@ -1250,15 +1250,16 @@ The DeepSeek Harness `model` field accepts either a bare model reference such as
 provider route and preserves every later `/` in the model reference. A bare
 model uses the backward-compatible `deepseek-official` route. Routes are passed
 to the official SDK as written; TAKT does not apply a route allowlist or
-provider-specific aliases. Effort suffixes such as `openai/gpt-5.4:high` are
-rejected with an actionable configuration error because this bridge cannot pass
-effort separately from the model ID.
+provider-specific aliases. The route and model substrings are passed as written,
+including surrounding whitespace and any `:` in the model. TAKT does not parse
+effort suffixes for this provider; values such as `ollama/qwen3.5:397b` and
+`gpt-5.6-luna:max` remain complete model IDs for the SDK to interpret.
 Malformed references such as an empty value, `/gpt-5.4`, or `openai/` are
-rejected before the bridge starts; the error includes the supplied reference
-and the validation point. Unknown routes or model IDs are not validated by
-TAKT and are passed unchanged as separate provider/model fields to the
-bridge/SDK; an SDK rejection identifies the supplied reference and the
-bridge/SDK failure point.
+rejected before the bridge starts; route and model values containing only
+whitespace are also empty. The error includes the supplied reference and the
+validation point. Unknown routes or model IDs are not validated by TAKT and are
+passed unchanged as separate provider/model fields to the bridge/SDK; an SDK
+rejection identifies the supplied reference and the bridge/SDK failure point.
 
 For credential safety, `python_path` is accepted only from trusted global configuration or `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH`; workflow and project-local provider options must use the default `python3` executable. `cordis` is also accepted only from trusted global configuration or `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS`, because it selects executable tool composition. The example above intentionally omits both fields. The same restrictions apply to project `runtime.yaml` profiles; global runtime profiles may select trusted values. Project runtime profiles may use only loopback `base_url` values.
 

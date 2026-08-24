@@ -109,6 +109,8 @@ class DeepSeekHarness:
             raise RuntimeError('SDK provider route not found "not-found-route"')
         if kwargs.get('model') == 'enoent-model':
             raise RuntimeError('ENOENT: SDK model not found "enoent-model"')
+        if kwargs.get('model') == 'runtime-unavailable-model':
+            raise FileNotFoundError('missing DeepSeek Harness runtime wheel')
         if kwargs.get('model') == 'terminal-diagnostic-model':
             raise RuntimeError('SDK diagnostic \\x1b]52;clipboard\\x07\\x1b[31mraw\\x1b[0m\\x01')
         counter_file = kwargs.get('session_root')
@@ -256,7 +258,11 @@ class DeepSeekHarness:
   it.each([
     ['openai/gpt-5.4', 'openai', 'gpt-5.4'],
     ['my-gateway/org/custom-model', 'my-gateway', 'org/custom-model'],
+    ['my-gateway/ollama/qwen3.5:397b', 'my-gateway', 'ollama/qwen3.5:397b'],
+    ['openai-codex/gpt-5.6-luna:max', 'openai-codex', 'gpt-5.6-luna:max'],
+    [' unknown-route / unknown-model ', ' unknown-route ', ' unknown-model '],
     ['deepseek-v4-flash', 'deepseek-official', 'deepseek-v4-flash'],
+    [' deepseek-v4-flash ', 'deepseek-official', ' deepseek-v4-flash '],
   ] as const)('passes the effective route and model separately to the SDK for %s', async (model, provider, modelId) => {
     const response = await callDeepSeekHarness('worker', 'hello', {
       cwd: root,
@@ -362,10 +368,8 @@ class DeepSeekHarness:
     expect(streamedMessages.some((message) => message.includes('SDK diagnostic'))).toBe(true);
   });
 
-  it.each([
-    'openai/gpt-5.4:max',
-    'my-gateway/org/custom-model:high',
-  ] as const)('rejects an effort suffix with an actionable reference error: %s', async (reference) => {
+  it('preserves runtime setup diagnostics for a routed model', async () => {
+    const reference = 'known-route/runtime-unavailable-model';
     const response = await callDeepSeekHarness('worker', 'hello', {
       cwd: root,
       model: reference,
@@ -373,9 +377,8 @@ class DeepSeekHarness:
     });
 
     expect(response.status).toBe('error');
-    expect(response.content).toContain(reference);
-    expect(response.content).toMatch(/effort|suffix/iu);
-    expect(response.content).toMatch(/model reference|configuration|parser/iu);
+    expect(response.content).toContain('Unable to start DeepSeek Harness Python bridge');
+    expect(response.content).toContain('Install Python 3.10+ and deepseek-harness-sdk');
   });
 
   it('preserves multiple assistant messages when the SDK omits chunk events', async () => {

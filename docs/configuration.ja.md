@@ -1193,14 +1193,16 @@ model 参照だけの形式と、`openai/gpt-5.4` や
 最初の `/` より前を provider route として使い、それより後の `/` は model
 参照の一部として保持します。route を省略した場合は後方互換のため
 `deepseek-official` を使います。route は記述された値のまま公式 SDK に渡し、TAKT
-独自の allowlist や provider alias 変換は行いません。`openai/gpt-5.4:high` のような
-effort suffix は、この bridge が effort を model ID と別に渡せないため、model ID に
-混ぜず actionable な設定エラーとして拒否します。
+独自の allowlist や provider alias 変換は行いません。route と model の各部分は、
+前後の空白や model 内の `:` も含め、記述された値のまま渡します。TAKT はこの
+provider の effort suffix を解析しません。`ollama/qwen3.5:397b` や
+`gpt-5.6-luna:max` は完全な model ID として SDK の解釈に委ねます。
 空文字列、`/gpt-5.4`（空の route）、`openai/`（空の model）などの形式不正は
-bridge 起動前に拒否され、入力された参照と検証箇所を含むエラーになります。未知の
-route や model ID は TAKT で事前検証せず、記述された値のまま provider と model の
-別フィールドとして bridge/SDK に渡します。SDK が拒否した場合は、入力された参照と
-bridge/SDK で失敗した箇所を含むエラーになります。
+bridge 起動前に拒否されます。空白だけの route または model も空として扱います。
+エラーには入力された参照と検証箇所が含まれます。未知の route や model ID は TAKT
+で事前検証せず、記述された値のまま provider と model の別フィールドとして
+bridge/SDK に渡します。SDK が拒否した場合は、入力された参照と bridge/SDK で
+失敗した箇所を含むエラーになります。
 
 credential safety のため、`python_path` は信頼できる global config または `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH` からのみ設定できます。workflow と project-local provider options では既定の `python3` executable を使用してください。`cordis` も実行する tool composition を選択するため、信頼できる global config または `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS` からのみ設定できます。上の例では両方の項目を意図的に省略しています。同じ制約は project の `runtime.yaml` profile にも適用されます。global runtime profile では信頼できる値を選択できます。project runtime profile の `base_url` は loopback のみ使用できます。
 

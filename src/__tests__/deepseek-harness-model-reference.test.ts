@@ -27,19 +27,18 @@ describe('DeepSeek Harness model references', () => {
     ['openai-codex/gpt-5.6-luna', { provider: 'openai-codex', model: 'gpt-5.6-luna' }],
     ['anthropic/claude-sonnet-4-6', { provider: 'anthropic', model: 'claude-sonnet-4-6' }],
     ['my-gateway/org/custom-model', { provider: 'my-gateway', model: 'org/custom-model' }],
+    ['my-gateway/ollama/qwen3.5:397b', { provider: 'my-gateway', model: 'ollama/qwen3.5:397b' }],
+    ['openai-codex/gpt-5.6-luna:max', { provider: 'openai-codex', model: 'gpt-5.6-luna:max' }],
     ['deepseek-v4-flash', { provider: 'deepseek-official', model: 'deepseek-v4-flash' }],
   ] as const)('separates the route from the model for %s', (reference, expected) => {
     expect(parseDeepSeekHarnessModelReference(reference)).toEqual(expected);
   });
 
   it.each([
-    'openai/gpt-5.4:max',
-    'openai-codex/gpt-5.6-luna:max',
-    'my-gateway/org/custom-model:high',
-    'deepseek-v4-flash:max',
-    'deepseek-v4-flash:',
-  ] as const)('rejects an effort suffix without forwarding it as part of the model: %s', (reference) => {
-    expectActionableParseError(reference, /effort|suffix/iu);
+    [' unknown-route / unknown-model ', { provider: ' unknown-route ', model: ' unknown-model ' }],
+    [' deepseek-v4-flash ', { provider: 'deepseek-official', model: ' deepseek-v4-flash ' }],
+  ] as const)('preserves surrounding whitespace for %s', (reference, expected) => {
+    expect(parseDeepSeekHarnessModelReference(reference)).toEqual(expected);
   });
 
   it.each([
@@ -47,6 +46,9 @@ describe('DeepSeek Harness model references', () => {
     'openai/',
     '/',
     '',
+    '   ',
+    '   /model',
+    'route/   ',
   ] as const)('rejects an empty or malformed model reference: %s', (reference) => {
     expectActionableParseError(reference, /model reference|route|model|empty/iu);
   });
