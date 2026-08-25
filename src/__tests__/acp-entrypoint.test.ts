@@ -517,7 +517,7 @@ describe('ACP package entrypoint', () => {
             prNumber: 789,
           },
           taskOptions: {
-            worktree: false,
+            worktree: true,
             autoPr: true,
             draftPr: true,
           },
@@ -532,7 +532,7 @@ describe('ACP package entrypoint', () => {
     expect(result).toEqual({ stopReason: 'end_turn' });
     expect(saveTaskFile).toHaveBeenCalledWith('/repo', 'Implement ACP support', {
       workflow: 'review',
-      worktree: false,
+      worktree: true,
       autoPr: true,
       draftPr: true,
       branch: 'takt/789/entrypoint-context',

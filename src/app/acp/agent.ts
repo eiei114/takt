@@ -293,6 +293,9 @@ export function createTaktAcpAgent(deps: TaktAcpAgentDependencies = {}): TaktAcp
       if (params.taskOptions?.draftPr === true && params.taskOptions.autoPr === false) {
         throw new Error('taskOptions.draftPr requires taskOptions.autoPr to be true');
       }
+      if (params.taskOptions?.worktree === false && params.taskOptions.autoPr === true) {
+        throw new Error('taskOptions.autoPr requires taskOptions.worktree to be true');
+      }
 
       const sessionId = randomUUID();
       const conversationSession = createSession({

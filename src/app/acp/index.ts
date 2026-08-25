@@ -93,6 +93,13 @@ const acpTaskOptionsSchema = z.object({
   autoPr: z.boolean().optional(),
   draftPr: z.boolean().optional(),
 }).strict().superRefine((value, ctx) => {
+  if (value.worktree === false && value.autoPr === true) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['autoPr'],
+      message: 'autoPr requires worktree to be true',
+    });
+  }
   if (value.draftPr === true && value.autoPr === false) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
