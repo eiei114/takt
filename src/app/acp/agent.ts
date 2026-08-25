@@ -51,6 +51,7 @@ import type {
   AcpDefaultAction,
   AcpTaskInstructionAction,
   AcpTaskContext,
+  AcpTaskOptions,
   TaktAcpAgentDependencies,
   TaktAcpSessionUpdate,
 } from './types.js';
@@ -59,6 +60,7 @@ type SessionNewParams = Partial<NewSessionRequest> & {
   cwd?: string;
   defaultAction?: AcpDefaultAction;
   taskContext?: AcpTaskContext;
+  taskOptions?: AcpTaskOptions;
 };
 
 type SessionPromptParams = PromptRequest;
@@ -237,6 +239,7 @@ export function createTaktAcpAgent(deps: TaktAcpAgentDependencies = {}): TaktAcp
           saveTaskFile,
           createIssueFromTaskResult,
           taskContext: session.taskContext,
+          taskOptions: session.taskOptions,
           abortSignal,
         })
         : await enqueueAcpTask({
@@ -245,6 +248,7 @@ export function createTaktAcpAgent(deps: TaktAcpAgentDependencies = {}): TaktAcp
           workflow,
           saveTaskFile,
           taskContext: session.taskContext,
+          taskOptions: session.taskOptions,
           abortSignal,
         });
       await sendAgentMessage(sessionId, formatEnqueueResult(created));
@@ -286,6 +290,9 @@ export function createTaktAcpAgent(deps: TaktAcpAgentDependencies = {}): TaktAcp
       if (params.taskContext && hasAcpTaskContext(params.taskContext)) {
         assertValidAcpTaskContext(params.taskContext);
       }
+      if (params.taskOptions?.draftPr === true && params.taskOptions.autoPr === false) {
+        throw new Error('taskOptions.draftPr requires taskOptions.autoPr to be true');
+      }
 
       const sessionId = randomUUID();
       const conversationSession = createSession({
@@ -299,6 +306,7 @@ export function createTaktAcpAgent(deps: TaktAcpAgentDependencies = {}): TaktAcp
         ...(params.taskContext && hasAcpTaskContext(params.taskContext)
           ? { taskContext: params.taskContext }
           : {}),
+        ...(params.taskOptions ? { taskOptions: params.taskOptions } : {}),
         ...(mcpServers ? { mcpServers } : {}),
         cancelRequested: false,
         confirmationSequence: 0,
@@ -379,4 +387,10 @@ export function createTaktAcpAgent(deps: TaktAcpAgentDependencies = {}): TaktAcp
 }
 
 export { mapTaktAcpUpdateToSessionUpdate };
-export type { AcpDefaultAction, AcpTaskContext, TaktAcpAgentDependencies, TaktAcpSessionUpdate };
+export type {
+  AcpDefaultAction,
+  AcpTaskContext,
+  AcpTaskOptions,
+  TaktAcpAgentDependencies,
+  TaktAcpSessionUpdate,
+};

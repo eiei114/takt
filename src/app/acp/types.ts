@@ -13,6 +13,13 @@ import type { WorkflowExecutionRequest } from '../../features/tasks/execute/work
 export type AcpDefaultAction = 'enqueue' | 'direct';
 export type AcpTaskInstructionAction = AcpDefaultAction | 'create_issue_and_enqueue';
 
+/** Per-session execution settings for tasks saved through ACP. */
+export interface AcpTaskOptions {
+  worktree?: boolean;
+  autoPr?: boolean;
+  draftPr?: boolean;
+}
+
 export interface AcpTaskContext {
   branch?: string;
   baseBranch?: string;

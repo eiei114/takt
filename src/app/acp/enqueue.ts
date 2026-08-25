@@ -10,7 +10,7 @@ import {
   enqueueTask,
   formatIssueEnqueueFailure,
 } from '../../infra/task/enqueueService.js';
-import type { AcpTaskContext } from './types.js';
+import type { AcpTaskContext, AcpTaskOptions } from './types.js';
 
 type WorkflowTaskInstruction = ConversationSessionResult & {
   kind: 'workflow_execution_requested';
@@ -24,6 +24,9 @@ export interface AcpEnqueueResult {
   tasksFile: string;
   workflow: string;
   issueNumber?: number;
+  worktree: boolean;
+  autoPr: boolean;
+  draftPr: boolean;
 }
 
 function throwIfAbortRequested(abortSignal: AbortSignal | undefined): void {
@@ -38,17 +41,27 @@ export async function enqueueAcpTask(input: {
   workflow: string;
   saveTaskFile: SaveAcpTaskFile;
   taskContext?: AcpTaskContext;
+  taskOptions?: AcpTaskOptions;
   abortSignal?: AbortSignal;
 }): Promise<AcpEnqueueResult> {
   throwIfAbortRequested(input.abortSignal);
+  const worktree = input.taskOptions?.worktree ?? true;
+  const autoPr = input.taskOptions?.autoPr ?? false;
+  const draftPr = input.taskOptions?.draftPr ?? false;
   return enqueueTask({
     cwd: input.cwd,
     task: input.instruction.task,
     workflow: input.workflow,
-    worktree: true,
-    autoPr: false,
+    worktree,
+    autoPr,
+    ...(input.taskOptions?.draftPr !== undefined ? { draftPr } : {}),
     taskContext: input.taskContext,
-  }, input.saveTaskFile);
+  }, input.saveTaskFile).then((result) => ({
+    ...result,
+    worktree,
+    autoPr,
+    draftPr,
+  }));
 }
 
 export async function createIssueAndEnqueueAcpTask(input: {
@@ -58,9 +71,13 @@ export async function createIssueAndEnqueueAcpTask(input: {
   saveTaskFile: SaveAcpTaskFile;
   createIssueFromTaskResult?: CreateAcpIssueFromTaskResult;
   taskContext?: AcpTaskContext;
+  taskOptions?: AcpTaskOptions;
   abortSignal?: AbortSignal;
 }): Promise<AcpEnqueueResult> {
   throwIfAbortRequested(input.abortSignal);
+  const worktree = input.taskOptions?.worktree ?? true;
+  const autoPr = input.taskOptions?.autoPr ?? false;
+  const draftPr = input.taskOptions?.draftPr ?? false;
   initGitProvider(input.cwd);
   const gitProvider = getGitProvider();
   throwIfAbortRequested(input.abortSignal);
@@ -68,8 +85,9 @@ export async function createIssueAndEnqueueAcpTask(input: {
     cwd: input.cwd,
     task: input.instruction.task,
     workflow: input.workflow,
-    worktree: true,
-    autoPr: false,
+    worktree,
+    autoPr,
+    ...(input.taskOptions?.draftPr !== undefined ? { draftPr } : {}),
     taskContext: input.taskContext,
     gitProvider,
     abortSignal: input.abortSignal,
@@ -80,7 +98,12 @@ export async function createIssueAndEnqueueAcpTask(input: {
   if (!result.success) {
     throw new Error(formatIssueEnqueueFailure(result.failure, safeExternalErrorMessage));
   }
-  return result.created;
+  return {
+    ...result.created,
+    worktree,
+    autoPr,
+    draftPr,
+  };
 }
 
 export { defaultCreateIssueFromTaskResult, defaultSaveTaskFile };

@@ -19,6 +19,7 @@ import {
   type AcpTaskContext,
   type TaktAcpAgentDependencies,
 } from './agent.js';
+import type { AcpTaskOptions } from './types.js';
 import { isValidAcpBranchName } from './taskContext.js';
 import { isValidTaskContextPrNumber } from '../../features/tasks/taskContextValidation.js';
 import { createLogger } from '../../shared/utils/debug.js';
@@ -30,6 +31,7 @@ type StreamSessionNewRequest = Omit<NewSessionRequest, 'mcpServers'> & {
   mcpServers?: NewSessionRequest['mcpServers'];
   defaultAction?: AcpDefaultAction;
   taskContext?: AcpTaskContext;
+  taskOptions?: AcpTaskOptions;
 };
 
 const acpMetadataSchema = z.record(z.string(), z.unknown()).nullish();
@@ -86,6 +88,20 @@ const acpTaskContextSchema = z.object({
   }).optional(),
 }).strict().optional();
 
+const acpTaskOptionsSchema = z.object({
+  worktree: z.boolean().optional(),
+  autoPr: z.boolean().optional(),
+  draftPr: z.boolean().optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.draftPr === true && value.autoPr === false) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['draftPr'],
+      message: 'draftPr requires autoPr to be true',
+    });
+  }
+}).optional();
+
 const streamSessionNewRequestParser = {
   parse(params: unknown): StreamSessionNewRequest {
     const request = z.object({
@@ -93,6 +109,7 @@ const streamSessionNewRequestParser = {
       additionalDirectories: z.array(z.string()).optional(),
       defaultAction: z.enum(['enqueue', 'direct']).optional(),
       taskContext: acpTaskContextSchema,
+      taskOptions: acpTaskOptionsSchema,
       mcpServers: z.array(acpMcpServerSchema).optional(),
       _meta: acpMetadataSchema,
     }).parse(params);

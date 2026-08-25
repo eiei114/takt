@@ -46,7 +46,7 @@ steps:
 
 function spawnSourceStdioEntrypoint(scenarioPath: string): ChildProcessWithoutNullStreams {
   return spawn(process.execPath, [
-    'node_modules/.bin/vite-node',
+    'node_modules/vite-node/vite-node.mjs',
     '--script',
     SOURCE_STDIO_ENTRYPOINT_RUNNER,
   ], {
@@ -472,7 +472,7 @@ describe('ACP package entrypoint', () => {
     expect(updates).toContain('workflow running from root direct defaultAction');
   });
 
-  it('should pass session/new taskContext from root params into enqueue handling', async () => {
+  it('should pass session/new taskContext and taskOptions into enqueue handling', async () => {
     const clientToAgent = new TransformStream<Uint8Array>();
     const agentToClient = new TransformStream<Uint8Array>();
     const runWorkflowExecution = vi.fn();
@@ -516,6 +516,11 @@ describe('ACP package entrypoint', () => {
             baseBranch: 'main',
             prNumber: 789,
           },
+          taskOptions: {
+            worktree: false,
+            autoPr: true,
+            draftPr: true,
+          },
         };
         const sessionResponse = await agent.request(methods.agent.session.new, sessionNewRequest);
         return agent.request(methods.agent.session.prompt, {
@@ -527,8 +532,9 @@ describe('ACP package entrypoint', () => {
     expect(result).toEqual({ stopReason: 'end_turn' });
     expect(saveTaskFile).toHaveBeenCalledWith('/repo', 'Implement ACP support', {
       workflow: 'review',
-      worktree: true,
-      autoPr: false,
+      worktree: false,
+      autoPr: true,
+      draftPr: true,
       branch: 'takt/789/entrypoint-context',
       baseBranch: 'main',
       contextPrNumber: 789,
