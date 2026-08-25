@@ -260,6 +260,7 @@ class DeepSeekHarness:
     ['my-gateway/org/custom-model', 'my-gateway', 'org/custom-model'],
     ['my-gateway/ollama/qwen3.5:397b', 'my-gateway', 'ollama/qwen3.5:397b'],
     ['openai-codex/gpt-5.6-luna:max', 'openai-codex', 'gpt-5.6-luna:max'],
+    ['route//model', 'route', '/model'],
     [' unknown-route / unknown-model ', ' unknown-route ', ' unknown-model '],
     ['deepseek-v4-flash', 'deepseek-official', 'deepseek-v4-flash'],
     [' deepseek-v4-flash ', 'deepseek-official', ' deepseek-v4-flash '],
@@ -276,6 +277,25 @@ class DeepSeekHarness:
 
     expect(response.status).toBe('done');
     expect(configuration).toMatchObject({ provider, model: modelId });
+  });
+
+  it.each([
+    ['', '""'],
+    ['   ', '   '],
+    ['/model', '/model'],
+    ['route/', 'route/'],
+  ] as const)('rejects malformed model reference %s before starting the bridge', async (model, referenceContext) => {
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      model,
+      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.content).toContain(referenceContext);
+    expect(response.content).toMatch(/empty|route|model/iu);
+    await expect(readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8'))
+      .rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it.each([

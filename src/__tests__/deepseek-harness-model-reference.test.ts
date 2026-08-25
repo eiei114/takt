@@ -29,6 +29,7 @@ describe('DeepSeek Harness model references', () => {
     ['my-gateway/org/custom-model', { provider: 'my-gateway', model: 'org/custom-model' }],
     ['my-gateway/ollama/qwen3.5:397b', { provider: 'my-gateway', model: 'ollama/qwen3.5:397b' }],
     ['openai-codex/gpt-5.6-luna:max', { provider: 'openai-codex', model: 'gpt-5.6-luna:max' }],
+    ['route//model', { provider: 'route', model: '/model' }],
     ['deepseek-v4-flash', { provider: 'deepseek-official', model: 'deepseek-v4-flash' }],
   ] as const)('separates the route from the model for %s', (reference, expected) => {
     expect(parseDeepSeekHarnessModelReference(reference)).toEqual(expected);
