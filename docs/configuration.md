@@ -1251,9 +1251,9 @@ provider route and preserves every later `/` in the model reference. A bare
 model uses the backward-compatible `deepseek-official` route. Routes are passed
 to the official SDK as written; TAKT does not apply a route allowlist or
 provider-specific aliases. The route and model substrings are passed as written,
-including surrounding whitespace and any `:` in the model. TAKT does not parse
-effort suffixes for this provider; values such as `ollama/qwen3.5:397b` and
-`gpt-5.6-luna:max` remain complete model IDs for the SDK to interpret.
+including surrounding whitespace and any `:` in the model. TAKT treats the model
+substring as an opaque model ID; for example, `ollama/qwen3.5:397b` remains a
+complete model ID for the SDK to interpret.
 Malformed references such as an empty value, `/gpt-5.4`, or `openai/` are
 rejected before the bridge starts; route and model values containing only
 whitespace are also empty. The error includes the supplied reference and the

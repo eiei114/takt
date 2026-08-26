@@ -259,7 +259,6 @@ class DeepSeekHarness:
     ['openai/gpt-5.4', 'openai', 'gpt-5.4'],
     ['my-gateway/org/custom-model', 'my-gateway', 'org/custom-model'],
     ['my-gateway/ollama/qwen3.5:397b', 'my-gateway', 'ollama/qwen3.5:397b'],
-    ['openai-codex/gpt-5.6-luna:max', 'openai-codex', 'gpt-5.6-luna:max'],
     ['route//model', 'route', '/model'],
     [' unknown-route / unknown-model ', ' unknown-route ', ' unknown-model '],
     ['deepseek-v4-flash', 'deepseek-official', 'deepseek-v4-flash'],

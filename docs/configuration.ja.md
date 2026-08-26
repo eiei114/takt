@@ -1194,9 +1194,9 @@ model 参照だけの形式と、`openai/gpt-5.4` や
 参照の一部として保持します。route を省略した場合は後方互換のため
 `deepseek-official` を使います。route は記述された値のまま公式 SDK に渡し、TAKT
 独自の allowlist や provider alias 変換は行いません。route と model の各部分は、
-前後の空白や model 内の `:` も含め、記述された値のまま渡します。TAKT はこの
-provider の effort suffix を解析しません。`ollama/qwen3.5:397b` や
-`gpt-5.6-luna:max` は完全な model ID として SDK の解釈に委ねます。
+前後の空白や model 内の `:` も含め、記述された値のまま渡します。TAKT は model
+部分を不透明な model ID として扱います。たとえば `ollama/qwen3.5:397b` は完全な
+model ID のまま SDK の解釈に委ねます。
 空文字列、`/gpt-5.4`（空の route）、`openai/`（空の model）などの形式不正は
 bridge 起動前に拒否されます。空白だけの route または model も空として扱います。
 エラーには入力された参照と検証箇所が含まれます。未知の route や model ID は TAKT

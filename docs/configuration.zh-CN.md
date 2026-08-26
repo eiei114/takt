@@ -917,9 +917,8 @@ DeepSeek Harness 的 `model` 字段既接受 `deepseek-v4-flash` 这样的纯 mo
 并将后续所有 `/` 保留为 model 引用的一部分。省略 route 时，为保持向后兼容，
 使用 `deepseek-official`。route 会按原样传给官方 SDK；TAKT 不使用 route
 allowlist，也不转换 provider alias。route 和 model 两部分都会按原样传递，
-包括首尾空白以及 model 中的 `:`。TAKT 不解析此 provider 的 effort suffix；
-`ollama/qwen3.5:397b` 和 `gpt-5.6-luna:max` 等值会作为完整 model ID 交由
-SDK 解释。
+包括首尾空白以及 model 中的 `:`。TAKT 将 model 部分视为不透明的 model ID；
+例如，`ollama/qwen3.5:397b` 会作为完整 model ID 交由 SDK 解释。
 空值、`/gpt-5.4`（空 route）和 `openai/`（空 model）等格式会在 bridge
 启动前被拒绝。仅含空白的 route 或 model 也视为空值。错误会包含原始引用和
 验证位置。TAKT 不会预先验证未知 route 或 model ID，而是将原值分别作为
