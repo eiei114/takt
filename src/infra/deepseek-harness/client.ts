@@ -916,12 +916,6 @@ class DeepSeekHarnessProcess {
           { cause: error },
         );
       }
-      if (
-        error instanceof DeepSeekHarnessTransportError
-        || error instanceof DeepSeekHarnessProviderError
-      ) {
-        throw error;
-      }
       throw error;
     }
   }
