@@ -43,7 +43,6 @@ import { resolvePiActiveTools } from '../providers/pi-tool-policy.js';
 
 const PI_THINKING_LEVEL_VALUES = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 type PiThinkingLevel = (typeof PI_THINKING_LEVEL_VALUES)[number];
-const DEFAULT_PI_THINKING_LEVEL: PiThinkingLevel = 'medium';
 const PI_THINKING_LEVELS = new Set<string>(PI_THINKING_LEVEL_VALUES);
 
 function isPiThinkingLevel(value: string): value is PiThinkingLevel {
@@ -161,62 +160,36 @@ async function createModelRuntime(agentDir: string): Promise<ModelRuntime> {
   });
 }
 
-function splitModelReference(
-  modelReference: string,
-  thinkingLevelOptionSpecified: boolean,
-): {
+function splitModelReference(modelReference: string): {
   provider?: string;
   modelId: string;
-  thinkingLevel?: PiThinkingLevel;
 } {
   const trimmed = modelReference.trim();
-  const colonIndex = trimmed.lastIndexOf(':');
-  const suffix = colonIndex >= 0 ? trimmed.slice(colonIndex + 1) : '';
-  const recognizedThinkingSuffix = suffix !== '' && isPiThinkingLevel(suffix) ? suffix : undefined;
-  if (thinkingLevelOptionSpecified && recognizedThinkingSuffix !== undefined) {
-    throw new Error(
-      `Pi model "${modelReference}" uses thinking level suffix ":${recognizedThinkingSuffix}". `
-      + 'Remove the suffix and set provider_options.pi.thinking_level instead.',
-    );
-  }
-  const modelWithThinking = !thinkingLevelOptionSpecified && recognizedThinkingSuffix !== undefined
-    ? trimmed.slice(0, colonIndex)
-    : trimmed;
-  const slashIndex = modelWithThinking.indexOf('/');
+  const slashIndex = trimmed.indexOf('/');
 
   return {
-    provider: slashIndex > 0 ? modelWithThinking.slice(0, slashIndex) : undefined,
-    modelId: slashIndex > 0 ? modelWithThinking.slice(slashIndex + 1) : modelWithThinking,
-    ...(!thinkingLevelOptionSpecified && recognizedThinkingSuffix !== undefined
-      ? { thinkingLevel: recognizedThinkingSuffix }
-      : {}),
+    provider: slashIndex > 0 ? trimmed.slice(0, slashIndex) : undefined,
+    modelId: slashIndex > 0 ? trimmed.slice(slashIndex + 1) : trimmed,
   };
 }
 
-function validatePiThinkingConfiguration(
-  modelReference: string | undefined,
-  thinkingLevelOption: string | undefined,
-): void {
-  const configuredThinkingLevel = resolvePiThinkingLevel(thinkingLevelOption);
-  if (configuredThinkingLevel !== undefined && modelReference?.trim()) {
-    splitModelReference(modelReference, true);
-  }
+function validatePiThinkingConfiguration(thinkingLevelOption: string | undefined): void {
+  resolvePiThinkingLevel(thinkingLevelOption);
 }
 
 function resolvePiModel(
   modelReference: string | undefined,
   runtime: ModelRuntime,
-  thinkingLevelOptionSpecified: boolean,
-): { model?: Model<Api>; thinkingLevel?: PiThinkingLevel } {
+): { model?: Model<Api> } {
   if (!modelReference?.trim()) {
     return {};
   }
 
-  const parsed = splitModelReference(modelReference, thinkingLevelOptionSpecified);
+  const parsed = splitModelReference(modelReference);
   if (parsed.provider) {
     const model = runtime.getModel(parsed.provider, parsed.modelId);
     if (model) {
-      return { model, thinkingLevel: parsed.thinkingLevel };
+      return { model };
     }
     throw new Error(
       `Pi model "${modelReference}" was not found. Use provider/model format or configure the model in Pi.`,
@@ -225,7 +198,7 @@ function resolvePiModel(
 
   const matches = runtime.getModels().filter((model) => model.id === parsed.modelId);
   if (matches.length === 1) {
-    return { model: matches[0], thinkingLevel: parsed.thinkingLevel };
+    return { model: matches[0] };
   }
 
   throw new Error(
@@ -929,11 +902,7 @@ async function applyPiModel(
   thinkingLevelOption: string | undefined,
 ): Promise<void> {
   const configuredThinkingLevel = resolvePiThinkingLevel(thinkingLevelOption);
-  const resolved = resolvePiModel(
-    modelReference,
-    record.runtime,
-    configuredThinkingLevel !== undefined,
-  );
+  const resolved = resolvePiModel(modelReference, record.runtime);
   const currentModel = record.session.model;
   if (resolved.model !== undefined && (
     currentModel?.provider !== resolved.model.provider
@@ -941,9 +910,9 @@ async function applyPiModel(
   )) {
     await record.session.setModel(resolved.model);
   }
-  record.session.setThinkingLevel(
-    configuredThinkingLevel ?? resolved.thinkingLevel ?? DEFAULT_PI_THINKING_LEVEL,
-  );
+  if (configuredThinkingLevel !== undefined) {
+    record.session.setThinkingLevel(configuredThinkingLevel);
+  }
 }
 
 async function shutdownPiSession(session: AgentSession): Promise<void> {
@@ -1419,7 +1388,7 @@ export async function callPi(
     if (isAbortRequested(options.abortSignal)) {
       throw new Error('Pi session aborted');
     }
-    validatePiThinkingConfiguration(options.model, options.providerOptions?.thinkingLevel);
+    validatePiThinkingConfiguration(options.providerOptions?.thinkingLevel);
     const record = await getOrCreatePiSession(options);
     const activeSessionId = record.session.sessionId;
     sessionId = activeSessionId;

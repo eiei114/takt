@@ -333,18 +333,15 @@ provider_options:
 
 In runtime mode, put `thinking_level` in `provider.profiles.<name>.options` for the Pi profile. Workflow YAML cannot define provider, model, or provider options.
 
-The terminal `:<thinking-level>` suffix remains supported only as a legacy fallback when `provider_options.pi.thinking_level` is omitted:
+Configure Pi thinking level only with `provider_options.pi.thinking_level` or `TAKT_PROVIDER_OPTIONS_PI_THINKING_LEVEL`. The accepted values are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; an invalid value fails. If the option is omitted, the Pi SDK default `medium` is used. Model references are split only at `/`, so any `:` in the model ID is literal; for example, `provider/model:high` uses `model:high` as the model ID. An explicitly configured level is applied before every Pi turn, including turns in a reused session.
+
+To migrate an older configuration that used `model: pi/...:high` to select a thinking level, remove `:high` from the model reference and set the option instead:
 
 ```yaml
-# Legacy fallback only
-model: provider/model:high
+provider_options:
+  pi:
+    thinking_level: high
 ```
-
-Pi parses thinking levels strictly. The accepted values are `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, and `max`; an invalid value fails instead of falling back to `medium`. For each Pi turn, the effective level is selected in this order: the explicit option (including `TAKT_PROVIDER_OPTIONS_PI_THINKING_LEVEL`), a recognized terminal suffix when the option is omitted, then the Pi SDK default `medium`. The selected level is applied before every Pi turn, including turns in a reused session. Only recognized terminal suffixes are interpreted; an unrecognized or empty suffix remains part of the model reference.
-
-Do not specify both forms. If an explicit option and a recognized suffix are both present, the migration guard rejects the call with an instruction to remove the suffix and use the option:
-
-`Pi model "<model>" uses thinking level suffix ":<level>". Remove the suffix and set provider_options.pi.thinking_level instead.`
 
 The `provider` and `model` declarations select the provider and model for a TAKT run; the explicit Pi option selects the thinking level. They do not import Pi CLI settings. Pi authentication is handled separately through the Pi SDK credential store or provider-native environment variables. The boundary avoids unintended writes to global settings and keeps project-local configuration trustworthy and predictable.
 
@@ -570,7 +567,7 @@ Provider and model selection is owned by `runtime.yaml` when runtime mode is act
 
 **OpenCode** requires a model in `provider/model` format (e.g., `opencode/big-pickle`). Omitting the model for the OpenCode provider will result in a configuration error.
 
-**Pi** accepts `provider/model` references and bare model IDs that uniquely match a configured Pi model. A recognized terminal `:<thinking-level>` suffix is interpreted only as a legacy fallback when `provider_options.pi.thinking_level` is omitted; an explicit option is preferred, while specifying both forms is an error. If neither the option nor a recognized suffix is present, Pi uses the SDK default `medium`. Only recognized terminal suffixes are parsed; other suffixes remain part of the model reference. The selected level is applied on every Pi turn. If the model is omitted, TAKT keeps the Pi session's current model.
+**Pi** accepts `provider/model` references and bare model IDs that uniquely match a configured Pi model. References are split only at `/`, so `provider/model:high` uses `model:high` as a literal model ID. Configure thinking level with `provider_options.pi.thinking_level` or `TAKT_PROVIDER_OPTIONS_PI_THINKING_LEVEL`; if omitted, Pi uses the SDK default `medium`. An explicitly configured level is applied on every Pi turn. If the model is omitted, TAKT keeps the Pi session's current model.
 
 **Cursor Agent** forwards `model` directly to `cursor-agent --model <model>`. If omitted, Cursor CLI default is used.
 

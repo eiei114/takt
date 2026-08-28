@@ -333,20 +333,17 @@ provider_options:
 
 runtime モードでは、Pi profile の `provider.profiles.<name>.options` に `thinking_level` を置きます。workflow YAML には provider、model、provider option を定義できません。
 
-model の末尾に付ける `:<thinking-level>` suffix は、`provider_options.pi.thinking_level` を省略した場合だけ使われる legacy fallback として残っています。
+Pi の thinking level は `provider_options.pi.thinking_level` または `TAKT_PROVIDER_OPTIONS_PI_THINKING_LEVEL` だけで設定します。指定できる値は `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` で、不正な値はエラーになります。省略時は Pi SDK の既定値 `medium` が使われます。model reference は `/` だけで分割されるため、model ID 内の `:` はそのまま扱われます。たとえば `provider/model:high` の model ID は `model:high` です。明示した level は、再利用した session を含むすべての Pi turn の前に適用されます。
+
+以前 `model: pi/...:high` を thinking level の指定に使っていた場合は、model reference から `:high` を削除し、代わりに次の option を設定してください。
 
 ```yaml
-# legacy fallback 専用
-model: provider/model:high
+provider_options:
+  pi:
+    thinking_level: high
 ```
 
-Pi の thinking level は strict に parse されます。指定できる値は `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` だけで、不正な値は `medium` にフォールバックせずエラーになります。各 Pi turn では、明示的な option（`TAKT_PROVIDER_OPTIONS_PI_THINKING_LEVEL` を含む）、option 省略時に認識された末尾 suffix、Pi SDK の既定値 `medium` の順に effective level が決まります。選択された level は再利用した session を含むすべての Pi turn の前に適用されます。認識されない suffix や空の suffix は model reference の一部として扱われます。
-
-2 つの形式を同時に指定しないでください。明示的な option と認識された suffix の両方がある場合、migration guard が suffix を削除して option を設定するよう指示するエラーで呼び出しを拒否します。
-
-`Pi model "<model>" uses thinking level suffix ":<level>". Remove the suffix and set provider_options.pi.thinking_level instead.`
-
-`provider` と `model` の宣言は TAKT 実行で使う provider と model を選択し、明示的な Pi option（または上記の suffix fallback）が thinking level を選択します。Pi CLI の設定は取り込みません。Pi の認証は Pi SDK credential store または provider-native 環境変数で別途処理されます。この境界により、グローバル設定への意図しない書き込みを防ぎ、プロジェクトローカル設定の信頼性と予測可能性を保ちます。
+`provider` と `model` の宣言は TAKT 実行で使う provider と model を選択し、明示的な Pi option が thinking level を選択します。Pi CLI の設定は取り込みません。Pi の認証は Pi SDK credential store または provider-native 環境変数で別途処理されます。この境界により、グローバル設定への意図しない書き込みを防ぎ、プロジェクトローカル設定の信頼性と予測可能性を保ちます。
 
 `provider_options.pi` には、独立した `thinking_level` option と、`extensions` や `no_*` の探索制御など Pi リソースを読み込むための設定が含まれます。認証や model 選択は設定しません。version 指定のない明示 npm source は既存の project scope、user scope を順に再利用し、どちらも正常に読み込めない場合だけ temporary resolution に fallback します。version 指定付き npm source と npm 以外の source は常に temporary resolution されます。明示した source は Pi settings には永続化されません。リソースの信頼境界については [Pi のリソース読み込み](#pi-resource-loading) を参照してください。
 
@@ -567,7 +564,7 @@ workflow の `promotion` entry は `runtime.yaml` で選択された target ladd
 
 **OpenCode** は `provider/model` 形式のモデル（例: `opencode/big-pickle`）が必要です。OpenCode provider でモデルを省略すると設定エラーになります。
 
-**Pi** は `provider/model` 形式と、設定済みの Pi model に一意に一致する model ID を受け付けます。認識された末尾の `:<thinking-level>` suffix は、`provider_options.pi.thinking_level` が省略された場合だけ使われる legacy fallback です。明示的な option が優先され、両方を指定するとエラーになります。どちらも指定しない場合は Pi SDK の既定値 `medium` を使います。認識されない suffix や空の suffix は model reference の一部として扱われます。選択された level はすべての Pi turn に適用されます。model を省略した場合は Pi session の現在の model を維持します。
+**Pi** は `provider/model` 形式と、設定済みの Pi model に一意に一致する model ID を受け付けます。reference は `/` だけで分割されるため、`provider/model:high` の `model:high` はリテラルの model ID です。thinking level は `provider_options.pi.thinking_level` または `TAKT_PROVIDER_OPTIONS_PI_THINKING_LEVEL` で設定し、省略時は Pi SDK の既定値 `medium` を使います。明示した level はすべての Pi turn に適用されます。model を省略した場合は Pi session の現在の model を維持します。
 
 **Cursor Agent** は `model` を `cursor-agent --model <model>` にそのまま渡します。省略時は Cursor CLI のデフォルトが使用されます。
 
