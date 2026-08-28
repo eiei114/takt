@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => {
     shutdownRejects: boolean;
     shutdownGate?: Deferred;
     disposed: boolean;
+    thinkingLevels: string[];
+    promptCount: number;
   }
 
   function deferred(): Deferred {
@@ -45,6 +47,8 @@ const mocks = vi.hoisted(() => {
       promptRejects: false,
       shutdownRejects: false,
       disposed: false,
+      thinkingLevels: [],
+      promptCount: 0,
     };
     states.push(state);
 
@@ -54,7 +58,9 @@ const mocks = vi.hoisted(() => {
       messages: [],
       setActiveToolsByName: vi.fn(),
       setModel: vi.fn(async () => undefined),
-      setThinkingLevel: vi.fn(),
+      setThinkingLevel: vi.fn((level: string) => {
+        state.thinkingLevels.push(level);
+      }),
       getAllTools: vi.fn(() => [
         { name: 'read', sourceInfo: { source: 'builtin' } },
         { name: 'grep', sourceInfo: { source: 'builtin' } },
@@ -87,6 +93,7 @@ const mocks = vi.hoisted(() => {
         };
       }),
       prompt: vi.fn(async () => {
+        state.promptCount += 1;
         started.add(instanceId);
         await state.gate.promise;
         if (state.promptRejects) {
@@ -222,6 +229,87 @@ describe('Pi SDK session cache', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.reset();
+  });
+
+  it('creates a distinct cached session when the configured thinking level changes', async () => {
+    const sessionId = 'thinking-level-cache';
+    const first = callPi('worker', 'use low reasoning', {
+      ...options(sessionId),
+      providerOptions: { thinkingLevel: 'low' },
+    });
+
+    await vi.waitFor(() => expect(mocks.started.size).toBe(1));
+    const firstState = mocks.latestState(sessionId)!;
+    mocks.releaseLatest(sessionId);
+    expect((await first).status).toBe('done');
+
+    const second = callPi('worker', 'use high reasoning', {
+      ...options(sessionId),
+      providerOptions: { thinkingLevel: 'high' },
+    });
+
+    await vi.waitFor(() => expect(mocks.states.filter((state) => state.requestedId === sessionId)).toHaveLength(2));
+    const secondState = mocks.latestState(sessionId)!;
+    mocks.releaseLatest(sessionId);
+
+    expect((await second).status).toBe('done');
+    expect(mocks.createAgentSession).toHaveBeenCalledTimes(2);
+    expect(firstState).not.toBe(secondState);
+    expect(firstState.thinkingLevels.at(-1)).toBe('low');
+    expect(secondState.thinkingLevels.at(-1)).toBe('high');
+  });
+
+  it('reapplies medium when a reused session loses its legacy thinking suffix', async () => {
+    const sessionId = 'legacy-thinking-reset-cache';
+    const first = callPi('worker', 'use high reasoning', {
+      ...options(sessionId),
+      model: 'test/model:high',
+    });
+
+    await vi.waitFor(() => expect(mocks.started.size).toBe(1));
+    const state = mocks.latestState(sessionId)!;
+    mocks.releaseLatest(sessionId);
+    expect((await first).status).toBe('done');
+    expect(state.thinkingLevels.at(-1)).toBe('high');
+
+    const second = await callPi('worker', 'reset reasoning', {
+      ...options(sessionId),
+      model: 'test/model',
+    });
+
+    expect(second.status).toBe('done');
+    expect(mocks.createAgentSession).toHaveBeenCalledTimes(1);
+    expect(state.thinkingLevels.at(-1)).toBe('medium');
+  });
+
+  it('rejects a recognized thinking suffix on a reused session with an explicit option', async () => {
+    const sessionId = 'legacy-thinking-migration-guard-cache';
+    const first = callPi('worker', 'use explicit low reasoning', {
+      ...options(sessionId),
+      providerOptions: { thinkingLevel: 'low' },
+    });
+
+    await vi.waitFor(() => expect(mocks.started.size).toBe(1));
+    const state = mocks.latestState(sessionId)!;
+    mocks.releaseLatest(sessionId);
+    expect((await first).status).toBe('done');
+    expect(state.thinkingLevels.at(-1)).toBe('low');
+    const thinkingLevelApplications = state.thinkingLevels.length;
+    expect(state.promptCount).toBe(1);
+
+    const second = await callPi('worker', 'migrate the model reference', {
+      ...options(sessionId),
+      model: 'test/model:high',
+      providerOptions: { thinkingLevel: 'low' },
+    });
+
+    expect(second.status).toBe('error');
+    expect(second.error).toMatch(/suffix/i);
+    expect(second.error).toMatch(/thinking/i);
+    expect(mocks.createAgentSession).toHaveBeenCalledTimes(1);
+    expect(mocks.latestState(sessionId)).toBe(state);
+    expect(state.thinkingLevels).toHaveLength(thinkingLevelApplications);
+    expect(state.promptCount).toBe(1);
   });
 
   it('retires an aborted session before releasing its lock', async () => {
