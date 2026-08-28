@@ -1385,6 +1385,43 @@ describe('Pi SDK client', () => {
     }
   });
 
+  it.each([
+    {
+      label: 'an invalid thinking level',
+      sessionId: 'pi-sdk-invalid-thinking-level-preflight',
+      model: 'test/model',
+      thinkingLevel: 'thikning',
+      expectedError: 'Invalid Pi thinking level "thikning". Allowed values: off, minimal, low, medium, high, xhigh, max',
+    },
+    {
+      label: 'a recognized model suffix with an explicit thinking level',
+      sessionId: 'pi-sdk-thinking-suffix-conflict-preflight',
+      model: 'test/model:high',
+      thinkingLevel: 'low',
+      expectedError: 'Pi model "test/model:high" uses thinking level suffix ":high". Remove the suffix and set provider_options.pi.thinking_level instead.',
+    },
+  ])('rejects $label before Pi resources or extensions start', async ({
+    sessionId,
+    model,
+    thinkingLevel,
+    expectedError,
+  }) => {
+    mocks.resetTransient();
+
+    const response = await callPi('worker', 'validate Pi thinking configuration', {
+      ...sessionOptions(sessionId),
+      model,
+      providerOptions: { thinkingLevel },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.error).toContain(expectedError);
+    expect(mocks.resourceLoader).not.toHaveBeenCalled();
+    expect(mocks.createAgentSession).not.toHaveBeenCalled();
+    expect(mocks.session.bindExtensions).not.toHaveBeenCalled();
+    expect(mocks.session.prompt).not.toHaveBeenCalled();
+  });
+
   it('applies an explicit thinking level to a plain model', async () => {
     mocks.resetTransient();
 

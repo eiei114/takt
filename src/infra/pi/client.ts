@@ -193,6 +193,16 @@ function splitModelReference(
   };
 }
 
+function validatePiThinkingConfiguration(
+  modelReference: string | undefined,
+  thinkingLevelOption: string | undefined,
+): void {
+  const configuredThinkingLevel = resolvePiThinkingLevel(thinkingLevelOption);
+  if (configuredThinkingLevel !== undefined && modelReference?.trim()) {
+    splitModelReference(modelReference, true);
+  }
+}
+
 function resolvePiModel(
   modelReference: string | undefined,
   runtime: ModelRuntime,
@@ -1409,6 +1419,7 @@ export async function callPi(
     if (isAbortRequested(options.abortSignal)) {
       throw new Error('Pi session aborted');
     }
+    validatePiThinkingConfiguration(options.model, options.providerOptions?.thinkingLevel);
     const record = await getOrCreatePiSession(options);
     const activeSessionId = record.session.sessionId;
     sessionId = activeSessionId;
