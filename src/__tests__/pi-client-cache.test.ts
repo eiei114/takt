@@ -239,7 +239,7 @@ describe('Pi SDK session cache', () => {
     mocks.reset();
   });
 
-  it('creates a distinct cached session when the configured thinking level changes', async () => {
+  it('reuses a cached session when only the configured thinking level changes', async () => {
     const sessionId = 'thinking-level-cache';
     const first = callPi('worker', 'use low reasoning', {
       ...options(sessionId),
@@ -256,15 +256,71 @@ describe('Pi SDK session cache', () => {
       providerOptions: { thinkingLevel: 'high' },
     });
 
-    await vi.waitFor(() => expect(mocks.states.filter((state) => state.requestedId === sessionId)).toHaveLength(2));
+    await vi.waitFor(() => expect(
+      mocks.states.reduce((promptCount, state) => promptCount + state.promptCount, 0),
+    ).toBe(2));
+    mocks.releaseLatest(sessionId);
+
+    expect((await second).status).toBe('done');
+    expect(mocks.createAgentSession).toHaveBeenCalledTimes(1);
+    expect(mocks.latestState(sessionId)).toBe(firstState);
+    expect(firstState.thinkingLevels.slice(-2)).toEqual(['low', 'high']);
+    expect(firstState.promptThinkingLevels).toEqual(['low', 'high']);
+  });
+
+  it('reuses a cached session when thinking level is the only configured option', async () => {
+    const sessionId = 'thinking-level-only-cache';
+    const first = callPi('worker', 'use the default reasoning', options(sessionId));
+
+    await vi.waitFor(() => expect(mocks.started.size).toBe(1));
+    const firstState = mocks.latestState(sessionId)!;
+    mocks.releaseLatest(sessionId);
+    expect((await first).status).toBe('done');
+
+    const second = callPi('worker', 'use high reasoning', {
+      ...options(sessionId),
+      providerOptions: { thinkingLevel: 'high' },
+    });
+
+    await vi.waitFor(() => expect(
+      mocks.states.reduce((promptCount, state) => promptCount + state.promptCount, 0),
+    ).toBe(2));
+    mocks.releaseLatest(sessionId);
+
+    expect((await second).status).toBe('done');
+    expect(mocks.createAgentSession).toHaveBeenCalledTimes(1);
+    expect(mocks.latestState(sessionId)).toBe(firstState);
+    expect(firstState.promptThinkingLevels).toEqual([undefined, 'high']);
+  });
+
+  it('creates a distinct cached session when a resource option changes', async () => {
+    const sessionId = 'resource-option-cache';
+    const first = callPi('worker', 'include skills', {
+      ...options(sessionId),
+      providerOptions: { noSkills: false, thinkingLevel: 'low' },
+    });
+
+    await vi.waitFor(() => expect(mocks.started.size).toBe(1));
+    const firstState = mocks.latestState(sessionId)!;
+    mocks.releaseLatest(sessionId);
+    expect((await first).status).toBe('done');
+
+    const second = callPi('worker', 'exclude skills', {
+      ...options(sessionId),
+      providerOptions: { noSkills: true, thinkingLevel: 'high' },
+    });
+
+    await vi.waitFor(() => expect(
+      mocks.states.filter((state) => state.requestedId === sessionId),
+    ).toHaveLength(2));
     const secondState = mocks.latestState(sessionId)!;
     mocks.releaseLatest(sessionId);
 
     expect((await second).status).toBe('done');
     expect(mocks.createAgentSession).toHaveBeenCalledTimes(2);
     expect(firstState).not.toBe(secondState);
-    expect(firstState.thinkingLevels.at(-1)).toBe('low');
-    expect(secondState.thinkingLevels.at(-1)).toBe('high');
+    expect(firstState.promptThinkingLevels).toEqual(['low']);
+    expect(secondState.promptThinkingLevels).toEqual(['high']);
   });
 
   it('keeps a literal colon-containing model ID when a session is reused', async () => {

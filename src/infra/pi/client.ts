@@ -848,10 +848,18 @@ function stableJsonValue(value: unknown): unknown {
 }
 
 function buildSessionConfigurationFingerprint(options: PiCallOptions, agentDir: string): string {
+  const providerOptionEntries = options.providerOptions === undefined
+    ? []
+    : Object.entries(options.providerOptions)
+      .filter(([key]) => key !== 'thinkingLevel');
+  const fingerprintProviderOptions = providerOptionEntries.length === 0
+    ? undefined
+    : Object.fromEntries(providerOptionEntries);
+
   return JSON.stringify({
     agentDir: normalizeSessionCwd(agentDir),
     systemPrompt: options.systemPrompt,
-    providerOptions: stableJsonValue(options.providerOptions),
+    providerOptions: stableJsonValue(fingerprintProviderOptions),
     childProcessEnv: stableEnvironment(options.childProcessEnv),
   });
 }
