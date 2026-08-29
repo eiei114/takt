@@ -603,13 +603,15 @@ version: 1
 companion:
   enabled: true
   review_mode: completion # completion | live
+  fix_policy: single      # single | loop
 ```
 
-The `companion` policy must specify at least one of `enabled` or `review_mode`.
-A mode-only policy such as `companion: { review_mode: live }` is accepted and
-resolves to `enabled: false`; an empty `companion: {}` policy is rejected.
+The `companion` policy must specify at least one of `enabled`, `review_mode`, or `fix_policy`.
+A mode-only or fix-policy-only policy such as `companion: { review_mode: live }` or
+`companion: { fix_policy: loop }` is accepted and resolves to `enabled: false`;
+an empty `companion: {}` policy is rejected.
 
-When both global and project policies are specified, their values are combined
+When both global and project policies are specified, their `enabled` values are combined
 with logical AND; a project value of `true` cannot re-enable a globally disabled
 companion. An omitted policy is neutral during layer merging, and Companion
 remains disabled when neither layer specifies one.
@@ -619,8 +621,14 @@ global value, and a project omission inherits the global value. `completion`
 reviews the cumulative diff after a successful implementer response; `live`
 preserves quiet, forced, and commit-triggered reviews during the response. Only
 `completion` and `live` are accepted, and invalid values fail while loading
-`runtime.yaml`. The mode is validated even when `companion.enabled` is `false`,
-but no Companion provider is resolved or executed in that case.
+`runtime.yaml`. The mode and fix policy are validated even when `companion.enabled`
+is `false`, but no Companion provider is resolved or executed in that case.
+
+`companion.fix_policy` defaults to `single`. The project value overrides the
+global value, and a project omission inherits the global value. `single` performs
+at most one advisory fix follow-up after the initial review and does not re-review
+the follow-up; `loop` preserves the repeated review-and-fix behavior. Only `single`
+and `loop` are accepted, and invalid values fail while loading `runtime.yaml`.
 
 Companion provider targets (`targets.companions`) and provider capability
 requirements apply only while companions are enabled. When disabled, companion
@@ -1356,9 +1364,14 @@ To delegate permission control to Codex, explicitly opt in:
 provider_options:
   codex:
     permission_control: codex
+    network_access: true
+    reasoning_effort: high
+    fast_mode: true
+    skills:
+      repo: true
 ```
 
-With `permission_control: codex`, TAKT omits both `sandboxMode` and `networkAccessEnabled` from every Codex call, including strict isolated structured calls. Codex's `config.toml`, `default_permissions`, and permission profile determine the effective permissions. TAKT still sets `approvalPolicy: never` for non-interactive execution. `permission_control: codex` cannot be combined with `network_access`; the resolved configuration fails fast when both remain set. This is an explicit opt-in and its permission behavior is the user's responsibility.
+With `permission_control: codex`, TAKT omits both `sandboxMode` and `networkAccessEnabled` from every Codex call, including strict isolated structured calls. Codex's `config.toml`, `default_permissions`, and permission profile determine the effective permissions. A resolved `network_access` value is accepted without a warning and ignored for these Codex permission fields, regardless of whether it came from a capability, runtime profile, routing, project or global configuration, or an environment override. TAKT still sets `approvalPolicy: never` for non-interactive execution. Non-permission options such as `reasoning_effort`, `fast_mode`, and `skills` continue to apply. This is an explicit opt-in and its permission behavior is the user's responsibility.
 
 #### Codex Skill inheritance (`skills`)
 

@@ -595,14 +595,16 @@ version: 1
 companion:
   enabled: true
   review_mode: completion # completion | live
+  fix_policy: single      # single | loop
 ```
 
-`companion` ポリシーには `enabled` または `review_mode` の少なくとも一方を
-指定します。`companion: { review_mode: live }` のような mode 単独指定は受理され、
+`companion` ポリシーには `enabled`、`review_mode`、`fix_policy` の少なくとも一方を
+指定します。`companion: { review_mode: live }` や
+`companion: { fix_policy: loop }` のような mode または fix policy 単独指定は受理され、
 `enabled: false` として解決されます。空の `companion: {}` は拒否されます。
 
-global と project の両方にポリシーがある場合、その値は論理積で合成されるため、global
-側で無効化した companion を project 側の `true` で再有効化することはできません。
+global と project の両方にポリシーがある場合、`enabled` の値は論理積で合成されるため、
+global 側で無効化した companion を project 側の `true` で再有効化することはできません。
 レイヤー合成時に未指定のポリシーは中立として扱い、両方とも未指定なら companion は
 無効のままです。
 
@@ -611,7 +613,13 @@ global と project の両方にポリシーがある場合、その値は論理�
 エージェントの成功応答後に累積差分をレビューし、`live` は応答中の quiet、forced、
 commit 発火を維持します。指定できる値は `completion` と `live` だけで、無効な値は
 `runtime.yaml` の読み込み時にエラーになります。`companion.enabled` が `false` でも
-mode の構造は検証されますが、Companion provider の解決と実行は行われません。
+mode と fix policy の構造は検証されますが、Companion provider の解決と実行は行われません。
+
+`companion.fix_policy` の既定値は `single` です。project に指定した値は global を
+上書きし、project で省略した場合は global の値を継承します。`single` は初回レビュー後に
+advisory な修正 follow-up を最大 1 回だけ実行し、その follow-up の再レビューは行いません。
+`loop` は従来のレビューと修正の反復動作を維持します。指定できる値は `single` と `loop`
+だけで、無効な値は `runtime.yaml` の読み込み時にエラーになります。
 
 companion の provider target（`targets.companions`）とプロバイダ能力要件が適用されるのは
 companion が有効な間だけです。無効時も companion 宣言と `targets.companions` の構造検証は
@@ -1294,9 +1302,14 @@ Codex 側へ権限制御を委譲する場合だけ、明示的に opt-in しま
 provider_options:
   codex:
     permission_control: codex
+    network_access: true
+    reasoning_effort: high
+    fast_mode: true
+    skills:
+      repo: true
 ```
 
-`permission_control: codex` では通常の Codex 呼び出しと strict isolated structured 呼び出しの両方で TAKT は `sandboxMode` と `networkAccessEnabled` を渡しません。実効権限は Codex の `config.toml`、`default_permissions`、permission profile に委譲されます。非対話実行を成立させるため `approvalPolicy: never` は引き続き設定されます。`permission_control: codex` と `network_access` は併用できず、解決後に両方が残る設定は fail fast で拒否されます。明示的な opt-in のため、権限の結果は利用者の自己責任です。
+`permission_control: codex` では通常の Codex 呼び出しと strict isolated structured 呼び出しの両方で TAKT は `sandboxMode` と `networkAccessEnabled` を渡しません。実効権限は Codex の `config.toml`、`default_permissions`、permission profile に委譲されます。capability、runtime profile、routing、project／global 設定、環境変数 override のいずれから解決された場合も、`network_access` は警告なしで受理され、これらの Codex 権限フィールドには使用されません。非対話実行を成立させるため `approvalPolicy: never` は引き続き設定され、`reasoning_effort`、`fast_mode`、`skills` などの非権限制御 option も従来どおり適用されます。明示的な opt-in のため、権限の結果は利用者の自己責任です。
 
 #### Codex Skill の継承 (`skills`)
 
