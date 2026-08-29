@@ -43,6 +43,7 @@ import { resolvePiActiveTools } from '../providers/pi-tool-policy.js';
 
 const PI_THINKING_LEVEL_VALUES = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 type PiThinkingLevel = (typeof PI_THINKING_LEVEL_VALUES)[number];
+const PI_SDK_DEFAULT_THINKING_LEVEL: PiThinkingLevel = 'medium';
 const PI_THINKING_LEVELS = new Set<string>(PI_THINKING_LEVEL_VALUES);
 
 function isPiThinkingLevel(value: string): value is PiThinkingLevel {
@@ -70,6 +71,7 @@ interface PiSessionRecord {
   runtime: ModelRuntime;
   cwd: string;
   configurationFingerprint: string;
+  thinkingLevelOverrideActive: boolean;
   extensionErrors: string[];
   operationTail: Promise<void>;
   activeOperations: number;
@@ -920,6 +922,10 @@ async function applyPiModel(
   }
   if (configuredThinkingLevel !== undefined) {
     record.session.setThinkingLevel(configuredThinkingLevel);
+    record.thinkingLevelOverrideActive = true;
+  } else if (record.thinkingLevelOverrideActive) {
+    record.session.setThinkingLevel(PI_SDK_DEFAULT_THINKING_LEVEL);
+    record.thinkingLevelOverrideActive = false;
   }
 }
 
@@ -1074,6 +1080,7 @@ async function createPiSession(
       runtime,
       cwd: options.cwd,
       configurationFingerprint,
+      thinkingLevelOverrideActive: false,
       extensionErrors,
       operationTail: Promise.resolve(),
       activeOperations: 0,

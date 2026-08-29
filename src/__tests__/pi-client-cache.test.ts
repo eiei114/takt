@@ -18,8 +18,9 @@ const mocks = vi.hoisted(() => {
     shutdownRejects: boolean;
     shutdownGate?: Deferred;
     disposed: boolean;
+    currentThinkingLevel: string;
     thinkingLevels: string[];
-    promptThinkingLevels: Array<string | undefined>;
+    promptThinkingLevels: string[];
     modelApplications: string[];
     promptCount: number;
   }
@@ -49,6 +50,7 @@ const mocks = vi.hoisted(() => {
       promptRejects: false,
       shutdownRejects: false,
       disposed: false,
+      currentThinkingLevel: 'medium',
       thinkingLevels: [],
       promptThinkingLevels: [],
       modelApplications: [],
@@ -66,6 +68,7 @@ const mocks = vi.hoisted(() => {
         session.model = model;
       }),
       setThinkingLevel: vi.fn((level: string) => {
+        state.currentThinkingLevel = level;
         state.thinkingLevels.push(level);
       }),
       getAllTools: vi.fn(() => [
@@ -101,7 +104,7 @@ const mocks = vi.hoisted(() => {
       }),
       prompt: vi.fn(async () => {
         state.promptCount += 1;
-        state.promptThinkingLevels.push(state.thinkingLevels.at(-1));
+        state.promptThinkingLevels.push(state.currentThinkingLevel);
         started.add(instanceId);
         await state.gate.promise;
         if (state.promptRejects) {
@@ -290,7 +293,32 @@ describe('Pi SDK session cache', () => {
     expect((await second).status).toBe('done');
     expect(mocks.createAgentSession).toHaveBeenCalledTimes(1);
     expect(mocks.latestState(sessionId)).toBe(firstState);
-    expect(firstState.promptThinkingLevels).toEqual([undefined, 'high']);
+    expect(firstState.promptThinkingLevels).toEqual(['medium', 'high']);
+  });
+
+  it('restores the SDK default when an explicit thinking level becomes unset', async () => {
+    const sessionId = 'thinking-level-reset-cache';
+    const first = callPi('worker', 'use high reasoning', {
+      ...options(sessionId),
+      providerOptions: { thinkingLevel: 'high' },
+    });
+
+    await vi.waitFor(() => expect(mocks.started.size).toBe(1));
+    const firstState = mocks.latestState(sessionId)!;
+    mocks.releaseLatest(sessionId);
+    expect((await first).status).toBe('done');
+
+    const second = callPi('worker', 'use the SDK default', options(sessionId));
+
+    await vi.waitFor(() => expect(
+      mocks.states.reduce((promptCount, state) => promptCount + state.promptCount, 0),
+    ).toBe(2));
+    mocks.releaseLatest(sessionId);
+
+    expect((await second).status).toBe('done');
+    expect(mocks.createAgentSession).toHaveBeenCalledTimes(1);
+    expect(mocks.latestState(sessionId)).toBe(firstState);
+    expect(firstState.promptThinkingLevels).toEqual(['high', 'medium']);
   });
 
   it('creates a distinct cached session when a resource option changes', async () => {
@@ -343,7 +371,7 @@ describe('Pi SDK session cache', () => {
     expect(second.status).toBe('done');
     expect(mocks.createAgentSession).toHaveBeenCalledTimes(1);
     expect(state.modelApplications).toEqual(['test/model:high']);
-    expect(state.promptThinkingLevels).toEqual([undefined, undefined]);
+    expect(state.promptThinkingLevels).toEqual(['medium', 'medium']);
     expect(state.thinkingLevels).toEqual([]);
   });
 
