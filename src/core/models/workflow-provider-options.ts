@@ -132,6 +132,9 @@ export interface CursorProviderOptions {
 }
 
 /** Configuration for the DeepSeek Harness Python SDK bridge. */
+export const DEEPSEEK_HARNESS_REASONING_EFFORTS = ['off', 'low', 'high', 'max'] as const;
+export type DeepSeekHarnessReasoningEffort = (typeof DEEPSEEK_HARNESS_REASONING_EFFORTS)[number];
+
 export interface DeepSeekHarnessProviderOptions {
   pythonPath?: string;
   baseUrl?: string;
@@ -141,6 +144,7 @@ export interface DeepSeekHarnessProviderOptions {
   requestTimeoutMs?: number;
   shutdownTimeoutMs?: number;
   runtimeMode?: 'exe' | 'node';
+  reasoningEffort?: DeepSeekHarnessReasoningEffort;
 }
 
 /**

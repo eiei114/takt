@@ -625,6 +625,29 @@ describe('workflow selector resolution', () => {
     });
   });
 
+  it('should preserve DeepSeek reasoning_effort and model content through workflow selector resolution', () => {
+    const projectDir = createProject([
+      'takt_providers:',
+      '  selector:',
+      '    provider: deepseek-harness',
+      '    model: route/model:variant',
+      '    provider_options:',
+      '      deepseek_harness:',
+      '        reasoning_effort: high',
+    ].join('\n'));
+
+    expect(resolveWorkflowSelectorForProject(makeDynamicWorkflow(), projectDir)).toEqual({
+      applies: true,
+      selectorProvider: expect.objectContaining({
+        provider: 'deepseek-harness',
+        model: 'route/model:variant',
+        providerOptions: {
+          deepseekHarness: { reasoningEffort: 'high' },
+        },
+      }),
+    });
+  });
+
   it('should keep compatible Claude options', () => {
     const projectDir = createProject([
       'takt_providers:',

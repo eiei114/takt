@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { OptionsBuilder } from '../core/workflow/engine/OptionsBuilder.js';
 import type { WorkflowStep } from '../core/models/types.js';
+import type { StepProviderOptions } from '../core/models/workflow-types.js';
 import type { RuntimeStepResolution, WorkflowEngineOptions } from '../core/workflow/types.js';
+
+function asProviderOptions(value: unknown): StepProviderOptions {
+  return value as StepProviderOptions;
+}
 
 function createStep(overrides: Partial<WorkflowStep> = {}): WorkflowStep {
   return {
@@ -32,6 +37,23 @@ function createBuilder(engineOverrides: Partial<WorkflowEngineOptions>): Options
     () => 'auto-routing-provider-options',
     () => 'Auto routing provider options test workflow',
   );
+}
+
+function createDeepSeekAutoRuntime(): RuntimeStepResolution {
+  return {
+    providerInfo: {
+      provider: 'deepseek-harness',
+      model: 'route/model:variant',
+      providerSource: 'auto.rules',
+      modelSource: 'auto.rules',
+      providerOptions: asProviderOptions({
+        deepseekHarness: { reasoningEffort: 'high' },
+      }),
+      providerOptionsSources: {
+        'deepseekHarness.reasoningEffort': 'auto.rules',
+      },
+    },
+  };
 }
 
 function createAutoRuntime(): RuntimeStepResolution {
@@ -80,6 +102,26 @@ describe('auto routing provider_options merge', () => {
       },
     });
     expect(options.permissionMode).toBe('readonly');
+  });
+
+  it('preserves DeepSeek reasoningEffort from an env-origin config over an auto candidate', () => {
+    const builder = createBuilder({
+      providerOptionsSource: 'project',
+      providerOptionsOriginResolver: (path) => (
+        path === 'deepseekHarness.reasoningEffort' ? 'env' : 'local'
+      ),
+      providerOptions: asProviderOptions({
+        deepseekHarness: { reasoningEffort: 'low' },
+      }),
+    });
+
+    const options = builder.buildBaseOptions(createStep(), undefined, createDeepSeekAutoRuntime());
+
+    expect(options.resolvedProvider).toBe('deepseek-harness');
+    expect(options.resolvedModel).toBe('route/model:variant');
+    expect(options.providerOptions).toEqual({
+      deepseekHarness: { reasoningEffort: 'low' },
+    });
   });
 
   it('Given auto candidate provider_options, When resolving provider info, Then provider option sources preserve auto source only for candidate-owned leaves', () => {

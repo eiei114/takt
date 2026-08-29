@@ -306,6 +306,31 @@ describe('resolveEffectiveProviderOptions', () => {
     });
   });
 
+  it('DeepSeek reasoningEffort は step > persona > config の通常優先度で解決される', () => {
+    const resolved = resolveEffectiveProviderOptions(
+      'project',
+      undefined,
+      asProviderOptions({ deepseekHarness: { reasoningEffort: 'low' } }),
+      asProviderOptions({ deepseekHarness: { reasoningEffort: 'high' } }),
+      asProviderOptions({ deepseekHarness: { reasoningEffort: 'medium' } }),
+    );
+
+    expect(resolved).toEqual({
+      deepseekHarness: { reasoningEffort: 'high' },
+    });
+    expect(resolveProviderOptionSource(
+      'deepseekHarness.reasoningEffort',
+      asProviderOptions({ deepseekHarness: { reasoningEffort: 'high' } }),
+      [{
+        source: 'persona_providers',
+        options: asProviderOptions({ deepseekHarness: { reasoningEffort: 'medium' } }),
+      }],
+      asProviderOptions({ deepseekHarness: { reasoningEffort: 'low' } }),
+      undefined,
+      'project',
+    )).toBe('step');
+  });
+
   it('baseUrl は step > persona > config の優先で解決される', () => {
     const configOptions = {
       codex: { baseUrl: 'http://config.example.test/v1' },
@@ -787,6 +812,7 @@ describe('resolveProviderOptionsSources (all paths)', () => {
       { claude: { effort: 'xhigh' } },
       [{ source: 'persona_providers', options: {
         codex: { fastMode: false, permissionControl: 'codex', reasoningEffort: 'high' },
+        deepseekHarness: { reasoningEffort: 'high' },
       } }],
       { copilot: { effort: 'medium' } },
       undefined,
@@ -797,6 +823,7 @@ describe('resolveProviderOptionsSources (all paths)', () => {
       'codex.fastMode': 'persona_providers',
       'codex.permissionControl': 'persona_providers',
       'codex.reasoningEffort': 'persona_providers',
+      'deepseekHarness.reasoningEffort': 'persona_providers',
       'copilot.effort': 'global',
     });
   });
@@ -810,6 +837,7 @@ describe('resolveProviderOptionsSources (all paths)', () => {
           options: {
             claude: { sandbox: { excludedCommands: ['rm'] } },
             codex: { reasoningEffort: 'medium' },
+            deepseekHarness: { reasoningEffort: 'low' },
           },
         },
         {
@@ -818,7 +846,10 @@ describe('resolveProviderOptionsSources (all paths)', () => {
         },
         {
           source: 'provider_routing.personas',
-          options: { codex: { reasoningEffort: 'high' } },
+          options: {
+            codex: { reasoningEffort: 'high' },
+            deepseekHarness: { reasoningEffort: 'high' },
+          },
         },
         {
           source: 'provider_routing.tags',
@@ -849,6 +880,7 @@ describe('resolveProviderOptionsSources (all paths)', () => {
       'claude.sandbox.excludedCommands': 'capabilities',
       'codex.networkAccess': 'persona_providers',
       'codex.reasoningEffort': 'provider_routing.personas',
+      'deepseekHarness.reasoningEffort': 'provider_routing.personas',
       'opencode.networkAccess': 'provider_routing.tags',
       'opencode.variant': 'provider_routing.steps',
       'copilot.effort': 'project',
@@ -963,6 +995,7 @@ describe('providerOptionsContract', () => {
       'provider_options.deepseek_harness.request_timeout_ms',
       'provider_options.deepseek_harness.shutdown_timeout_ms',
       'provider_options.deepseek_harness.runtime_mode',
+      'provider_options.deepseek_harness.reasoning_effort',
       'provider_options.pi.extensions',
       'provider_options.pi.thinking_level',
       'provider_options.pi.guards.call_timeout_ms',
@@ -998,6 +1031,8 @@ describe('providerOptionsContract', () => {
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.cursor.guards.call_timeout_ms');
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.deepseek_harness');
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.deepseek_harness.base_url');
+    expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.deepseek_harness.reasoning_effort');
+    expect(PROVIDER_OPTIONS_TRACKED_KEYS).toContain('provider_options.deepseek_harness.reasoning_effort');
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi');
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi.guards.call_timeout_ms');
     expect(PROVIDER_OPTIONS_TRACE_PATHS).toContain('provider_options.pi.extensions');
@@ -1055,6 +1090,8 @@ describe('providerOptionsContract', () => {
       .toBe('provider_options.kiro.agent');
     expect(toProviderOptionsTracePath('deepseekHarness.requestTimeoutMs'))
       .toBe('provider_options.deepseek_harness.request_timeout_ms');
+    expect(toProviderOptionsTracePath('deepseekHarness.reasoningEffort'))
+      .toBe('provider_options.deepseek_harness.reasoning_effort');
     expect(toProviderOptionsTracePath('pi.extensions'))
       .toBe('provider_options.pi.extensions');
     expect(toProviderOptionsTracePath('pi.thinkingLevel'))
@@ -1121,6 +1158,12 @@ describe('providerOptionsContract', () => {
       'copilot.guards.callTimeoutMs',
       'cursor.guards.callTimeoutMs',
     ]);
+  });
+
+  it('enumerates DeepSeek reasoningEffort when present', () => {
+    expect(getPresentProviderOptionPaths(asProviderOptions({
+      deepseekHarness: { reasoningEffort: 'high' },
+    }))).toContain('deepseekHarness.reasoningEffort');
   });
 
   it('enumerates kiro.agent when present', () => {
@@ -1319,6 +1362,7 @@ describe('claude_terminal provider_options normalization', () => {
       'copilot.guards.callTimeoutMs',
       'kiro.guards.callTimeoutMs',
       'cursor.guards.callTimeoutMs',
+      'deepseekHarness.reasoningEffort',
       'pi.guards.callTimeoutMs',
       'pi.thinkingLevel',
     ]));

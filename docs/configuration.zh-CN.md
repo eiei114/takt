@@ -921,6 +921,7 @@ provider_options:
     request_timeout_ms: 3600000
     shutdown_timeout_ms: 1000
     runtime_mode: exe                  # exe 或 node；node 仅用于显式 SDK 开发模式
+    reasoning_effort: high              # off、low、high 或 max
 ```
 
 DeepSeek Harness 的 `model` 字段既接受 `deepseek-v4-flash` 这样的纯 model
@@ -938,6 +939,12 @@ provider 和 model 字段传给 bridge/SDK；若 SDK 拒绝，错误会标明原
 bridge/SDK 的失败位置。
 
 `python_path` 和 `cordis` 只允许来自受信任的全局配置或对应环境变量；项目设置使用默认 `python3`。`session_root` 和 `cordis` 相对配置的工作目录解析。带有 `session_key` 的 workflow 会复用 session；one-shot call 会立即关闭 bridge。官方 event 会转换成 TAKT 的 text、thinking、tool-use、tool-result、error 和 result event。system prompt、TAKT `allowed_tools`、MCP server map、图片附件、structured output、permission mode 和 `maxTurns` 不属于官方 SDK 调用，会被警告并忽略；工具组合请通过 Cordis 配置。
+
+`reasoning_effort` 是 DeepSeek Harness 专用 provider option。只接受完全匹配的 `off`、`low`、`high`、`max`；大写、首尾空格、别名和未知值会在配置校验时失败，并显示收到的值和允许的值。未设置时，TAKT 会从 bridge 和 SDK 配置中完全省略 `reasoning_effort`，交由官方 SDK 使用其默认值。model reference 会原样传给 SDK；其中的 `:` 和额外 `/` 会保留为 model ID 的一部分，推理强度只能通过此 provider option 设置。runtime 模式中，将同一字段放在 `provider.profiles.<name>.options` 下。
+
+`provider_options` 按每个 option leaf 单独解析。对于 `reasoning_effort`，环境变量或 CLI 解析出的配置 leaf 优先于所有其他来源；没有该 override 时，按 step `provider_options` > `provider_routing.steps` > `provider_routing.tags` > `provider_routing.personas` > 已弃用的 `persona_providers` > `workflow_config.provider_options` > 项目 `.takt/config.yaml` > 全局 `~/.takt/config.yaml` 的顺序解析。
+
+对应的 provider option 环境变量是 `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT`；它必须是 `off`、`low`、`high` 或 `max` 之一。未设置时使用官方 SDK 默认值。
 
 #### 网络访问（`network_access`）
 

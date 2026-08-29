@@ -1277,6 +1277,7 @@ provider_options:
     request_timeout_ms: 3600000
     shutdown_timeout_ms: 1000
     runtime_mode: exe                  # exe or node; node is for explicit SDK development mode
+    reasoning_effort: high              # off, low, high, or max
 ```
 
 The DeepSeek Harness `model` field accepts either a bare model reference such as
@@ -1296,11 +1297,13 @@ validation point. Unknown routes or model IDs are not validated by TAKT and are
 passed unchanged as separate provider/model fields to the bridge/SDK; an SDK
 rejection identifies the supplied reference and the bridge/SDK failure point.
 
+`reasoning_effort` is a DeepSeek Harness provider option. Only the exact values `off`, `low`, `high`, and `max` are accepted; uppercase, surrounding whitespace, aliases, and unknown values fail validation with the received value and allowed values identified. When it is omitted, TAKT leaves `reasoning_effort` out of the bridge and SDK configuration so the official SDK default is used. The model reference is passed to the SDK as-is: `:` and additional `/` characters remain part of the model ID, and reasoning effort is configured only through this provider option. In runtime mode, place the same field under `provider.profiles.<name>.options`.
+
 For credential safety, `python_path` is accepted only from trusted global configuration or `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH`; workflow and project-local provider options must use the default `python3` executable. `cordis` is also accepted only from trusted global configuration or `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS`, because it selects executable tool composition. The example above intentionally omits both fields. The same restrictions apply to project `runtime.yaml` profiles; global runtime profiles may select trusted values. Project runtime profiles may use only loopback `base_url` values.
 
 `session_root` and `cordis` are resolved relative to the configured working directory. Sessions are reused when a workflow supplies `session_key`; one-shot calls close the bridge immediately. `request_timeout_ms` terminates the complete Python bridge request, and aborting a TAKT call terminates the bridge process tree. Stream events are converted from official `session.event` notifications into TAKT text, thinking, tool-use, tool-result, error, and result events. System prompts, TAKT `allowed_tools`, MCP server maps, image attachments, structured output, permission modes, and `maxTurns` are not part of the official SDK call and are ignored with a warning; configure system/tool composition through Cordis instead.
 
-The corresponding environment overrides are `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH`, `_BASE_URL`, `_SESSION_ROOT`, `_CORDIS`, `_MAX_TOKENS`, `_REQUEST_TIMEOUT_MS`, `_SHUTDOWN_TIMEOUT_MS`, and `_RUNTIME_MODE`. The `base_url` environment override is user-controlled and may be non-loopback. `runtime_mode: node` requires the official SDK's development Node carrier and is never selected implicitly.
+The corresponding environment overrides are `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH`, `_BASE_URL`, `_SESSION_ROOT`, `_CORDIS`, `_MAX_TOKENS`, `_REQUEST_TIMEOUT_MS`, `_SHUTDOWN_TIMEOUT_MS`, `_RUNTIME_MODE`, and `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT`. The reasoning-effort environment value follows the normal provider-option precedence and must be exactly one of `off`, `low`, `high`, or `max`; when it is unset, the official SDK default remains in control. The `base_url` environment override is user-controlled and may be non-loopback. `runtime_mode: node` requires the official SDK's development Node carrier and is never selected implicitly.
 
 #### Network access (`network_access`)
 

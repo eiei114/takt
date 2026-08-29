@@ -19,6 +19,7 @@ const deepseekYaml = {
     request_timeout_ms: 120_000,
     shutdown_timeout_ms: 2_000,
     runtime_mode: 'exe' as const,
+    reasoning_effort: 'high',
   },
 };
 
@@ -36,11 +37,43 @@ describe('DeepSeek Harness provider options', () => {
         requestTimeoutMs: 120_000,
         shutdownTimeoutMs: 2_000,
         runtimeMode: 'exe',
+        reasoningEffort: 'high',
       },
     });
     expect(mergeProviderOptions(undefined, normalized)).toEqual(normalized);
     expect(denormalizeProviderOptions(normalized)).toEqual(deepseekYaml);
   });
+
+  it.each(['off', 'low', 'high', 'max'] as const)(
+    'accepts the exact DeepSeek reasoning_effort value %s',
+    (reasoningEffort) => {
+      expect(StepProviderOptionsObjectSchema.parse({
+        deepseek_harness: { reasoning_effort: reasoningEffort },
+      })).toEqual({
+        deepseek_harness: { reasoning_effort: reasoningEffort },
+      });
+    },
+  );
+
+  it.each(['', ' ', ' high ', 'HIGH', 'minimal', 'medium', 'xhigh', 'unknown'] as const)(
+    'rejects the invalid DeepSeek reasoning_effort value %j with its value and allowed values',
+    (reasoningEffort) => {
+      const parsed = StepProviderOptionsObjectSchema.safeParse({
+        deepseek_harness: { reasoning_effort: reasoningEffort },
+      });
+
+      expect(parsed.success).toBe(false);
+      if (parsed.success) {
+        throw new Error('Expected the invalid reasoning_effort value to be rejected');
+      }
+      const issueText = parsed.error.issues.map((issue) => issue.message).join(' ');
+      expect(issueText).toContain(JSON.stringify(reasoningEffort));
+      expect(issueText).toContain('off');
+      expect(issueText).toContain('low');
+      expect(issueText).toContain('high');
+      expect(issueText).toContain('max');
+    },
+  );
 
   it('redacts a configured DeepSeek base URL without dropping runtime options', () => {
     expect(redactProviderOptions({

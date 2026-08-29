@@ -10,6 +10,34 @@ import { clearTaktEnv, restoreTaktEnv, type TaktEnvSnapshot } from './helpers/ta
 const testRoot = join(tmpdir(), `takt-config-env-${randomUUID()}`);
 const globalTaktDir = join(testRoot, 'global');
 const globalConfigPath = join(globalTaktDir, 'config.yaml');
+const INVALID_DEEPSEEK_REASONING_EFFORTS = [
+  '',
+  ' ',
+  ' high ',
+  'HIGH',
+  'minimal',
+  'medium',
+  'xhigh',
+  'unknown',
+] as const;
+const DEEPSEEK_REASONING_EFFORTS = ['off', 'low', 'high', 'max'] as const;
+
+function loadConfigErrorMessage(loadConfig: () => unknown): string {
+  try {
+    loadConfig();
+  } catch (error) {
+    if (!(error instanceof Error)) {
+      throw error;
+    }
+    const issues = (error as Error & {
+      issues?: readonly { message: string }[];
+    }).issues;
+    return issues === undefined
+      ? error.message
+      : issues.map((issue) => issue.message).join(' ');
+  }
+  throw new Error('Expected configuration loading to reject invalid DeepSeek reasoning_effort');
+}
 
 type ConfigWithObservability<T> = T & {
   observability?: {
@@ -53,6 +81,8 @@ describe('config traced env overrides', () => {
       .toBe('TAKT_PROVIDER_OPTIONS_CODEX_FAST_MODE');
     expect(envVarNameFromPath('provider_options.pi.thinking_level'))
       .toBe('TAKT_PROVIDER_OPTIONS_PI_THINKING_LEVEL');
+    expect(envVarNameFromPath('provider_options.deepseek_harness.reasoning_effort'))
+      .toBe('TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT');
   });
 
   it('global config はホワイトリストされた env のみを反映する', () => {
@@ -66,6 +96,32 @@ describe('config traced env overrides', () => {
     expect(config.provider).toBe('codex');
     expect(config.vcsProvider).toBeUndefined();
   });
+
+  it('global config は DeepSeek reasoning_effort の env override を反映する', () => {
+    mkdirSync(globalTaktDir, { recursive: true });
+    writeFileSync(globalConfigPath, 'language: en\n', 'utf-8');
+    process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = 'low';
+
+    expect(loadGlobalConfig().providerOptions).toEqual({
+      deepseekHarness: { reasoningEffort: 'low' },
+    });
+  });
+
+  it.each(INVALID_DEEPSEEK_REASONING_EFFORTS)(
+    'global config は不正な DeepSeek reasoning_effort の env override %j を拒否する',
+    (reasoningEffort) => {
+      mkdirSync(globalTaktDir, { recursive: true });
+      writeFileSync(globalConfigPath, 'language: en\nprovider: deepseek-harness\n', 'utf-8');
+      process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = reasoningEffort;
+
+      const errorMessage = loadConfigErrorMessage(loadGlobalConfig);
+
+      expect(errorMessage).toContain(JSON.stringify(reasoningEffort));
+      for (const allowedEffort of DEEPSEEK_REASONING_EFFORTS) {
+        expect(errorMessage).toContain(allowedEffort);
+      }
+    },
+  );
 
   it('global config の base_url 明示値は env override より優先される', () => {
     mkdirSync(globalTaktDir, { recursive: true });
@@ -108,6 +164,38 @@ describe('config traced env overrides', () => {
       codex: { networkAccess: true },
     });
   });
+
+  it('project config は DeepSeek reasoning_effort の env override を反映する', () => {
+    const projectDir = join(testRoot, 'project-deepseek-reasoning-effort-env');
+    const configDir = getProjectConfigDir(projectDir);
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, 'config.yaml'), 'provider: deepseek-harness\n', 'utf-8');
+    process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = 'high';
+
+    const config = loadProjectConfig(projectDir);
+
+    expect(config.providerOptions).toEqual({
+      deepseekHarness: { reasoningEffort: 'high' },
+    });
+  });
+
+  it.each(INVALID_DEEPSEEK_REASONING_EFFORTS)(
+    'project config は不正な DeepSeek reasoning_effort の env override %j を拒否する',
+    (reasoningEffort) => {
+      const projectDir = join(testRoot, 'project-deepseek-invalid-reasoning-effort-env');
+      const configDir = getProjectConfigDir(projectDir);
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(join(configDir, 'config.yaml'), 'provider: deepseek-harness\n', 'utf-8');
+      process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = reasoningEffort;
+
+      const errorMessage = loadConfigErrorMessage(() => loadProjectConfig(projectDir));
+
+      expect(errorMessage).toContain(JSON.stringify(reasoningEffort));
+      for (const allowedEffort of DEEPSEEK_REASONING_EFFORTS) {
+        expect(errorMessage).toContain(allowedEffort);
+      }
+    },
+  );
 
   it.each([
     { configValue: true, envValue: 'false', expectedValue: false },

@@ -237,6 +237,7 @@ describe('compileRuntimeProviderEnvironment (profile options)', () => {
           options: {
             python_path: '/opt/user-python',
             base_url: 'https://proxy.example.test/v1',
+            reasoning_effort: 'high',
           },
         },
       },
@@ -248,6 +249,7 @@ describe('compileRuntimeProviderEnvironment (profile options)', () => {
       deepseekHarness: {
         pythonPath: '/opt/user-python',
         baseUrl: 'https://proxy.example.test/v1',
+        reasoningEffort: 'high',
       },
     });
   });

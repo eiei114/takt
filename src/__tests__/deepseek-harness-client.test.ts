@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -51,6 +52,12 @@ const supportedRuntime = (
   || (process.platform === 'darwin' && process.arch === 'arm64')
 ) && findPython() !== undefined;
 
+type TestDeepSeekProviderOptions = NonNullable<Parameters<typeof callDeepSeekHarness>[2]['providerOptions']>;
+
+function asTestDeepSeekProviderOptions(value: unknown): TestDeepSeekProviderOptions {
+  return value as TestDeepSeekProviderOptions;
+}
+
 it.skipIf(supportedRuntime)('DeepSeek Harness fails fast with an actionable unsupported-platform error', async () => {
   const response = await callDeepSeekHarness('worker', 'hello', { cwd: process.cwd() });
 
@@ -62,6 +69,7 @@ it.skipIf(supportedRuntime)('DeepSeek Harness fails fast with an actionable unsu
 describe.skipIf(!supportedRuntime)('DeepSeek Harness bridge lifecycle', () => {
   let root: string;
   let pythonPath: string;
+  let bridgeInputPath: string;
 
   beforeEach(async () => {
     const python = findPython();
@@ -69,6 +77,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness bridge lifecycle', () => {
       throw new Error('Python 3.10+ was detected during suite selection but is unavailable');
     }
     root = await mkdtemp(path.join(os.tmpdir(), 'takt-deepseek-harness-'));
+    bridgeInputPath = path.join(root, 'bridge-input.jsonl');
     const moduleDir = path.join(root, 'deepseek_harness');
     await mkdir(moduleDir);
     await writeFile(path.join(moduleDir, '__init__.py'), `
@@ -117,6 +126,9 @@ class DeepSeekHarness:
         if counter_file:
             with open(counter_file, 'a', encoding='utf-8') as counter:
                 counter.write('initialized\\n')
+        if os.path.basename(self.kwargs.get('cordis', '')) == 'FAKE_CAPTURE_KWARGS':
+            with open(os.path.join(self.kwargs['cwd'], 'sdk-kwargs.json'), 'w', encoding='utf-8') as config:
+                json.dump(self.kwargs, config)
 
     def start(self):
         if os.path.basename(self.kwargs.get('cordis', '')) == 'FAKE_START_FAILURE':
@@ -212,7 +224,11 @@ class DeepSeekHarness:
         return Result(active_session, final_response, result_finish_reason)
 `, 'utf8');
     pythonPath = path.join(root, 'python-wrapper.sh');
-    await writeFile(pythonPath, `#!/bin/sh\nPYTHONPATH="${root}:${'${PYTHONPATH:-}'}" exec "${python}" "$@"\n`, 'utf8');
+    await writeFile(
+      pythonPath,
+      `#!/bin/sh\nprintf 'started\\n' >> "${root}/bridge-launches.txt"\ntee "${bridgeInputPath}" | PYTHONPATH="${root}:${'${PYTHONPATH:-}'}" exec "${python}" "$@"\n`,
+      'utf8',
+    );
     await chmod(pythonPath, 0o755);
   });
 
@@ -220,6 +236,83 @@ class DeepSeekHarness:
     await closeDeepSeekHarnessProcesses();
     await rm(root, { recursive: true, force: true });
   });
+
+  it.each(['off', 'low', 'high', 'max'] as const)(
+    'forwards explicit reasoning_effort=%s to the official SDK without changing model content',
+    async (reasoningEffort) => {
+      const response = await callDeepSeekHarness('worker', 'hello', {
+        cwd: root,
+        model: 'route/model:variant',
+        providerOptions: asTestDeepSeekProviderOptions({
+          pythonPath,
+          cordis: 'FAKE_CAPTURE_KWARGS',
+          requestTimeoutMs: 10_000,
+          reasoningEffort,
+        }),
+      });
+      const sdkOptions = JSON.parse(
+        await readFile(path.join(root, 'sdk-kwargs.json'), 'utf8'),
+      ) as Record<string, unknown>;
+
+      expect(response).toMatchObject({ status: 'done', content: 'hello' });
+      expect(sdkOptions.model).toBe('route/model:variant');
+      expect(Object.prototype.hasOwnProperty.call(sdkOptions, 'reasoning_effort')).toBe(true);
+      expect(sdkOptions.reasoning_effort).toBe(reasoningEffort);
+    },
+  );
+
+  it('omits reasoning_effort from the bridge and SDK when the provider option is unset', async () => {
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      model: 'route/model/extra:variant',
+      providerOptions: asTestDeepSeekProviderOptions({
+        pythonPath,
+        cordis: 'FAKE_CAPTURE_KWARGS',
+        requestTimeoutMs: 10_000,
+      }),
+    });
+    const sdkOptions = JSON.parse(
+      await readFile(path.join(root, 'sdk-kwargs.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    const startMessage = (await readFile(bridgeInputPath, 'utf8'))
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line) as { type?: unknown; config?: Record<string, unknown> })
+      .find((message) => message.type === 'start');
+    expect(startMessage).toBeDefined();
+    const startConfig = startMessage?.config;
+    expect(startConfig).toBeDefined();
+
+    expect(response).toMatchObject({ status: 'done', content: 'hello' });
+    expect(Object.prototype.hasOwnProperty.call(startConfig, 'reasoningEffort')).toBe(false);
+    expect(sdkOptions.model).toBe('route/model/extra:variant');
+    expect(Object.prototype.hasOwnProperty.call(sdkOptions, 'reasoning_effort')).toBe(false);
+  });
+
+  it.each(['', ' ', ' high ', 'HIGH', 'minimal', 'medium', 'xhigh', 'unknown'] as const)(
+    'rejects invalid reasoning_effort=%j before starting the bridge',
+    async (reasoningEffort) => {
+      const counterFile = path.join(root, 'invalid-effort-bridge-starts.txt');
+      const response = await callDeepSeekHarness('worker', 'hello', {
+        cwd: root,
+        providerOptions: asTestDeepSeekProviderOptions({
+          pythonPath,
+          sessionRoot: counterFile,
+          requestTimeoutMs: 10_000,
+          reasoningEffort,
+        }),
+      });
+
+      expect(response.status).toBe('error');
+      expect(response.content).toContain(JSON.stringify(reasoningEffort));
+      expect(response.content).toContain('off');
+      expect(response.content).toContain('low');
+      expect(response.content).toContain('high');
+      expect(response.content).toContain('max');
+      expect(existsSync(path.join(root, 'bridge-launches.txt'))).toBe(false);
+      expect(existsSync(counterFile)).toBe(false);
+    },
+  );
 
   it('converts official SDK notifications and closes one-shot sessions', async () => {
     const events: Array<{ type: string; data: Record<string, unknown> }> = [];
@@ -421,7 +514,11 @@ class DeepSeekHarness:
     const response = await callDeepSeekHarness('worker', 'fail-secret', {
       cwd: root,
       childProcessEnv: { DEEPSEEK_API_KEY: secret },
-      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+      providerOptions: asTestDeepSeekProviderOptions({
+        pythonPath,
+        requestTimeoutMs: 10_000,
+        reasoningEffort: 'high',
+      }),
     });
 
     expect(response.status).toBe('error');
@@ -443,7 +540,11 @@ class DeepSeekHarness:
     const response = await callDeepSeekHarness('worker', 'secret-events', {
       cwd: root,
       childProcessEnv: { DEEPSEEK_API_KEY: secret },
-      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+      providerOptions: asTestDeepSeekProviderOptions({
+        pythonPath,
+        requestTimeoutMs: 10_000,
+        reasoningEffort: 'high',
+      }),
       onStream: (event) => {
         events.push(event as { type: string; data: Record<string, unknown> });
         logger.logEvent({
@@ -819,6 +920,45 @@ class DeepSeekHarness:
       'initialized',
       'initialized',
     ]);
+  });
+
+  it('reuses the same effort configuration and rejects a session with a different effort', async () => {
+    const counterFile = path.join(root, 'reasoning-effort-bridge-starts.txt');
+    const highOptions = asTestDeepSeekProviderOptions({
+      pythonPath,
+      sessionRoot: counterFile,
+      requestTimeoutMs: 10_000,
+      reasoningEffort: 'high',
+    });
+    const first = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      model: 'route/model:variant',
+      sessionId: 'reasoning-effort-session',
+      providerOptions: highOptions,
+    });
+    const second = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      model: 'route/model:variant',
+      sessionId: 'reasoning-effort-session',
+      providerOptions: highOptions,
+    });
+    const differentEffort = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      model: 'route/model:variant',
+      sessionId: 'reasoning-effort-session',
+      providerOptions: asTestDeepSeekProviderOptions({
+        pythonPath,
+        sessionRoot: counterFile,
+        requestTimeoutMs: 10_000,
+        reasoningEffort: 'low',
+      }),
+    });
+
+    expect(first).toMatchObject({ status: 'done', sessionId: 'reasoning-effort-session' });
+    expect(second).toMatchObject({ status: 'done', sessionId: 'reasoning-effort-session' });
+    expect(differentEffort.status).toBe('error');
+    expect(differentEffort.content).toContain('different project, session root, or bridge configuration');
+    expect((await readFile(counterFile, 'utf8')).trim().split('\n')).toEqual(['initialized']);
   });
 
   it('rejects a relative session root that traverses a symlink outside the project', async () => {

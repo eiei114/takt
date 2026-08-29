@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { OptionsBuilder } from '../core/workflow/engine/OptionsBuilder.js';
 import { validateWorkflowConfig } from '../core/workflow/engine/WorkflowValidator.js';
 import type { PartDefinition, WorkflowStep } from '../core/models/types.js';
+import type { StepProviderOptions } from '../core/models/workflow-types.js';
 import type { WorkflowEngineOptions } from '../core/workflow/types.js';
 import { resolveStepProviderModel } from '../core/workflow/provider-resolution.js';
 import { createPartStep } from '../core/workflow/engine/team-leader-common.js';
@@ -23,6 +24,10 @@ import {
 import { loadProjectConfigTraceState } from '../infra/config/project/projectConfig.js';
 import { loadGlobalConfig } from '../infra/config/global/globalConfigCore.js';
 import { loadWorkflowFromFile } from '../infra/config/loaders/workflowLoader.js';
+
+function asProviderOptions(value: unknown): StepProviderOptions {
+  return value as StepProviderOptions;
+}
 
 function createStep(overrides: Record<string, unknown> = {}): WorkflowStep {
   const engineSynthesized = 'provider' in overrides
@@ -411,6 +416,42 @@ describe('provider_routing provider_options resolution', () => {
         sandbox: { allowUnsandboxedCommands: true },
       },
       opencode: { variant: 'step-route' },
+    });
+  });
+
+  it('resolves DeepSeek reasoningEffort through config, persona, and provider routing layers', () => {
+    const step = createStep({
+      providerRoutingPersonaKey: 'coder',
+      tags: ['implementation'],
+    });
+    const builder = createBuilder({
+      providerOptionsSource: 'project',
+      providerOptions: asProviderOptions({
+        deepseekHarness: { reasoningEffort: 'low' },
+      }),
+      personaProviders: {
+        'implement-coder': {
+          providerOptions: asProviderOptions({
+            deepseekHarness: { reasoningEffort: 'medium' },
+          }),
+        },
+      },
+      providerRouting: {
+        personas: {
+          coder: {
+            providerOptions: asProviderOptions({
+              deepseekHarness: { reasoningEffort: 'high' },
+            }),
+          },
+        },
+      },
+    });
+
+    expect(builder.buildBaseOptions(step).providerOptions).toEqual({
+      deepseekHarness: { reasoningEffort: 'high' },
+    });
+    expect(builder.resolveStepProviderModel(step).providerOptionsSources).toMatchObject({
+      'deepseekHarness.reasoningEffort': 'provider_routing.personas',
     });
   });
 
@@ -835,11 +876,25 @@ describe('provider_routing config normalization', () => {
             },
           },
         },
+        deepseek: {
+          provider: 'deepseek-harness',
+          model: 'route/model:extra/variant',
+          provider_options: {
+            deepseek_harness: { reasoning_effort: 'max' },
+          },
+        },
       },
       tags: {
         edit: {
           provider_options: {
             codex: { network_access: true },
+          },
+        },
+        deepseek: {
+          provider: 'deepseek-harness',
+          model: 'route/model/extra:variant',
+          provider_options: {
+            deepseek_harness: { reasoning_effort: 'low' },
           },
         },
       },
@@ -863,11 +918,25 @@ describe('provider_routing config normalization', () => {
             },
           },
         },
+        deepseek: {
+          provider: 'deepseek-harness',
+          model: 'route/model:extra/variant',
+          providerOptions: {
+            deepseekHarness: { reasoningEffort: 'max' },
+          },
+        },
       },
       tags: {
         edit: {
           providerOptions: {
             codex: { networkAccess: true },
+          },
+        },
+        deepseek: {
+          provider: 'deepseek-harness',
+          model: 'route/model/extra:variant',
+          providerOptions: {
+            deepseekHarness: { reasoningEffort: 'low' },
           },
         },
       },
@@ -892,11 +961,25 @@ describe('provider_routing config normalization', () => {
             },
           },
         },
+        deepseek: {
+          provider: 'deepseek-harness',
+          model: 'route/model:extra/variant',
+          providerOptions: {
+            deepseekHarness: { reasoningEffort: 'max' },
+          },
+        },
       },
       tags: {
         edit: {
           providerOptions: {
             codex: { networkAccess: true },
+          },
+        },
+        deepseek: {
+          provider: 'deepseek-harness',
+          model: 'route/model/extra:variant',
+          providerOptions: {
+            deepseekHarness: { reasoningEffort: 'low' },
           },
         },
       },
@@ -913,11 +996,25 @@ describe('provider_routing config normalization', () => {
             },
           },
         },
+        deepseek: {
+          provider: 'deepseek-harness',
+          model: 'route/model:extra/variant',
+          provider_options: {
+            deepseek_harness: { reasoning_effort: 'max' },
+          },
+        },
       },
       tags: {
         edit: {
           provider_options: {
             codex: { network_access: true },
+          },
+        },
+        deepseek: {
+          provider: 'deepseek-harness',
+          model: 'route/model/extra:variant',
+          provider_options: {
+            deepseek_harness: { reasoning_effort: 'low' },
           },
         },
       },

@@ -465,6 +465,7 @@ describe('buildRawTaktProvidersOrThrow', () => {
           deepseekHarness: {
             pythonPath: '/usr/bin/python3',
             maxTokens: 4096,
+            reasoningEffort: 'high',
           },
         },
       },
@@ -477,11 +478,28 @@ describe('buildRawTaktProvidersOrThrow', () => {
           deepseek_harness: {
             python_path: '/usr/bin/python3',
             max_tokens: 4096,
+            reasoning_effort: 'high',
           },
         },
       },
     });
   });
+
+  it.each(['HIGH', 'medium'] as const)(
+    'should reject invalid normalized DeepSeek reasoningEffort=%s through the strict selector schema',
+    (reasoningEffort) => {
+      const providerOptions = {
+        deepseekHarness: { reasoningEffort },
+      } as unknown as StepProviderOptions;
+
+      expect(() => buildRawTaktProvidersOrThrow({
+        selector: {
+          provider: 'deepseek-harness',
+          providerOptions,
+        },
+      })).toThrow();
+    },
+  );
 
   it.each([true, false])('should preserve Codex fastMode=%s through the strict normalized selector schema', (fastMode) => {
     const providerOptions: StepProviderOptions = {

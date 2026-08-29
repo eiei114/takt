@@ -62,6 +62,7 @@ export type {
   CopilotProviderOptions,
   KiroProviderOptions,
   DeepSeekHarnessProviderOptions,
+  DeepSeekHarnessReasoningEffort,
   PiProviderOptions,
   StepProviderOptions,
   WorkflowStepKind,
@@ -69,6 +70,7 @@ export type {
 export {
   RUNTIME_PREPARE_PRESETS,
   OPENCODE_GUARD_PROFILES,
+  DEEPSEEK_HARNESS_REASONING_EFFORTS,
   isRuntimePreparePreset,
 } from './workflow-provider-options.js';
 

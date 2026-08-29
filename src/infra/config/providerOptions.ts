@@ -6,6 +6,7 @@ import type {
   CodexReasoningEffort,
   CopilotEffort,
   DeepSeekHarnessProviderOptions,
+  DeepSeekHarnessReasoningEffort,
   OpenCodeGuardProfile,
   PiProviderOptions,
   WorkflowStep,
@@ -94,6 +95,7 @@ type RawProviderOptions = {
     request_timeout_ms?: number;
     shutdown_timeout_ms?: number;
     runtime_mode?: 'exe' | 'node';
+    reasoning_effort?: DeepSeekHarnessReasoningEffort;
   };
   pi?: {
     guards?: RawProviderGuardOptions;
@@ -517,6 +519,9 @@ export function normalizeProviderOptions(
         : {}),
       ...(options.deepseek_harness.runtime_mode !== undefined
         ? { runtimeMode: options.deepseek_harness.runtime_mode }
+        : {}),
+      ...(options.deepseek_harness.reasoning_effort !== undefined
+        ? { reasoningEffort: options.deepseek_harness.reasoning_effort }
         : {}),
     };
     if (Object.keys(deepseekHarness).length > 0) {
@@ -1186,6 +1191,12 @@ export function resolveEffectiveProviderOptions(
     stepOptions?.deepseekHarness?.runtimeMode,
     resolveProviderOptionOrigin(originResolver, 'deepseekHarness.runtimeMode', source),
   );
+  const deepseekHarnessReasoningEffort = selectProviderValue(
+    resolvedConfigOptions.deepseekHarness?.reasoningEffort,
+    personaOptions?.deepseekHarness?.reasoningEffort,
+    stepOptions?.deepseekHarness?.reasoningEffort,
+    resolveProviderOptionOrigin(originResolver, 'deepseekHarness.reasoningEffort', source),
+  );
   const piExtensions = selectProviderValue(
     resolvedConfigOptions.pi?.extensions,
     personaOptions?.pi?.extensions,
@@ -1407,6 +1418,7 @@ export function resolveEffectiveProviderOptions(
       || deepseekHarnessRequestTimeoutMs !== undefined
       || deepseekHarnessShutdownTimeoutMs !== undefined
       || deepseekHarnessRuntimeMode !== undefined
+      || deepseekHarnessReasoningEffort !== undefined
       ? {
           deepseekHarness: {
             ...(deepseekHarnessPythonPath !== undefined ? { pythonPath: deepseekHarnessPythonPath } : {}),
@@ -1421,6 +1433,9 @@ export function resolveEffectiveProviderOptions(
               ? { shutdownTimeoutMs: deepseekHarnessShutdownTimeoutMs }
               : {}),
             ...(deepseekHarnessRuntimeMode !== undefined ? { runtimeMode: deepseekHarnessRuntimeMode } : {}),
+            ...(deepseekHarnessReasoningEffort !== undefined
+              ? { reasoningEffort: deepseekHarnessReasoningEffort }
+              : {}),
           },
         }
       : {}),
@@ -1624,6 +1639,7 @@ export const PROVIDER_OPTION_PATHS = [
   'deepseekHarness.requestTimeoutMs',
   'deepseekHarness.shutdownTimeoutMs',
   'deepseekHarness.runtimeMode',
+  'deepseekHarness.reasoningEffort',
   'pi.extensions',
   'pi.thinkingLevel',
   'pi.guards.callTimeoutMs',

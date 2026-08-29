@@ -87,6 +87,42 @@ describe('resolveProviderOptionsWithTrace', () => {
     });
   });
 
+  it('global provider_options の DeepSeek reasoning_effort を file origin として返す', () => {
+    writeFileSync(
+      globalConfigPath,
+      [
+        'language: en',
+        'provider_options:',
+        '  deepseek_harness:',
+        '    reasoning_effort: low',
+      ].join('\n'),
+      'utf-8',
+    );
+    invalidateGlobalConfigCache();
+
+    const result = resolveProviderOptionsWithTrace(projectDir);
+
+    expect(result.value?.deepseekHarness).toEqual({ reasoningEffort: 'low' });
+    expect(result.originResolver('deepseekHarness.reasoningEffort')).toBe('global');
+  });
+
+  it('DeepSeek reasoning_effort の environment override を source=env として返す', () => {
+    const configDir = getProjectConfigDir(projectDir);
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, 'config.yaml'),
+      ['provider_options:', '  deepseek_harness:', '    reasoning_effort: low'].join('\n'),
+      'utf-8',
+    );
+    process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = 'high';
+
+    const result = resolveProviderOptionsWithTrace(projectDir);
+
+    expect(result.value?.deepseekHarness).toEqual({ reasoningEffort: 'high' });
+    expect(result.source).toBe('env');
+    expect(result.originResolver('deepseekHarness.reasoningEffort')).toBe('env');
+  });
+
   it('非 workflow の environment override から相対 DeepSeek path を解決する', () => {
     process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_SESSION_ROOT = 'env-deepseek-sessions';
     process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS = 'env-cordis.yml';

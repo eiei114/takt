@@ -841,6 +841,9 @@ export function denormalizeProviderOptions(
       ...(providerOptions.deepseekHarness.runtimeMode !== undefined
         ? { runtime_mode: providerOptions.deepseekHarness.runtimeMode }
         : {}),
+      ...(providerOptions.deepseekHarness.reasoningEffort !== undefined
+        ? { reasoning_effort: providerOptions.deepseekHarness.reasoningEffort }
+        : {}),
     };
     if (Object.keys(deepseekHarness).length > 0) {
       raw.deepseek_harness = deepseekHarness;

@@ -12,6 +12,7 @@ import { z } from 'zod/v4';
 import { PROVIDER_TYPES } from '../../shared/types/provider.js';
 import { STATUS_VALUES } from './status.js';
 import {
+  DEEPSEEK_HARNESS_REASONING_EFFORTS,
   OPENCODE_GUARD_PROFILES,
   RUNTIME_PREPARE_PRESETS,
 } from './workflow-types.js';
@@ -163,6 +164,10 @@ const CursorProviderOptionsSchema = z.object({
   guards: ProviderGuardOptionsSchema.optional(),
 });
 
+const DeepSeekHarnessReasoningEffortSchema = z.enum(DEEPSEEK_HARNESS_REASONING_EFFORTS, {
+  error: (issue) => `reasoning_effort must be one of: ${DEEPSEEK_HARNESS_REASONING_EFFORTS.join(', ')}; received ${JSON.stringify(issue.input)}`,
+});
+
 const DeepSeekHarnessProviderOptionsSchema = z.object({
   python_path: z.string().min(1).optional(),
   base_url: z.string().min(1).optional(),
@@ -172,6 +177,7 @@ const DeepSeekHarnessProviderOptionsSchema = z.object({
   request_timeout_ms: z.number().int().positive().safe().max(2_147_483_647).optional(),
   shutdown_timeout_ms: z.number().int().positive().safe().max(2_147_483_647).optional(),
   runtime_mode: z.enum(['exe', 'node']).optional(),
+  reasoning_effort: DeepSeekHarnessReasoningEffortSchema.optional(),
 }).strict();
 
 const PiProviderOptionsSchema = z.object({
@@ -682,6 +688,7 @@ const NormalizedStepProviderOptionsSchema = z.object({
     requestTimeoutMs: z.number().int().positive().safe().max(2_147_483_647).optional(),
     shutdownTimeoutMs: z.number().int().positive().safe().max(2_147_483_647).optional(),
     runtimeMode: z.enum(['exe', 'node']).optional(),
+    reasoningEffort: DeepSeekHarnessReasoningEffortSchema.optional(),
   }).strict().optional(),
   pi: z.object({
     guards: z.object({

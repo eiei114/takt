@@ -126,6 +126,7 @@ def _start_harness(config: dict[str, Any]) -> Any:
         "maxTokens": "max_tokens",
         "sessionRoot": "session_root",
         "cordis": "cordis",
+        "reasoningEffort": "reasoning_effort",
     }
     for wire_name, sdk_name in optional_fields.items():
         value = config.get(wire_name)

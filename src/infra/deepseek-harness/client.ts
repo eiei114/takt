@@ -31,7 +31,11 @@ import {
   sanitizeSensitiveValueWithKnownValues,
   createSensitiveTextStreamRedactor,
 } from '../../shared/utils/sensitiveText.js';
-import type { DeepSeekHarnessProviderOptions } from '../../core/models/workflow-types.js';
+import {
+  DEEPSEEK_HARNESS_REASONING_EFFORTS,
+  type DeepSeekHarnessProviderOptions,
+  type DeepSeekHarnessReasoningEffort,
+} from '../../core/models/workflow-provider-options.js';
 import { DEEPSEEK_HARNESS_DEFAULT_MODEL } from './constants.js';
 import { parseDeepSeekHarnessModelReference } from './model-reference.js';
 import type { DeepSeekHarnessCallOptions } from './types.js';
@@ -143,6 +147,7 @@ interface ResolvedBridgeConfiguration {
   maxTokens?: number;
   requestTimeoutMs: number;
   shutdownTimeoutMs: number;
+  reasoningEffort?: DeepSeekHarnessReasoningEffort;
 }
 
 interface ProcessEnvironmentResolution {
@@ -292,6 +297,20 @@ function assertSupportedPlatform(): void {
   );
 }
 
+function assertValidReasoningEffort(value: unknown): asserts value is DeepSeekHarnessReasoningEffort | undefined {
+  if (value === undefined) {
+    return;
+  }
+  if (
+    typeof value !== 'string'
+    || !DEEPSEEK_HARNESS_REASONING_EFFORTS.includes(value as DeepSeekHarnessReasoningEffort)
+  ) {
+    throw new Error(
+      `DeepSeek Harness reasoning_effort must be one of: ${DEEPSEEK_HARNESS_REASONING_EFFORTS.join(', ')}; received ${JSON.stringify(value)}`,
+    );
+  }
+}
+
 function resolveBridgeConfiguration(
   options: DeepSeekHarnessCallOptions,
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
@@ -301,6 +320,8 @@ function resolveBridgeConfiguration(
   assertSafeSessionId(options.sessionId);
   const cwd = canonicalizePathWithMissingTail(path.resolve(options.cwd));
   const maxTokens = requirePositiveSafeInteger(providerOptions?.maxTokens, 'maxTokens');
+  const reasoningEffort = providerOptions?.reasoningEffort;
+  assertValidReasoningEffort(reasoningEffort);
   const requestTimeoutMs = requirePositiveSafeInteger(
     providerOptions?.requestTimeoutMs,
     'requestTimeoutMs',
@@ -344,6 +365,7 @@ function resolveBridgeConfiguration(
     ...(maxTokens !== undefined ? { maxTokens } : {}),
     requestTimeoutMs,
     shutdownTimeoutMs,
+    ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
   };
 }
 

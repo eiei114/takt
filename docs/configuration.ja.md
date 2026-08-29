@@ -1216,6 +1216,7 @@ provider_options:
     request_timeout_ms: 3600000
     shutdown_timeout_ms: 1000
     runtime_mode: exe                  # exe または node
+    reasoning_effort: high              # off、low、high、または max
 ```
 
 DeepSeek Harness の `model` フィールドは、`deepseek-v4-flash` のような
@@ -1235,11 +1236,13 @@ bridge 起動前に拒否されます。空白だけの route または model �
 bridge/SDK に渡します。SDK が拒否した場合は、入力された参照と bridge/SDK で
 失敗した箇所を含むエラーになります。
 
+`reasoning_effort` は DeepSeek Harness 専用の provider option です。`off`、`low`、`high`、`max` の完全一致だけを受理し、大文字、前後の空白、alias、未知の値は入力値と許容値一覧を示して設定検証で拒否します。未指定の場合、TAKT は bridge と SDK の設定から `reasoning_effort` を完全に省略し、公式 SDK の既定値に委譲します。model reference はそのまま SDK に渡され、`:` や追加の `/` は model ID の一部として保持されます。推論強度はこの provider option だけで指定します。runtime モードでは同じ field を `provider.profiles.<name>.options` に置きます。
+
 credential safety のため、`python_path` は信頼できる global config または `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH` からのみ設定できます。workflow と project-local provider options では既定の `python3` executable を使用してください。`cordis` も実行する tool composition を選択するため、信頼できる global config または `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS` からのみ設定できます。上の例では両方の項目を意図的に省略しています。同じ制約は project の `runtime.yaml` profile にも適用されます。global runtime profile では信頼できる値を選択できます。project runtime profile の `base_url` は loopback のみ使用できます。
 
 `session_root` と `cordis` は設定された作業ディレクトリからの相対パスとして解決されます。workflow が `session_key` を指定するとセッションを再利用し、one-shot call は bridge を直ちに close します。`request_timeout_ms` は Python bridge request 全体を終了させ、TAKT call の abort は bridge の process tree を終了させます。公式 `session.event` notification は TAKT の text、thinking、tool-use、tool-result、error、result event へ変換されます。system prompt、TAKT の `allowed_tools`、MCP server map、画像添付、structured output、permission mode、`maxTurns` は公式 SDK の call に存在しないため warning とともに無視されます。system/tool composition は Cordis で設定してください。
 
-対応する環境変数 override は `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH`、`_BASE_URL`、`_SESSION_ROOT`、`_CORDIS`、`_MAX_TOKENS`、`_REQUEST_TIMEOUT_MS`、`_SHUTDOWN_TIMEOUT_MS`、`_RUNTIME_MODE` です。`base_url` の環境変数 override はユーザー管理なので non-loopback も設定できます。`runtime_mode: node` は公式 SDK の開発用 Node carrier を必要とし、暗黙には選択されません。
+対応する環境変数 override は `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH`、`_BASE_URL`、`_SESSION_ROOT`、`_CORDIS`、`_MAX_TOKENS`、`_REQUEST_TIMEOUT_MS`、`_SHUTDOWN_TIMEOUT_MS`、`_RUNTIME_MODE`、`TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT` です。reasoning effort の環境変数も通常の provider option の優先順位に従い、`off`、`low`、`high`、`max` のいずれかを完全一致で指定します。未指定なら公式 SDK の既定値が使われます。`base_url` の環境変数 override はユーザー管理なので non-loopback も設定できます。`runtime_mode: node` は公式 SDK の開発用 Node carrier を必要とし、暗黙には選択されません。
 
 #### ネットワークアクセス (`network_access`)
 

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { DeepSeekHarnessProviderOptions } from '../core/models/workflow-types.js';
 
 const { mockCallDeepSeekHarness, mockLogger } = vi.hoisted(() => ({
   mockCallDeepSeekHarness: vi.fn(),
@@ -42,16 +43,18 @@ describe('DeepSeekHarnessProvider', () => {
     const agent = provider.setup({ name: 'worker', systemPrompt: 'Use Cordis.' });
     const onStream = vi.fn();
     const abortController = new AbortController();
+    const providerOptions = {
+      pythonPath: '/usr/bin/python3',
+      requestTimeoutMs: 12_000,
+      reasoningEffort: 'high',
+    } as unknown as DeepSeekHarnessProviderOptions;
 
     await agent.call('implement', {
       cwd: '/tmp/work',
-      model: 'deepseek-v4-flash',
+      model: 'route/model:variant',
       sessionId: 'session-1',
       providerOptions: {
-        deepseekHarness: {
-          pythonPath: '/usr/bin/python3',
-          requestTimeoutMs: 12_000,
-        },
+        deepseekHarness: providerOptions,
       },
       abortSignal: abortController.signal,
       onStream,
@@ -59,12 +62,9 @@ describe('DeepSeekHarnessProvider', () => {
 
     expect(mockCallDeepSeekHarness).toHaveBeenCalledWith('worker', 'implement', {
       cwd: '/tmp/work',
-      model: 'deepseek-v4-flash',
+      model: 'route/model:variant',
       sessionId: 'session-1',
-      providerOptions: {
-        pythonPath: '/usr/bin/python3',
-        requestTimeoutMs: 12_000,
-      },
+      providerOptions,
       abortSignal: abortController.signal,
       systemPrompt: 'Use Cordis.',
       onStream,
