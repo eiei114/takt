@@ -1,15 +1,22 @@
 import type { AssistantProviderConfig } from '../../core/config/provider-resolution.js';
 import type { AutoRoutingStrategy, ProviderRoutingEntry } from '../../core/models/config-types.js';
 import type { StepProviderOptions } from '../../core/models/workflow-types.js';
-import type { ProviderResolutionSource } from '../../core/workflow/provider-options-trace.js';
+import type {
+  ProviderOptionsOriginResolver,
+  ProviderOptionsSource,
+  ProviderResolutionSource,
+} from '../../core/workflow/provider-options-trace.js';
 import type { ProviderType } from '../../shared/types/provider.js';
 import type { PermissionMode } from '../../core/models/types.js';
-import { mergeProviderOptions } from './providerOptions.js';
+import { mergeProviderOptions, resolveEffectiveProviderOptions } from './providerOptions.js';
 import { validateProviderModelRequirements } from '../../core/workflow/provider-model-requirements.js';
 import { ConfiguredModelSchema } from '../../core/models/model-schema.js';
 import { loadProjectConfig } from './project/projectConfig.js';
 import { loadGlobalConfig } from './global/globalConfig.js';
-import { resolveConfigValueWithSource } from './resolveConfigValue.js';
+import {
+  resolveConfigValueWithSource,
+  resolveProviderOptionsWithTrace,
+} from './resolveConfigValue.js';
 import { resolveRuntimeInternalAgentProvider } from './runtime-provider/internal-agents.js';
 import { composeRuntimeProviderOverride } from './runtime-provider/override.js';
 import type { CompiledProviderEnvironment } from './runtime-provider/environment.js';
@@ -20,6 +27,15 @@ export interface SelectorProviderOverrides {
   autoStrategy?: AutoRoutingStrategy;
   providerSource?: ProviderResolutionSource;
   modelSource?: ProviderResolutionSource;
+}
+
+export interface SelectorProviderOptionsResolution {
+  /** Provider options resolved from config.yaml and environment variables. */
+  configProviderOptions?: StepProviderOptions;
+  /** Source layer for configProviderOptions. */
+  providerOptionsSource?: ProviderOptionsSource;
+  /** Origin resolver for configProviderOptions leaves. */
+  providerOptionsOriginResolver?: ProviderOptionsOriginResolver;
 }
 
 export interface ResolvedSelectorProvider {
@@ -79,7 +95,12 @@ export function resolveSelectorProviderForProject(
 ): ResolvedSelectorProvider {
   const runtimeSelector = resolveRuntimeInternalAgentProvider(projectCwd, 'selector');
   if (runtimeSelector !== undefined) {
-    return resolveSelectorFromRuntimeV1(runtimeSelector, projectCwd, overrides);
+    const providerOptions = resolveProviderOptionsWithTrace(projectCwd);
+    return resolveSelectorFromRuntimeV1(runtimeSelector, projectCwd, overrides, {
+      configProviderOptions: providerOptions.value,
+      providerOptionsSource: providerOptions.source,
+      providerOptionsOriginResolver: providerOptions.originResolver,
+    });
   }
   return resolveSelectorProviderFromLegacyProject(projectCwd, overrides);
 }
@@ -87,6 +108,7 @@ export function resolveSelectorProviderForProject(
 export function resolveSelectorProviderFromRuntimeEnvironment(
   environment: CompiledProviderEnvironment,
   overrides?: SelectorProviderOverrides,
+  providerOptionsResolution?: SelectorProviderOptionsResolution,
 ): ResolvedSelectorProvider {
   const runtimeSelector = environment.internalAgents?.selector ?? (
     environment.provider === undefined
@@ -126,6 +148,7 @@ export function resolveSelectorProviderFromRuntimeEnvironment(
           ? 'cli'
           : modelFromEnvironment === undefined ? undefined : environment.modelSource),
     },
+    providerOptionsResolution,
   );
 }
 
@@ -173,6 +196,7 @@ function resolveSelectorFromRuntimeV1(
   runtime: ProviderRoutingEntry,
   projectCwd: string,
   overrides?: SelectorProviderOverrides,
+  providerOptionsResolution?: SelectorProviderOptionsResolution,
 ): ResolvedSelectorProvider {
   const configuredProvider = resolveConfigValueWithSource(projectCwd, 'provider');
   const configuredModel = resolveConfigValueWithSource(projectCwd, 'model');
@@ -193,6 +217,7 @@ function resolveSelectorFromRuntimeV1(
       providerSource: providerOverride === undefined ? undefined : providerOverrideSource,
       modelSource: modelOverride === undefined ? undefined : modelOverrideSource,
     },
+    providerOptionsResolution,
   );
 }
 
@@ -204,6 +229,7 @@ function resolveSelectorFromRuntimeValues(
     providerSource?: ProviderResolutionSource;
     modelSource?: ProviderResolutionSource;
   },
+  providerOptionsResolution?: SelectorProviderOptionsResolution,
 ): ResolvedSelectorProvider {
   const providerOverride = overrides.provider;
   const modelOverride = overrides.model;
@@ -232,7 +258,13 @@ function resolveSelectorFromRuntimeValues(
   validateProviderModelRequirements(provider, model, {
     modelFieldName: 'Configuration error: runtime.yaml internal_agents.selector resolved model',
   });
-  const providerOptions = composed.providerOptions;
+  const providerOptions = provider === undefined
+    ? undefined
+    : resolveRuntimeSelectorProviderOptions(
+        provider,
+        composed.providerOptions,
+        providerOptionsResolution,
+      );
   return {
     ...(provider === undefined ? {} : { provider }),
     ...(providerSource === undefined ? {} : { providerSource }),
@@ -253,6 +285,36 @@ function resolveSelectorProviderOptions(
     config.global.taktProviders?.selector?.providerOptions,
     config.local.taktProviders?.selector?.providerOptions,
   );
+  return filterSelectorProviderOptions(provider, merged);
+}
+
+function resolveRuntimeSelectorProviderOptions(
+  provider: ProviderType,
+  runtimeProviderOptions: StepProviderOptions | undefined,
+  providerOptionsResolution: SelectorProviderOptionsResolution | undefined,
+): StepProviderOptions | undefined {
+  if (providerOptionsResolution === undefined) {
+    return runtimeProviderOptions;
+  }
+  // The default trace value contains built-in skill defaults, which are not selector
+  // configuration and must not change the pre-existing profile-only result.
+  const configProviderOptions = providerOptionsResolution.providerOptionsSource === 'default'
+    ? undefined
+    : providerOptionsResolution.configProviderOptions;
+  const effectiveOptions = resolveEffectiveProviderOptions(
+    providerOptionsResolution.providerOptionsSource,
+    providerOptionsResolution.providerOptionsOriginResolver,
+    configProviderOptions,
+    undefined,
+    runtimeProviderOptions,
+  );
+  return filterSelectorProviderOptions(provider, effectiveOptions);
+}
+
+function filterSelectorProviderOptions(
+  provider: ProviderType,
+  merged: StepProviderOptions | undefined,
+): StepProviderOptions | undefined {
   if (merged === undefined) {
     return undefined;
   }

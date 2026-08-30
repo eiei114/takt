@@ -9,6 +9,10 @@ import { MAX_WORKFLOW_CALL_DEPTH } from '../../core/workflow/workflow-call-depth
 import { getWorkflowReference } from '../../core/workflow/workflow-reference.js';
 import type { ProviderType } from '../../shared/types/provider.js';
 import type { StepProviderOptions } from '../../core/models/workflow-types.js';
+import type {
+  ProviderOptionsOriginResolver,
+  ProviderOptionsSource,
+} from '../../core/workflow/provider-options-trace.js';
 import type { WorkflowCallResolver } from '../../core/workflow/types.js';
 import { DEFAULT_COMPANION_ENABLED } from '../../shared/constants.js';
 import { resolveWorkflowCallTarget } from './loaders/workflowCallResolver.js';
@@ -43,6 +47,12 @@ export interface WorkflowSelectorResolutionOptions {
   readonly companionEnabled?: boolean;
   readonly providerEnvironment: CompiledProviderEnvironment;
   readonly providerConfigMode: ProviderConfigMode;
+  /** Provider options resolved from config.yaml and environment variables. */
+  readonly configProviderOptions?: StepProviderOptions;
+  /** Source layer for configProviderOptions. */
+  readonly providerOptionsSource?: ProviderOptionsSource;
+  /** Origin resolver for configProviderOptions leaves. */
+  readonly providerOptionsOriginResolver?: ProviderOptionsOriginResolver;
 }
 
 function hasDynamicParallel(workflow: WorkflowConfig): boolean {
@@ -194,7 +204,15 @@ export function resolveWorkflowSelector(
   }
 
   const selectorProvider = options.providerConfigMode === 'runtime-v1'
-    ? resolveSelectorProviderFromRuntimeEnvironment(options.providerEnvironment, options.overrides)
+    ? resolveSelectorProviderFromRuntimeEnvironment(
+        options.providerEnvironment,
+        options.overrides,
+        {
+          configProviderOptions: options.configProviderOptions,
+          providerOptionsSource: options.providerOptionsSource,
+          providerOptionsOriginResolver: options.providerOptionsOriginResolver,
+        },
+      )
     : resolveSelectorProviderFromLegacyProject(options.projectCwd, options.overrides);
   if (selectorProvider.provider === undefined) {
     throw new Error('Dynamic selector has no resolved provider');

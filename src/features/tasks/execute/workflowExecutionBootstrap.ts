@@ -608,6 +608,8 @@ export async function createWorkflowExecutionBootstrap(
       legacyProviderEnvironment,
       options.providerOptionsSource,
     ),
+    providerOptionsSource: options.providerOptionsSource,
+    providerOptionsOriginResolver: options.providerOptionsOriginResolver,
   });
   const providerEnvironment = resolvedRuntimeEnvironment.providerEnvironment;
   const companionEnabled = resolvedRuntimeEnvironment.companionEnabled;
@@ -672,6 +674,9 @@ export async function createWorkflowExecutionBootstrap(
       workflowCallResolver: options.workflowCallResolver,
       providerEnvironment,
       providerConfigMode: resolvedRuntimeEnvironment.providerConfigMode,
+      configProviderOptions: resolvedRuntimeEnvironment.configProviderOptions,
+      providerOptionsSource: resolvedRuntimeEnvironment.providerOptionsSource,
+      providerOptionsOriginResolver: resolvedRuntimeEnvironment.providerOptionsOriginResolver,
     });
     selectorProvider = selectorResolution.applies
       ? selectorResolution.selectorProvider

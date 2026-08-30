@@ -30,6 +30,7 @@ import {
 } from '../../core/workflow/review-scope.js';
 import type { InstructionContext } from '../../core/workflow/instruction/instruction-context.js';
 import type { WorkflowConfig, WorkflowStep } from '../../core/models/index.js';
+import type { StepProviderOptions } from '../../core/models/workflow-types.js';
 import type { TagRoutingConflictPolicy } from '../../core/models/config-types.js';
 import {
   getAllParallelSubSteps,
@@ -99,6 +100,9 @@ type PreviewProviderResolution = CompiledProviderEnvironment & ProviderModelReso
   companionReviewMode: ReturnType<typeof resolveAuxiliaryRuntimeEnvironment>['companionReviewMode'];
   providerEnvironment: CompiledProviderEnvironment;
   providerConfigMode: ReturnType<typeof resolveAuxiliaryRuntimeEnvironment>['providerConfigMode'];
+  configProviderOptions?: StepProviderOptions;
+  providerOptionsSource?: ReturnType<typeof resolveAuxiliaryRuntimeEnvironment>['providerOptionsSource'];
+  providerOptionsOriginResolver?: ReturnType<typeof resolveAuxiliaryRuntimeEnvironment>['providerOptionsOriginResolver'];
 };
 
 function resolvePreviewProviderResolution(
@@ -112,6 +116,9 @@ function resolvePreviewProviderResolution(
     companionReviewMode: runtimeEnvironment.companionReviewMode,
     providerEnvironment: runtimeEnvironment.providerEnvironment,
     providerConfigMode: runtimeEnvironment.providerConfigMode,
+    configProviderOptions: runtimeEnvironment.configProviderOptions,
+    providerOptionsSource: runtimeEnvironment.providerOptionsSource,
+    providerOptionsOriginResolver: runtimeEnvironment.providerOptionsOriginResolver,
   };
 }
 
@@ -246,6 +253,15 @@ export async function previewPrompts(
     companionEnabled: providerResolution.companionEnabled,
     providerEnvironment: providerResolution.providerEnvironment,
     providerConfigMode: providerResolution.providerConfigMode,
+    ...(providerResolution.configProviderOptions === undefined
+      ? {}
+      : { configProviderOptions: providerResolution.configProviderOptions }),
+    ...(providerResolution.providerOptionsSource === undefined
+      ? {}
+      : { providerOptionsSource: providerResolution.providerOptionsSource }),
+    ...(providerResolution.providerOptionsOriginResolver === undefined
+      ? {}
+      : { providerOptionsOriginResolver: providerResolution.providerOptionsOriginResolver }),
   });
   if (providerResolution.companionEnabled) {
     resolveWorkflowCompanions(config, providerResolution, {

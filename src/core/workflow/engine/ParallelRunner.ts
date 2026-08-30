@@ -498,14 +498,15 @@ export class ParallelRunner {
             interactive: this.deps.getInteractive(),
           };
 
-        // Session key uses the same resolved provider as Phase 1 options and resume phases.
+        // Phase 1: main execution (Write excluded if sub-step has report)
+        const baseOptions = this.deps.optionsBuilder.buildAgentOptions(executableSubStep, subRuntime);
+        // Session key uses the same resolved target as Phase 1 options and resume phases.
         const subSessionKey = buildSessionKey(executableSubStep, {
           provider: subPm.provider,
           model: subPm.model,
+          providerOptions: baseOptions.providerOptions,
+          mcpServerIdentity: baseOptions.mcpServerIdentity,
         });
-
-        // Phase 1: main execution (Write excluded if sub-step has report)
-        const baseOptions = this.deps.optionsBuilder.buildAgentOptions(executableSubStep, subRuntime);
         const compactionOutcome = await compactSessionBeforePhase1(executableSubStep, baseOptions);
         if (compactionOutcome === 'fresh') {
           invalidatePersonaSessionIfExpected(

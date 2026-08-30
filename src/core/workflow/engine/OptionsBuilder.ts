@@ -131,6 +131,13 @@ export class OptionsBuilder {
       : this.resolveStepProviderModelBeforeAutoRouting(step, { ...runtime, providerInfo });
   }
 
+  resolveSessionKey(step: WorkflowStep, runtime?: RuntimeStepResolution): string {
+    const providerInfo = this.resolveStepProviderModel(step, runtime);
+    const providerOptions = this.resolveMergedProviderOptions(step, providerInfo, runtime);
+    const mcpServers = this.resolveMcpServersForStep(step, providerInfo.provider);
+    return this.buildResolvedSessionKey(step, providerInfo, providerOptions, mcpServers);
+  }
+
   /**
    * auto-routing ルーターへの入力専用の解決。auto_routing 有効時、構成レイヤーで
    * 決まらない provider は undefined のまま返す（= ルーターが決める余地を残す）。
@@ -662,13 +669,24 @@ export class OptionsBuilder {
     return buildMcpServerSetIdentity(mcpServers);
   }
 
+  private buildResolvedSessionKey(
+    step: WorkflowStep,
+    providerInfo: Pick<StepProviderInfo, 'provider' | 'model'>,
+    providerOptions: StepProviderOptions | undefined,
+    mcpServers: Record<string, McpServerConfig> | undefined,
+  ): string {
+    return buildSessionKey(step, {
+      provider: providerInfo.provider,
+      model: providerInfo.model,
+      providerOptions,
+      mcpServerIdentity: this.resolveMcpServerIdentityForEffectiveServers(mcpServers),
+    });
+  }
+
   /** Build RunAgentOptions for Phase 1 (main execution) */
   buildAgentOptions(step: WorkflowStep, runtime?: RuntimeStepResolution): RunAgentOptions {
     const providerInfo = this.resolveStepProviderModel(step, runtime);
-    const {
-      provider: resolvedProvider,
-      model: resolvedModel,
-    } = providerInfo;
+    const { provider: resolvedProvider } = providerInfo;
     const mergedProviderOptions = this.resolveMergedProviderOptions(step, providerInfo, runtime);
 
     assertProviderResolvedForCapabilitySensitiveOptions(resolvedProvider, {
@@ -697,17 +715,22 @@ export class OptionsBuilder {
     const baseOptions = this.buildBaseOptions(step, mergedProviderOptions, runtime);
 
     const mcpServers = this.resolveMcpServersForStep(step, resolvedProvider);
-    const mcpServerIdentity = this.resolveMcpServerIdentityForEffectiveServers(mcpServers);
+    const sessionKey = this.buildResolvedSessionKey(
+      step,
+      providerInfo,
+      mergedProviderOptions,
+      mcpServers,
+    );
 
     return {
       ...baseOptions,
       workflowMeta: this.buildPhase1WorkflowMeta(baseOptions.workflowMeta, runtime),
       sessionId: shouldResumeSession
-        ? this.getSessionId(buildSessionKey(step, { provider: resolvedProvider, model: resolvedModel, mcpServerIdentity }))
+        ? this.getSessionId(sessionKey)
         : undefined,
       allowedTools,
       mcpServers,
-      mcpServerIdentity,
+      mcpServerIdentity: this.resolveMcpServerIdentityForEffectiveServers(mcpServers),
       mcpAssignment: this.engineOptions.mcpAssignment,
       outputSchema: supportsStructuredOutput === false ? undefined : step.structuredOutput?.schema,
     };
@@ -886,15 +909,7 @@ export class OptionsBuilder {
       structuredCaller: this.requireStructuredCaller(),
       resolveStepProviderModel: (step) => this.resolveStepProviderModel(step, runtime),
       getSessionId: (persona: string) => state.personaSessions.get(persona),
-      resolveSessionKey: (step) => {
-        const providerInfo = this.resolveStepProviderModel(step, runtime);
-        const mcpServers = this.resolveMcpServersForStep(step, providerInfo.provider);
-        return buildSessionKey(step, {
-          provider: providerInfo.provider,
-          model: providerInfo.model,
-          mcpServerIdentity: this.resolveMcpServerIdentityForEffectiveServers(mcpServers),
-        });
-      },
+      resolveSessionKey: (step) => this.resolveSessionKey(step, runtime),
       buildResumeOptions: (step, sessionId, overrides) => this.buildResumeOptions(step, sessionId, overrides, runtime),
       buildNewSessionReportOptions: (step, overrides) => this.buildNewSessionReportOptions(step, overrides, runtime),
       buildFallbackReportOptions: (step, failedPrimaryOptions, overrides) =>

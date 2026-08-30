@@ -82,6 +82,15 @@ export function validateWorkflowRuntimeContract(
       companionEnabled: runtimeEnvironment.companionEnabled,
       providerEnvironment: env,
       providerConfigMode: runtimeEnvironment.providerConfigMode,
+      ...(runtimeEnvironment.configProviderOptions === undefined
+        ? {}
+        : { configProviderOptions: runtimeEnvironment.configProviderOptions }),
+      ...(runtimeEnvironment.providerOptionsSource === undefined
+        ? {}
+        : { providerOptionsSource: runtimeEnvironment.providerOptionsSource }),
+      ...(runtimeEnvironment.providerOptionsOriginResolver === undefined
+        ? {}
+        : { providerOptionsOriginResolver: runtimeEnvironment.providerOptionsOriginResolver }),
     });
     // Validate provider/model/personaProviders/providerRouting/autoRouting through the same
     // compiled bundle as execution and preview, so a runtime-v1 environment validates the

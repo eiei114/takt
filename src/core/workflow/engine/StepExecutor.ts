@@ -1487,9 +1487,15 @@ export class StepExecutor {
       executableStep,
       executionRuntime,
     );
+    const builtAgentOptions = this.deps.optionsBuilder.buildAgentOptions(
+      executableStep,
+      executionRuntime,
+    );
     const sessionKey = buildSessionKey(executableStep, {
       provider: providerInfo.provider,
       model: providerInfo.model,
+      providerOptions: builtAgentOptions.providerOptions,
+      mcpServerIdentity: builtAgentOptions.mcpServerIdentity,
     });
     log.debug('Running step', {
       step: step.name,
@@ -1498,11 +1504,6 @@ export class StepExecutor {
       iteration: state.iteration,
       sessionId: state.personaSessions.get(sessionKey) ?? 'new',
     });
-
-    const builtAgentOptions = this.deps.optionsBuilder.buildAgentOptions(
-      executableStep,
-      executionRuntime,
-    );
 
     // Phase 1: main execution (Write excluded if step has report)
     const companionStep = isNormalOrTeamLeaderWorkflowStep(executableStep)

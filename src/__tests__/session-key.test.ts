@@ -83,6 +83,56 @@ describe('buildSessionKey', () => {
     expect(primaryModelKey).not.toBe(fallbackModelKey);
   });
 
+  it.each([
+    ['unset', undefined],
+    ['off', 'off'],
+    ['low', 'low'],
+    ['high', 'high'],
+    ['max', 'max'],
+  ] as const)('should encode DeepSeek reasoning effort identity for %s', (_label, reasoningEffort) => {
+    const step = createStep({
+      persona: 'coder',
+      provider: 'deepseek-harness',
+      model: 'deepseek-model',
+    });
+    const key = buildSessionKey(step, {
+      provider: 'deepseek-harness',
+      model: 'deepseek-model',
+      ...(reasoningEffort === undefined
+        ? {}
+        : { providerOptions: { deepseekHarness: { reasoningEffort } } }),
+    });
+
+    expect(key).toContain(reasoningEffort === undefined ? 'unset' : reasoningEffort);
+  });
+
+  it('should keep unset and explicit DeepSeek efforts distinct', () => {
+    const step = createStep({
+      persona: 'coder',
+      provider: 'deepseek-harness',
+      model: 'deepseek-model',
+    });
+    const keys = [
+      buildSessionKey(step, { provider: 'deepseek-harness', model: 'deepseek-model' }),
+      ...(['off', 'low', 'high', 'max'] as const).map((reasoningEffort) => buildSessionKey(step, {
+        provider: 'deepseek-harness',
+        model: 'deepseek-model',
+        providerOptions: { deepseekHarness: { reasoningEffort } },
+      })),
+    ];
+
+    expect(new Set(keys).size).toBe(5);
+    expect(buildSessionKey(step, {
+      provider: 'deepseek-harness',
+      model: 'deepseek-model',
+      providerOptions: { deepseekHarness: { reasoningEffort: 'low' } },
+    })).toBe(buildSessionKey(step, {
+      provider: 'deepseek-harness',
+      model: 'deepseek-model',
+      providerOptions: { deepseekHarness: { reasoningEffort: 'low' } },
+    }));
+  });
+
   it('should include the step model when no runtime model override is provided', () => {
     const step = createStep({ persona: 'coder', provider: 'codex', model: 'gpt-5' });
 

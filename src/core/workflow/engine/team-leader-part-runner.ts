@@ -2,11 +2,10 @@ import { executeAgent } from '../../../agents/agent-usecases.js';
 import type { RunAgentOptions } from '../../../agents/types.js';
 import type { AgentWorkflowStep, NormalAgentWorkflowStep, PartDefinition, PartResult, WorkflowStep, AgentResponse, WorkflowResumePointEntry } from '../../models/types.js';
 import type { RuntimeStepResolution } from '../types.js';
-import { buildSessionKey } from '../session-key.js';
+import { buildSessionKey, type ResolvedSessionTarget } from '../session-key.js';
 import { buildAbortSignal } from './abort-signal.js';
 import type { OptionsBuilder } from './OptionsBuilder.js';
 import type { ParallelLogger } from './parallel-logger.js';
-import type { ProviderType } from '../../../shared/types/provider.js';
 import { createPartStep } from './team-leader-common.js';
 import { getErrorMessage } from '../../../shared/utils/index.js';
 import type { StepProviderInfo } from '../types.js';
@@ -54,7 +53,7 @@ export interface TeamLeaderPartExecutionOptions {
 
 export function buildPartScopedSessionKey(
   partStep: WorkflowStep,
-  resolvedTarget: { provider: ProviderType | undefined; model: string | undefined },
+  resolvedTarget: ResolvedSessionTarget,
 ): string {
   const sessionKeyStep: AgentWorkflowStep = {
     kind: 'agent',
@@ -198,6 +197,8 @@ export async function runTeamLeaderPart(
         buildPartScopedSessionKey(partStepForExecution, {
           provider: partProviderInfo.provider,
           model: partProviderInfo.model,
+          providerOptions: options.providerOptions,
+          mcpServerIdentity: options.mcpServerIdentity,
         }),
         response.sessionId,
       );

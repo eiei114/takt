@@ -46,6 +46,10 @@ import {
   type CompanionReviewMode,
 } from '../../../core/models/companion-types.js';
 import type { StepProviderOptions } from '../../../core/models/workflow-types.js';
+import type {
+  ProviderOptionsOriginResolver,
+  ProviderOptionsSource,
+} from '../../../core/workflow/provider-options-trace.js';
 import { getEffectiveRuntimeProviderFile } from './schema.js';
 import { createRuntimeProviderResolutionContext } from './resolution-context.js';
 import { DEFAULT_COMPANION_ENABLED } from '../../../shared/constants.js';
@@ -54,6 +58,10 @@ export interface ResolvedRuntimeEnvironment {
   providerEnvironment: CompiledProviderEnvironment;
   /** Provider options resolved from config.yaml and environment variables. */
   configProviderOptions?: StepProviderOptions;
+  /** Source layer for configProviderOptions. */
+  providerOptionsSource?: ProviderOptionsSource;
+  /** Origin resolver for configProviderOptions leaves. */
+  providerOptionsOriginResolver?: ProviderOptionsOriginResolver;
   companionEnabled: boolean;
   companionReviewMode: CompanionReviewMode;
   companionFixPolicy: CompanionFixPolicy;
@@ -69,6 +77,10 @@ export interface ResolveProviderEnvironmentInput {
   legacy: LegacyProviderEnvironmentInput;
   /** Legacy provider settings detected in the current run (for mixed-config fail-fast). */
   legacySignals: LegacyProviderSignal[];
+  /** Source layer for the config/environment provider options. */
+  providerOptionsSource?: ProviderOptionsSource;
+  /** Origin resolver for the config/environment provider options. */
+  providerOptionsOriginResolver?: ProviderOptionsOriginResolver;
 }
 
 export function resolveCompiledProviderEnvironment(
@@ -93,9 +105,16 @@ export function resolveRuntimeEnvironment(
     runtimeFile: runtimeFileForProviderResolution,
     legacyProviderSignals: input.legacySignals,
   });
+  const providerOptionsTrace = {
+    ...(input.providerOptionsSource === undefined ? {} : { providerOptionsSource: input.providerOptionsSource }),
+    ...(input.providerOptionsOriginResolver === undefined
+      ? {}
+      : { providerOptionsOriginResolver: input.providerOptionsOriginResolver }),
+  };
   if (mode === 'legacy') {
     return {
       providerEnvironment: compileProviderEnvironment({ kind: 'legacy', legacy: input.legacy }),
+      ...providerOptionsTrace,
       companionEnabled,
       companionReviewMode,
       companionFixPolicy,
@@ -120,6 +139,7 @@ export function resolveRuntimeEnvironment(
       // only the active runtime MCP assignment (docs/configuration.md).
       providerEnvironment: { ...legacyEnvironment, mcpAssignment: activeMcp },
       configProviderOptions: input.legacy.providerOptions,
+      ...providerOptionsTrace,
       companionEnabled,
       companionReviewMode,
       companionFixPolicy,
@@ -149,6 +169,7 @@ export function resolveRuntimeEnvironment(
       },
     ),
     configProviderOptions: input.legacy.providerOptions,
+    ...providerOptionsTrace,
     companionEnabled,
     companionReviewMode,
     companionFixPolicy,
@@ -205,5 +226,7 @@ export function resolveAuxiliaryRuntimeEnvironment(
       legacy,
       providerOptions.source,
     ),
+    providerOptionsSource: providerOptions.source,
+    providerOptionsOriginResolver: providerOptions.originResolver,
   });
 }

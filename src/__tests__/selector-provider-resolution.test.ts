@@ -13,6 +13,7 @@ import {
   loadWorkflowByIdentifier,
 } from '../infra/config/index.js';
 import { resolveAuxiliaryRuntimeEnvironment } from '../infra/config/runtime-provider/provider-environment.js';
+import { RUNTIME_PROVIDER_FILENAME } from '../infra/config/runtime-provider/constants.js';
 
 describe('selector provider resolution', () => {
   it.each([
@@ -263,6 +264,7 @@ describe('selector provider resolution', () => {
 describe('workflow selector resolution', () => {
   const roots: string[] = [];
   const originalConfigDir = process.env.TAKT_CONFIG_DIR;
+  const originalDeepSeekEffort = process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
 
   afterEach(() => {
     for (const root of roots.splice(0)) {
@@ -272,6 +274,11 @@ describe('workflow selector resolution', () => {
       delete process.env.TAKT_CONFIG_DIR;
     } else {
       process.env.TAKT_CONFIG_DIR = originalConfigDir;
+    }
+    if (originalDeepSeekEffort === undefined) {
+      delete process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+    } else {
+      process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = originalDeepSeekEffort;
     }
     invalidateGlobalConfigCache();
     invalidateAllResolvedConfigCache();
@@ -329,8 +336,75 @@ describe('workflow selector resolution', () => {
       companionEnabled: options.companionEnabled ?? runtimeEnvironment.companionEnabled,
       providerEnvironment: runtimeEnvironment.providerEnvironment,
       providerConfigMode: runtimeEnvironment.providerConfigMode,
+      ...(runtimeEnvironment.configProviderOptions === undefined
+        ? {}
+        : { configProviderOptions: runtimeEnvironment.configProviderOptions }),
+      ...(runtimeEnvironment.providerOptionsSource === undefined
+        ? {}
+        : { providerOptionsSource: runtimeEnvironment.providerOptionsSource }),
+      ...(runtimeEnvironment.providerOptionsOriginResolver === undefined
+        ? {}
+        : { providerOptionsOriginResolver: runtimeEnvironment.providerOptionsOriginResolver }),
     });
   }
+
+  function writeDynamicSelectorRuntimeConfig(projectDir: string): void {
+    writeFileSync(join(projectDir, '.takt', RUNTIME_PROVIDER_FILENAME), [
+      'version: 1',
+      'provider:',
+      '  defaults:',
+      '    profile: default',
+      '  profiles:',
+      '    default:',
+      '      provider: deepseek-harness',
+      '      model: default-model',
+      '      options:',
+      '        reasoning_effort: low',
+      '    selector:',
+      '      provider: deepseek-harness',
+      '      model: selector-model',
+      '      options:',
+      '        reasoning_effort: low',
+      '  targets:',
+      '    internal_agents:',
+      '      selector:',
+      '        profile: selector',
+    ].join('\n'));
+  }
+
+  it('should retain a profile-only DeepSeek selector option without an environment override', () => {
+    const projectDir = createProject('language: en\n');
+    writeDynamicSelectorRuntimeConfig(projectDir);
+    delete process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+    invalidateGlobalConfigCache();
+    invalidateAllResolvedConfigCache();
+
+    expect(resolveWorkflowSelectorForProject(makeDynamicWorkflow(), projectDir)).toMatchObject({
+      applies: true,
+      selectorProvider: {
+        provider: 'deepseek-harness',
+        model: 'selector-model',
+        providerOptions: { deepseekHarness: { reasoningEffort: 'low' } },
+      },
+    });
+  });
+
+  it('should let an environment override replace the profile-only DeepSeek selector option', () => {
+    const projectDir = createProject('language: en\n');
+    writeDynamicSelectorRuntimeConfig(projectDir);
+    process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = 'max';
+    invalidateGlobalConfigCache();
+    invalidateAllResolvedConfigCache();
+
+    expect(resolveWorkflowSelectorForProject(makeDynamicWorkflow(), projectDir)).toMatchObject({
+      applies: true,
+      selectorProvider: {
+        provider: 'deepseek-harness',
+        model: 'selector-model',
+        providerOptions: { deepseekHarness: { reasoningEffort: 'max' } },
+      },
+    });
+  });
 
   it('should not resolve an invalid unused selector for a workflow without dynamic parallel', () => {
     const projectDir = createProject([

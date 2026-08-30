@@ -81,6 +81,7 @@ interface PreviewProviderResolution extends ProviderModelResolutionContext {
   modelSource: ProviderResolutionSource;
   tagConflictPolicy: TagRoutingConflictPolicy;
   providerOptions: StepProviderOptions | undefined;
+  configProviderOptions: StepProviderOptions | undefined;
   providerOptionsSource: ReturnType<typeof resolveProviderOptionsWithTrace>['source'];
   providerOptionsOriginResolver: ReturnType<typeof resolveProviderOptionsWithTrace>['originResolver'];
   profileScopedProviderOptions: boolean;
@@ -329,6 +330,9 @@ function resolvePreviewProviderResolution(
         companionEnabled: runtimeEnvironment.companionEnabled,
         providerEnvironment: env,
         providerConfigMode: runtimeEnvironment.providerConfigMode,
+        configProviderOptions: runtimeEnvironment.configProviderOptions,
+        providerOptionsSource,
+        providerOptionsOriginResolver,
         workflowCallResolver,
       })
     : { applies: false as const };
@@ -344,6 +348,7 @@ function resolvePreviewProviderResolution(
     tagConflictPolicy: env.tagConflictPolicy,
     permissionMode: env.permissionMode,
     providerOptions: env.providerOptions,
+    configProviderOptions: runtimeEnvironment.configProviderOptions,
     providerOptionsSource,
     providerOptionsOriginResolver,
     profileScopedProviderOptions: runtimeEnvironment.providerConfigMode === 'runtime-v1',

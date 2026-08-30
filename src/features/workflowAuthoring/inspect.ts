@@ -1057,6 +1057,15 @@ export async function inspectWorkflowCommand(
     companionEnabled: runtime.companionEnabled,
     providerEnvironment,
     providerConfigMode: runtime.providerConfigMode,
+    ...(runtime.configProviderOptions === undefined
+      ? {}
+      : { configProviderOptions: runtime.configProviderOptions }),
+    ...(runtime.providerOptionsSource === undefined
+      ? {}
+      : { providerOptionsSource: runtime.providerOptionsSource }),
+    ...(runtime.providerOptionsOriginResolver === undefined
+      ? {}
+      : { providerOptionsOriginResolver: runtime.providerOptionsOriginResolver }),
   });
   if (selectorResolution.applies) {
     const permission = resolveSelectorPermissionMode(selectorResolution.selectorProvider.permissionMode);
