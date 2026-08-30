@@ -49,6 +49,7 @@ import type { StructuredCaller } from '../agents/structured-caller.js';
 import { WorkflowEngine } from '../core/workflow/index.js';
 import { runAgent } from '../agents/runner.js';
 import { runWorkflowExecution } from '../features/tasks/execute/workflowExecutionApi.js';
+import { initializeGitFixture } from './helpers/git-fixture.js';
 import {
   applyDefaultMocks,
   cleanupWorkflowEngine,
@@ -765,6 +766,7 @@ describe('runtime provider options through workflow execution', () => {
   let originalFastMode: string | undefined;
   let originalProvider: string | undefined;
   let originalModel: string | undefined;
+  let originalDeepSeekEffort: string | undefined;
 
   beforeEach(() => {
     vi.resetAllMocks();
@@ -797,7 +799,9 @@ describe('runtime provider options through workflow execution', () => {
     originalFastMode = process.env.TAKT_PROVIDER_OPTIONS_CODEX_FAST_MODE;
     originalProvider = process.env.TAKT_PROVIDER;
     originalModel = process.env.TAKT_MODEL;
+    originalDeepSeekEffort = process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
     delete process.env.TAKT_PROVIDER_OPTIONS_CODEX_FAST_MODE;
+    delete process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
     delete process.env.TAKT_PROVIDER;
     delete process.env.TAKT_MODEL;
     invalidateGlobalConfigCache();
@@ -819,6 +823,11 @@ describe('runtime provider options through workflow execution', () => {
       delete process.env.TAKT_MODEL;
     } else {
       process.env.TAKT_MODEL = originalModel;
+    }
+    if (originalDeepSeekEffort === undefined) {
+      delete process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+    } else {
+      process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = originalDeepSeekEffort;
     }
     invalidateGlobalConfigCache();
     invalidateAllResolvedConfigCache();
@@ -888,4 +897,126 @@ describe('runtime provider options through workflow execution', () => {
       }
     },
   );
+
+  it('passes effective options to dynamic selector and companion calls through workflow bootstrap', async () => {
+    writeFileSync(join(workflowProjectCwd, 'baseline.txt'), 'baseline\n', 'utf-8');
+    initializeGitFixture(workflowProjectCwd, ['baseline.txt']);
+    writeFileSync(
+      join(workflowProjectCwd, 'changed.txt'),
+      Array.from({ length: 12 }, (_, index) => `change-${index + 1}`).join('\n') + '\n',
+      'utf-8',
+    );
+    writeFileSync(
+      join(workflowProjectCwd, '.takt', 'workflows', 'runtime-provider-selector-companion.yaml'),
+      [
+        'name: runtime-provider-selector-companion',
+        'description: runtime selector and companion handoff integration test',
+        'max_steps: 2',
+        'initial_step: reviewers',
+        'steps:',
+        '  - name: reviewers',
+        '    instruction: Review the change.',
+        '    parallel:',
+        '      fixed: []',
+        '      pool:',
+        '        - name: selected-review',
+        '          persona: ./personas/planner.md',
+        '          description: Review selected changes.',
+        '          instruction: Review selected changes.',
+        '          rules:',
+        '            - condition: done',
+        '              next: COMPLETE',
+        '      selection:',
+        '        mode: replace',
+        '    rules:',
+        '      - condition: all("done")',
+        '        next: implement',
+        '  - name: implement',
+        '    persona: ./personas/planner.md',
+        '    instruction: Implement the change.',
+        '    companion:',
+        '      fixed: [testing-review-companion]',
+        '      pool: []',
+        '    rules:',
+        '      - condition: done',
+        '        next: COMPLETE',
+      ].join('\n'),
+      'utf-8',
+    );
+    writeGlobalRuntimeFile({
+      version: 1,
+      companion: { enabled: true, review_mode: 'completion' },
+      provider: {
+        defaults: { profile: 'default' },
+        profiles: {
+          default: {
+            provider: 'deepseek-harness',
+            model: 'route/main',
+            options: { max_tokens: 4096, reasoning_effort: 'high' },
+          },
+          selector: {
+            provider: 'deepseek-harness',
+            model: 'route/selector',
+            options: { max_tokens: 4096, reasoning_effort: 'high' },
+          },
+          companion: {
+            provider: 'deepseek-harness',
+            model: 'route/companion',
+            options: { max_tokens: 4096, reasoning_effort: 'high' },
+          },
+        },
+        targets: {
+          internal_agents: { selector: { profile: 'selector' } },
+          companions: { 'testing-review-companion': { profile: 'companion' } },
+        },
+      },
+    });
+    process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = 'low';
+    invalidateGlobalConfigCache();
+    invalidateAllResolvedConfigCache();
+
+    const providerCalls: Array<Parameters<typeof runAgent>[2]> = [];
+    vi.mocked(runAgent).mockImplementation(async (_persona, instruction, options) => {
+      providerCalls.push(options);
+      options.onPromptResolved?.({
+        systemPrompt: options.internalAgentName ?? '',
+        userInstruction: instruction,
+      });
+      if (options.internalAgentName === 'dynamic-parallel-selector') {
+        return makeResponse({
+          content: JSON.stringify({ selected_ids: ['selected-review'], rationale: 'selected' }),
+          structuredOutput: { selected_ids: ['selected-review'], rationale: 'selected' },
+        });
+      }
+      if (options.internalAgentName === 'testing-review-companion') {
+        return makeResponse({
+          content: JSON.stringify({ findings: [], notes: null }),
+          structuredOutput: { findings: [], notes: null },
+        });
+      }
+      return makeResponse({ content: 'done' });
+    });
+    mockRuleEvaluationSequence(Array.from({ length: 8 }, () => ({
+      index: 0,
+      method: 'phase3_tag' as const,
+    })));
+
+    const result = await runWorkflowExecution({
+      task: 'test dynamic selector and companion handoff',
+      cwd: workflowProjectCwd,
+      projectCwd: workflowProjectCwd,
+      workflowIdentifier: 'runtime-provider-selector-companion',
+      outputMode: 'silent',
+    });
+
+    expect(result.success, result.reason ?? 'workflow execution failed').toBe(true);
+    const selectorCall = providerCalls.find((options) => options.internalAgentName === 'dynamic-parallel-selector');
+    const companionCall = providerCalls.find((options) => options.internalAgentName === 'testing-review-companion');
+    expect(selectorCall?.resolvedExecution?.providerOptions).toMatchObject({
+      deepseekHarness: { maxTokens: 4096, reasoningEffort: 'low' },
+    });
+    expect(companionCall?.resolvedExecution?.providerOptions).toMatchObject({
+      deepseekHarness: { maxTokens: 4096, reasoningEffort: 'low' },
+    });
+  });
 });

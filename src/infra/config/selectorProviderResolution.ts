@@ -8,7 +8,10 @@ import type {
 } from '../../core/workflow/provider-options-trace.js';
 import type { ProviderType } from '../../shared/types/provider.js';
 import type { PermissionMode } from '../../core/models/types.js';
-import { mergeProviderOptions, resolveEffectiveProviderOptions } from './providerOptions.js';
+import {
+  mergeProviderOptions,
+  resolveEffectiveRuntimeProfileProviderOptions,
+} from './providerOptions.js';
 import { validateProviderModelRequirements } from '../../core/workflow/provider-model-requirements.js';
 import { ConfiguredModelSchema } from '../../core/models/model-schema.js';
 import { loadProjectConfig } from './project/projectConfig.js';
@@ -296,16 +299,10 @@ function resolveRuntimeSelectorProviderOptions(
   if (providerOptionsResolution === undefined) {
     return runtimeProviderOptions;
   }
-  // The default trace value contains built-in skill defaults, which are not selector
-  // configuration and must not change the pre-existing profile-only result.
-  const configProviderOptions = providerOptionsResolution.providerOptionsSource === 'default'
-    ? undefined
-    : providerOptionsResolution.configProviderOptions;
-  const effectiveOptions = resolveEffectiveProviderOptions(
+  const effectiveOptions = resolveEffectiveRuntimeProfileProviderOptions(
     providerOptionsResolution.providerOptionsSource,
     providerOptionsResolution.providerOptionsOriginResolver,
-    configProviderOptions,
-    undefined,
+    providerOptionsResolution.configProviderOptions,
     runtimeProviderOptions,
   );
   return filterSelectorProviderOptions(provider, effectiveOptions);

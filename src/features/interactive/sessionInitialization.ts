@@ -36,9 +36,10 @@ export function initializeSession(
   if (!resolvedProvider) {
     throw new ProviderNotConfiguredError();
   }
-  // A runtime-v1 assistant or non-workflow `defaults` profile owns its options (the assistant path
-  // drops them on a CLI provider override); every other case keeps the legacy `provider_options`
-  // resolution unchanged so provider/model/options come from one source.
+  // A runtime-v1 assistant or non-workflow `defaults` profile owns its profile options (a provider
+  // override drops those replaced options before independent config/environment leaves are kept);
+  // every other case keeps the legacy `provider_options` resolution unchanged so
+  // provider/model/options come from one source.
   const providerOptions = resolved.runtimeManaged
     ? resolved.providerOptions
     : resolveNonWorkflowProviderOptions(cwd);

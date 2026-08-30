@@ -100,6 +100,7 @@ type PreviewProviderResolution = CompiledProviderEnvironment & ProviderModelReso
   companionReviewMode: ReturnType<typeof resolveAuxiliaryRuntimeEnvironment>['companionReviewMode'];
   providerEnvironment: CompiledProviderEnvironment;
   providerConfigMode: ReturnType<typeof resolveAuxiliaryRuntimeEnvironment>['providerConfigMode'];
+  providerSectionActive: ReturnType<typeof resolveAuxiliaryRuntimeEnvironment>['providerSectionActive'];
   configProviderOptions?: StepProviderOptions;
   providerOptionsSource?: ReturnType<typeof resolveAuxiliaryRuntimeEnvironment>['providerOptionsSource'];
   providerOptionsOriginResolver?: ReturnType<typeof resolveAuxiliaryRuntimeEnvironment>['providerOptionsOriginResolver'];
@@ -116,6 +117,7 @@ function resolvePreviewProviderResolution(
     companionReviewMode: runtimeEnvironment.companionReviewMode,
     providerEnvironment: runtimeEnvironment.providerEnvironment,
     providerConfigMode: runtimeEnvironment.providerConfigMode,
+    providerSectionActive: runtimeEnvironment.providerSectionActive,
     configProviderOptions: runtimeEnvironment.configProviderOptions,
     providerOptionsSource: runtimeEnvironment.providerOptionsSource,
     providerOptionsOriginResolver: runtimeEnvironment.providerOptionsOriginResolver,
@@ -267,6 +269,13 @@ export async function previewPrompts(
     resolveWorkflowCompanions(config, providerResolution, {
       projectCwd: cwd,
       lookupCwd: cwd,
+      providerConfigMode: providerResolution.providerConfigMode,
+      providerSectionActive: providerResolution.providerSectionActive,
+      providerOptionsResolution: {
+        configProviderOptions: providerResolution.configProviderOptions,
+        providerOptionsSource: providerResolution.providerOptionsSource,
+        providerOptionsOriginResolver: providerResolution.providerOptionsOriginResolver,
+      },
     });
   }
   const selectorProvider = selectorResolution.applies

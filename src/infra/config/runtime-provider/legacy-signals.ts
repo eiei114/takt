@@ -19,7 +19,10 @@ import { getAllParallelSubSteps } from '../../../core/models/index.js';
 import { isWorkflowCallStep } from '../../../core/workflow/step-kind.js';
 import { getWorkflowReference } from '../../../core/workflow/workflow-reference.js';
 import type { WorkflowCallResolver } from '../../../core/workflow/types.js';
-import type { ProviderOptionsSource } from '../../../core/workflow/provider-options-trace.js';
+import type {
+  ProviderOptionsOriginResolver,
+  ProviderOptionsSource,
+} from '../../../core/workflow/provider-options-trace.js';
 import { loadGlobalConfig } from '../global/globalConfig.js';
 import { loadProjectConfig } from '../project/projectConfig.js';
 import {
@@ -28,12 +31,34 @@ import {
   toProviderResolutionSource,
 } from '../resolveConfigValue.js';
 import { resolveWorkflowConfigValues } from '../resolveWorkflowConfigValue.js';
+import { getPresentProviderOptionPaths } from '../providerOptionsContract.js';
 import type { LegacyProviderEnvironmentInput } from './environment.js';
 import type { LegacyProviderSignal } from './mode.js';
 import type { McpAssignmentSection } from './mcp-assignment.js';
 
 function isNonEmptyRecord(value: Record<string, unknown> | undefined): boolean {
   return value !== undefined && Object.keys(value).length > 0;
+}
+
+function hasLegacyProviderOptions(
+  providerOptions: LegacyProviderEnvironmentInput['providerOptions'],
+  providerOptionsSource: ProviderOptionsSource | undefined,
+  providerOptionsOriginResolver: ProviderOptionsOriginResolver | undefined,
+): boolean {
+  const paths = getPresentProviderOptionPaths(providerOptions);
+  if (paths.length === 0) {
+    return false;
+  }
+  if (providerOptionsOriginResolver === undefined) {
+    if (providerOptionsSource === 'default') {
+      return false;
+    }
+    throw new Error('Provider option origin metadata is required for mixed-configuration detection');
+  }
+  return paths.some((path) => {
+    const origin = providerOptionsOriginResolver(path);
+    return origin === 'local' || origin === 'global';
+  });
 }
 
 /**
@@ -66,6 +91,7 @@ export function selectConfigTaktProviders(
 export function collectLegacyProviderSignals(
   legacy: LegacyProviderEnvironmentInput,
   providerOptionsSource: ProviderOptionsSource | undefined,
+  providerOptionsOriginResolver?: ProviderOptionsOriginResolver,
 ): LegacyProviderSignal[] {
   const signals: LegacyProviderSignal[] = [];
 
@@ -94,13 +120,14 @@ export function collectLegacyProviderSignals(
       migrateTo: 'provider.targets.internal_agents',
     });
   }
-  // Only provider_options explicitly written to project/global config.yaml are a legacy signal.
-  // The resolver always merges built-in skill defaults into the value (source 'default'), and
-  // env overrides (source 'env') are runtime overrides — neither must trip the mixed-config gate.
-  if (
-    (providerOptionsSource === 'project' || providerOptionsSource === 'global')
-    && isNonEmptyRecord(legacy.providerOptions as Record<string, unknown> | undefined)
-  ) {
+  // A resolved provider_options value can mix project/global leaves with unrelated env leaves,
+  // so the aggregate source cannot identify whether any legacy configuration remains. Inspect
+  // each present leaf instead; built-in defaults are the only source that needs no trace resolver.
+  if (hasLegacyProviderOptions(
+    legacy.providerOptions,
+    providerOptionsSource,
+    providerOptionsOriginResolver,
+  )) {
     signals.push({
       setting: 'provider_options',
       location: 'config.yaml:provider_options',
@@ -161,7 +188,11 @@ export function collectProjectLegacyProviderSignals(projectCwd: string): LegacyP
       loadGlobalConfig().taktProviders,
     ),
   };
-  return collectLegacyProviderSignals(legacy, providerOptions.source);
+  return collectLegacyProviderSignals(
+    legacy,
+    providerOptions.source,
+    providerOptions.originResolver,
+  );
 }
 
 /**

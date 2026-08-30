@@ -1,6 +1,12 @@
 import { loadGlobalConfig } from '../../infra/config/global/globalConfig.js';
 import { loadProjectConfig } from '../../infra/config/project/projectConfig.js';
-import { resolveConfigValueWithSource } from '../../infra/config/resolveConfigValue.js';
+import {
+  resolveConfigValueWithSource,
+  resolveProviderOptionsWithTrace,
+} from '../../infra/config/resolveConfigValue.js';
+import {
+  resolveEffectiveRuntimeProfileProviderOptions,
+} from '../../infra/config/providerOptions.js';
 import { resolveRuntimeInternalAgentProvider } from '../../infra/config/runtime-provider/internal-agents.js';
 import { composeRuntimeProviderOverride } from '../../infra/config/runtime-provider/override.js';
 import {
@@ -53,8 +59,9 @@ export function resolveAssistantConfigLayers(projectDir: string): AssistantProvi
  * are carried through; otherwise the legacy `taktProviders` resolution runs and the caller keeps
  * resolving options via `resolveNonWorkflowProviderOptions`. Explicit CLI and env
  * (`TAKT_PROVIDER`/`TAKT_MODEL`) overrides win over the runtime profile in both modes — cli takes
- * priority over env — and a provider override drops the runtime-tied model and options (symmetric
- * with the selector seam `resolveSelectorFromRuntimeV1`).
+ * priority over env — and a provider override drops the runtime-tied model and profile options
+ * before independent config/environment leaves are composed (symmetric with the selector seam
+ * `resolveSelectorFromRuntimeV1`).
  */
 export function resolveAssistantProviderModel(
   projectDir: string,
@@ -75,9 +82,10 @@ export function resolveAssistantProviderModel(
  * Resolve the assistant provider/model/options from an active runtime.yaml section. A CLI or env
  * provider/model override wins over the runtime profile (order.md treats an explicit provider
  * selection as a runtime override in both modes), with cli taking priority over env; overriding the
- * provider drops the runtime-tied model and options, while a model-only override keeps the runtime
- * provider and its options. Config values whose source is `default`/`project`/`global` are not
- * overrides and leave the runtime profile untouched.
+ * provider drops the runtime-tied model and profile options before independent config/environment
+ * leaves are composed, while a model-only override keeps the runtime provider and its options.
+ * Config values whose source is `default`/`project`/`global` are not overrides and leave the runtime
+ * profile untouched.
  */
 function resolveAssistantFromRuntimeV1(
   runtime: ProviderRoutingEntry,
@@ -90,7 +98,7 @@ function resolveAssistantFromRuntimeV1(
     ?? (configuredProvider.source === 'env' ? configuredProvider.value : undefined);
   const modelOverride = cliOverrides?.model
     ?? (configuredModel.source === 'env' ? configuredModel.value : undefined);
-
+  const providerOptions = resolveProviderOptionsWithTrace(projectDir);
   const composed = composeRuntimeProviderOverride(
     {
       provider: runtime.provider,
@@ -100,11 +108,17 @@ function resolveAssistantFromRuntimeV1(
     },
     { provider: providerOverride, model: modelOverride },
   );
+  const effectiveProviderOptions = resolveEffectiveRuntimeProfileProviderOptions(
+    providerOptions.source,
+    providerOptions.originResolver,
+    providerOptions.value,
+    composed.providerOptions,
+  );
   return {
     runtimeManaged: true,
     provider: composed.provider,
     model: composed.model,
-    ...(composed.providerOptions !== undefined ? { providerOptions: composed.providerOptions } : {}),
+    ...(effectiveProviderOptions !== undefined ? { providerOptions: effectiveProviderOptions } : {}),
     ...(composed.permissionMode !== undefined ? { permissionMode: composed.permissionMode } : {}),
   };
 }

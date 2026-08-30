@@ -12,6 +12,7 @@ import type { RuntimeProviderResolutionContext } from '../infra/config/runtime-p
 import { resolveStepProviderModel } from '../core/workflow/provider-resolution.js';
 import { resolveDeterministicAutoRoutingProviderInfo } from '../core/workflow/auto-routing/resolver.js';
 import { selectRoutingCandidate } from '../core/workflow/auto-routing/selector.js';
+import { resolveEffectiveRuntimeProfileProviderOptions } from '../infra/config/providerOptions.js';
 
 /**
  * Contracts covered (Unit A / issue #1136):
@@ -254,6 +255,23 @@ describe('compileRuntimeProviderEnvironment (profile options)', () => {
     });
   });
 
+  it('composes explicit environment options over a runtime profile while retaining profile fields', () => {
+    const effective = resolveEffectiveRuntimeProfileProviderOptions(
+      'env',
+      (path) => path === 'deepseekHarness.reasoningEffort' ? 'env' : 'default',
+      {
+        codex: { skills: { repo: false, user: false } },
+        claude: { skills: { enabled: false } },
+        deepseekHarness: { reasoningEffort: 'low' },
+      },
+      { deepseekHarness: { maxTokens: 4096, reasoningEffort: 'high' } },
+    );
+
+    expect(effective).toEqual({
+      deepseekHarness: { maxTokens: 4096, reasoningEffort: 'low' },
+    });
+  });
+
   it('resolves relative paths from a trusted global runtime profile before execution', () => {
     const section: RuntimeProviderSection = {
       defaults: { profile: 'p' },
@@ -368,6 +386,43 @@ describe('compileRuntimeProviderEnvironment (profile options)', () => {
     expect(() => compileRuntimeProviderEnvironment(section, projectRuntimeResolutionContext))
       .toThrow();
   });
+
+  it.each(['', ' ', ' high ', 'HIGH', 'minimal', 'medium', 'xhigh', 'unknown'] as const)(
+    'rejects invalid DeepSeek reasoning_effort=%j in a runtime profile with the received and allowed values',
+    (reasoningEffort) => {
+      const section: RuntimeProviderSection = {
+        defaults: { profile: 'p' },
+        profiles: {
+          p: {
+            provider: 'deepseek-harness',
+            model: 'deepseek-v4-flash',
+            options: { reasoning_effort: reasoningEffort },
+          },
+        },
+      };
+      let thrown: unknown;
+      try {
+        compileRuntimeProviderEnvironment(section, projectRuntimeResolutionContext);
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(Error);
+      if (!(thrown instanceof Error)) {
+        return;
+      }
+      const issues = (thrown as Error & {
+        issues?: readonly { message: string }[];
+      }).issues;
+      const errorMessage = issues === undefined
+        ? thrown.message
+        : issues.map((issue) => issue.message).join(' ');
+      expect(errorMessage).toContain(JSON.stringify(reasoningEffort));
+      for (const allowedEffort of ['off', 'low', 'high', 'max'] as const) {
+        expect(errorMessage).toContain(allowedEffort);
+      }
+    },
+  );
 });
 
 describe('compileRuntimeProviderEnvironment (auto routing)', () => {
@@ -673,8 +728,8 @@ describe('collectLegacyProviderSignals', () => {
       autoRouting: undefined,
       providerOptions: { codex: { skills: { repo: false } } },
     };
-    expect(collectLegacyProviderSignals(legacy, 'default')).toEqual([]);
-    expect(collectLegacyProviderSignals(legacy, 'env')).toEqual([]);
+    expect(collectLegacyProviderSignals(legacy, 'default', () => 'default')).toEqual([]);
+    expect(collectLegacyProviderSignals(legacy, 'env', () => 'env')).toEqual([]);
   });
 
   it('reports provider_options only when explicitly configured in project/global config.yaml', () => {
@@ -686,12 +741,45 @@ describe('collectLegacyProviderSignals', () => {
       personaProviders: undefined,
       providerRouting: undefined,
       autoRouting: undefined,
-      providerOptions: { codex: { network_access: true } },
+      providerOptions: { codex: { networkAccess: true } },
     };
-    expect(collectLegacyProviderSignals(legacy, 'global').map((s) => s.setting))
+    expect(collectLegacyProviderSignals(legacy, 'global', () => 'global').map((s) => s.setting))
       .toContain('provider_options');
-    expect(collectLegacyProviderSignals(legacy, 'project').map((s) => s.setting))
+    expect(collectLegacyProviderSignals(legacy, 'project', () => 'local').map((s) => s.setting))
       .toContain('provider_options');
+  });
+
+  it('detects a project provider option when another leaf is environment-sourced', () => {
+    const signals = collectLegacyProviderSignals({
+      provider: undefined,
+      providerSource: 'default',
+      model: undefined,
+      modelSource: 'default',
+      personaProviders: undefined,
+      providerRouting: undefined,
+      autoRouting: undefined,
+      providerOptions: {
+        codex: { networkAccess: true },
+        deepseekHarness: { reasoningEffort: 'high' },
+      },
+    }, 'env', (path) => path === 'deepseekHarness.reasoningEffort' ? 'env' : 'local');
+
+    expect(signals.map((signal) => signal.setting)).toContain('provider_options');
+  });
+
+  it('accepts provider options whose present leaves are all environment-sourced', () => {
+    const signals = collectLegacyProviderSignals({
+      provider: undefined,
+      providerSource: 'default',
+      model: undefined,
+      modelSource: 'default',
+      personaProviders: undefined,
+      providerRouting: undefined,
+      autoRouting: undefined,
+      providerOptions: { deepseekHarness: { reasoningEffort: 'high' } },
+    }, 'env', () => 'env');
+
+    expect(signals).toEqual([]);
   });
 
   it('does not report removed workflow provider settings as legacy signals', () => {

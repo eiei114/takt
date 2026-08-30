@@ -65,6 +65,7 @@ export interface ResolvedRuntimeEnvironment {
   companionEnabled: boolean;
   companionReviewMode: CompanionReviewMode;
   companionFixPolicy: CompanionFixPolicy;
+  providerSectionActive: boolean;
   providerConfigMode: ProviderConfigMode;
 }
 
@@ -101,6 +102,7 @@ export function resolveRuntimeEnvironment(
   const companionReviewMode = runtimeFile?.companion?.review_mode ?? DEFAULT_COMPANION_REVIEW_MODE;
   const companionFixPolicy = runtimeFile?.companion?.fix_policy ?? DEFAULT_COMPANION_FIX_POLICY;
   const runtimeFileForProviderResolution = getEffectiveRuntimeProviderFile(runtimeFile);
+  const providerSectionActive = hasActiveProviderSection(runtimeFileForProviderResolution);
   const { mode } = determineProviderConfigMode({
     runtimeFile: runtimeFileForProviderResolution,
     legacyProviderSignals: input.legacySignals,
@@ -118,10 +120,11 @@ export function resolveRuntimeEnvironment(
       companionEnabled,
       companionReviewMode,
       companionFixPolicy,
+      providerSectionActive,
       providerConfigMode: mode,
     };
   }
-  const section = hasActiveProviderSection(runtimeFileForProviderResolution)
+  const section = providerSectionActive
     ? runtimeFileForProviderResolution?.provider
     : undefined;
   const activeMcp = hasActiveMcpSection(runtimeFileForProviderResolution)
@@ -143,6 +146,7 @@ export function resolveRuntimeEnvironment(
       companionEnabled,
       companionReviewMode,
       companionFixPolicy,
+      providerSectionActive,
       providerConfigMode: mode,
     };
   }
@@ -173,6 +177,7 @@ export function resolveRuntimeEnvironment(
     companionEnabled,
     companionReviewMode,
     companionFixPolicy,
+    providerSectionActive,
     providerConfigMode: mode,
   };
 }
@@ -225,6 +230,7 @@ export function resolveAuxiliaryRuntimeEnvironment(
     legacySignals: collectLegacyProviderSignals(
       legacy,
       providerOptions.source,
+      providerOptions.originResolver,
     ),
     providerOptionsSource: providerOptions.source,
     providerOptionsOriginResolver: providerOptions.originResolver,

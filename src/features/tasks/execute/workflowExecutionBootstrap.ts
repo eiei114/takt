@@ -607,6 +607,7 @@ export async function createWorkflowExecutionBootstrap(
     legacySignals: collectLegacyProviderSignals(
       legacyProviderEnvironment,
       options.providerOptionsSource,
+      options.providerOptionsOriginResolver,
     ),
     providerOptionsSource: options.providerOptionsSource,
     providerOptionsOriginResolver: options.providerOptionsOriginResolver,
@@ -687,7 +688,14 @@ export async function createWorkflowExecutionBootstrap(
       ? resolveWorkflowCompanions(effectiveWorkflowConfig, providerEnvironment, {
           projectCwd,
           lookupCwd: cwd,
+          providerConfigMode: resolvedRuntimeEnvironment.providerConfigMode,
+          providerSectionActive: resolvedRuntimeEnvironment.providerSectionActive,
           workflowCallResolver: options.workflowCallResolver,
+          providerOptionsResolution: {
+            configProviderOptions: resolvedRuntimeEnvironment.configProviderOptions,
+            providerOptionsSource: resolvedRuntimeEnvironment.providerOptionsSource,
+            providerOptionsOriginResolver: resolvedRuntimeEnvironment.providerOptionsOriginResolver,
+          },
         })
       : [],
   );

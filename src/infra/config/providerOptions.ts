@@ -23,6 +23,7 @@ import { resolveWorkflowStepTarget } from '../../core/workflow/provider-target-r
 import type { ProviderType } from '../../shared/types/provider.js';
 import { isAbsolutePathLike } from '../../shared/utils/pathBoundary.js';
 import { providerSupportsClaudeAllowedTools } from '../providers/provider-capabilities.js';
+import { getPresentProviderOptionPaths } from './providerOptionsContract.js';
 
 type RawProviderGuardOptions = {
   call_timeout_ms?: number;
@@ -965,6 +966,89 @@ export function resolveProfileScopedProviderOptionsLayers(
     ...nonProfileLayers,
     ...layers.filter((layer) => layer.source === resolvedProviderSource),
   ];
+}
+
+function removeProviderOptionPath(
+  providerOptions: StepProviderOptions,
+  path: string,
+): void {
+  const segments = path.split('.');
+  const parents: Array<{ value: Record<string, unknown>; key: string }> = [];
+  let current = providerOptions as Record<string, unknown>;
+  for (const segment of segments.slice(0, -1)) {
+    const child = current[segment];
+    if (typeof child !== 'object' || child === null || Array.isArray(child)) {
+      return;
+    }
+    parents.push({ value: current, key: segment });
+    current = child as Record<string, unknown>;
+  }
+  const leaf = segments.at(-1);
+  if (leaf === undefined) {
+    return;
+  }
+  delete current[leaf];
+  for (const parent of parents.reverse()) {
+    const child = parent.value[parent.key];
+    if (
+      typeof child === 'object'
+      && child !== null
+      && !Array.isArray(child)
+      && Object.keys(child).length === 0
+    ) {
+      delete parent.value[parent.key];
+      continue;
+    }
+    break;
+  }
+}
+
+function resolveExplicitConfigProviderOptions(
+  source: ProviderOptionsSource | undefined,
+  originResolver: ProviderOptionsOriginResolver | undefined,
+  resolvedConfigOptions: StepProviderOptions | undefined,
+): StepProviderOptions | undefined {
+  if (source === 'default' || resolvedConfigOptions === undefined) {
+    return undefined;
+  }
+  if (originResolver === undefined) {
+    return resolvedConfigOptions;
+  }
+  const explicitOptions = mergeProviderOptions(resolvedConfigOptions);
+  if (explicitOptions === undefined) {
+    return undefined;
+  }
+  for (const path of getPresentProviderOptionPaths(resolvedConfigOptions)) {
+    if (resolveProviderOptionOrigin(originResolver, path, source) === 'default') {
+      removeProviderOptionPath(explicitOptions, path);
+    }
+  }
+  return Object.keys(explicitOptions).length === 0 ? undefined : explicitOptions;
+}
+
+/**
+ * Compose a runtime profile's options with config and environment options. Built-in defaults are
+ * excluded from the composition so a runtime profile remains the owner when no explicit config
+ * or environment option exists.
+ */
+export function resolveEffectiveRuntimeProfileProviderOptions(
+  source: ProviderOptionsSource | undefined,
+  originResolver: ProviderOptionsOriginResolver | undefined,
+  resolvedConfigOptions: StepProviderOptions | undefined,
+  runtimeProfileOptions: StepProviderOptions | undefined,
+): StepProviderOptions | undefined {
+  const configProviderOptions = resolveExplicitConfigProviderOptions(
+    source,
+    originResolver,
+    resolvedConfigOptions,
+  );
+  return resolveEffectiveProviderOptions(
+    source,
+    originResolver,
+    configProviderOptions,
+    undefined,
+    runtimeProfileOptions,
+  );
 }
 
 export function resolveEffectiveProviderOptions(

@@ -99,6 +99,13 @@ export function validateWorkflowRuntimeContract(
       resolveWorkflowCompanions(workflow, env, {
         projectCwd: projectDir,
         lookupCwd: target.lookupCwd ?? projectDir,
+        providerConfigMode: runtimeEnvironment.providerConfigMode,
+        providerSectionActive: runtimeEnvironment.providerSectionActive,
+        providerOptionsResolution: {
+          configProviderOptions: runtimeEnvironment.configProviderOptions,
+          providerOptionsSource: runtimeEnvironment.providerOptionsSource,
+          providerOptionsOriginResolver: runtimeEnvironment.providerOptionsOriginResolver,
+        },
       });
     }
     validateWorkflowCallContracts(workflow, projectDir, target.lookupCwd ?? projectDir);

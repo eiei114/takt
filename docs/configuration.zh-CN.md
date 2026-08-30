@@ -942,7 +942,7 @@ bridge/SDK 的失败位置。
 
 `reasoning_effort` 是 DeepSeek Harness 专用 provider option。只接受完全匹配的 `off`、`low`、`high`、`max`；大写、首尾空格、别名和未知值会在配置校验时失败，并显示收到的值和允许的值。未设置时，TAKT 会从 bridge 和 SDK 配置中完全省略 `reasoning_effort`，交由官方 SDK 使用其默认值。model reference 会原样传给 SDK；其中的 `:` 和额外 `/` 会保留为 model ID 的一部分，推理强度只能通过此 provider option 设置。runtime 模式中，将同一字段放在 `provider.profiles.<name>.options` 下。
 
-`provider_options` 按每个 option leaf 单独解析。对于 `reasoning_effort`，环境变量或 CLI 解析出的配置 leaf 优先于所有其他来源；没有该 override 时，按 step `provider_options` > `provider_routing.steps` > `provider_routing.tags` > `provider_routing.personas` > 已弃用的 `persona_providers` > `workflow_config.provider_options` > 项目 `.takt/config.yaml` > 全局 `~/.takt/config.yaml` 的顺序解析。
+Provider options 从 runtime profile、capability preset，以及 legacy 模式下保留的项目/全局 `config.yaml` 和环境变量路径解析。workflow YAML 不能在 step 或 `workflow_config` 中内联定义 `provider_options`；它只能引用受支持的 capability preset。每个 option leaf 独立解析；对大多数 leaf，来自环境变量或 CLI 的显式配置优先于其他来源，未指定时保留 runtime profile 或 capability preset 的值。
 
 对应的 provider option 环境变量是 `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT`；它必须是 `off`、`low`、`high` 或 `max` 之一。未设置时使用官方 SDK 默认值。
 

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -9,6 +9,9 @@ import {
 } from '../infra/config/runtime-provider/provider-environment.js';
 import { getWorkflowDescription } from '../infra/config/loaders/workflowPreview.js';
 import { resolveConfiguredExecProviderModel } from '../features/exec/runtimeConfig.js';
+import { previewPrompts } from '../features/prompt/preview.js';
+import { initializeSession } from '../features/interactive/sessionInitialization.js';
+import { resolveWorkflowCompanions } from '../infra/config/workflowCompanionResolution.js';
 import {
   getGlobalConfigDir,
   getGlobalConfigPath,
@@ -18,6 +21,7 @@ import {
 } from '../infra/config/index.js';
 import { RUNTIME_PROVIDER_FILENAME } from '../infra/config/runtime-provider/constants.js';
 import type { WorkflowConfig } from '../core/models/index.js';
+import type { StepProviderOptions } from '../core/models/workflow-types.js';
 import type { RuntimeProviderFile } from '../infra/config/runtime-provider/schema.js';
 
 /**
@@ -30,6 +34,19 @@ import type { RuntimeProviderFile } from '../infra/config/runtime-provider/schem
 
 const WORKFLOW: Pick<WorkflowConfig, 'name'> = {
   name: 'aux-entry-workflow',
+};
+
+const COMPANION_WORKFLOW: WorkflowConfig = {
+  name: 'aux-companion-workflow',
+  steps: [{
+    name: 'implement',
+    personaDisplayName: 'coder',
+    instruction: 'implement',
+    passPreviousResponse: false,
+    companion: { fixed: ['security-reviewer'], pool: [] },
+  }],
+  initialStep: 'implement',
+  maxSteps: 1,
 };
 
 let projectCwd: string;
@@ -81,6 +98,240 @@ describe('resolveAuxiliaryProviderEnvironment', () => {
     expect(env.providerSource).toBe('runtime-v1');
     expect(env.modelSource).toBe('runtime-v1');
     expect(env.tagConflictPolicy).toBe('fail-fast');
+  });
+
+  it('rejects a reachable companion in MCP-only runtime mode without a provider section', () => {
+    writeGlobalConfig(['language: en', 'provider: codex', 'model: legacy-model']);
+    writeGlobalRuntimeFile({
+      version: 1,
+      companion: { enabled: true },
+      mcp: {
+        servers: { docs: { type: 'stdio', command: 'docs-server' } },
+        defaults: { servers: ['docs'] },
+      },
+    });
+    invalidateGlobalConfigCache();
+    invalidateAllResolvedConfigCache();
+
+    const runtime = resolveAuxiliaryRuntimeEnvironment(projectCwd, COMPANION_WORKFLOW);
+
+    expect(runtime.providerConfigMode).toBe('runtime-v1');
+    expect(runtime.providerSectionActive).toBe(false);
+    expect(runtime.providerEnvironment.provider).toBe('codex');
+    expect(runtime.providerEnvironment.mcpAssignment?.defaults?.servers).toEqual(['docs']);
+    expect(() => resolveWorkflowCompanions(COMPANION_WORKFLOW, runtime.providerEnvironment, {
+      projectCwd,
+      lookupCwd: projectCwd,
+      providerConfigMode: runtime.providerConfigMode,
+      providerSectionActive: runtime.providerSectionActive,
+    })).toThrow(/runtime\.yaml/);
+  });
+
+  it.each(['assistant', 'non-workflow', 'companion'] as const)(
+    'applies the DeepSeek reasoning effort env override to the %s runtime profile consumer',
+    (consumer) => {
+      writeGlobalConfig(['language: en']);
+      writeGlobalRuntimeFile({
+        version: 1,
+        companion: { enabled: true },
+        provider: {
+          defaults: { profile: 'default' },
+          profiles: {
+            default: {
+              provider: 'deepseek-harness',
+              model: 'deepseek-v4-flash',
+              options: { max_tokens: 4096, reasoning_effort: 'high' },
+            },
+            assistant: {
+              provider: 'deepseek-harness',
+              model: 'deepseek-v4-flash',
+              options: { max_tokens: 4096, reasoning_effort: 'high' },
+            },
+            companion: {
+              provider: 'deepseek-harness',
+              model: 'deepseek-v4-flash',
+              options: { max_tokens: 4096, reasoning_effort: 'high' },
+            },
+          },
+          targets: {
+            internal_agents: { assistant: { profile: 'assistant' } },
+            companions: { 'security-reviewer': { profile: 'companion' } },
+          },
+        },
+      });
+      const previous = process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+      process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = 'low';
+      invalidateGlobalConfigCache();
+      invalidateAllResolvedConfigCache();
+      try {
+        let providerOptions: StepProviderOptions | undefined;
+        if (consumer === 'companion') {
+          const runtime = resolveAuxiliaryRuntimeEnvironment(projectCwd, COMPANION_WORKFLOW);
+          const companions = resolveWorkflowCompanions(
+            COMPANION_WORKFLOW,
+            runtime.providerEnvironment,
+            {
+              projectCwd,
+              lookupCwd: projectCwd,
+              providerConfigMode: runtime.providerConfigMode,
+              providerSectionActive: runtime.providerSectionActive,
+              providerOptionsResolution: {
+                configProviderOptions: runtime.configProviderOptions,
+                providerOptionsSource: runtime.providerOptionsSource,
+                providerOptionsOriginResolver: runtime.providerOptionsOriginResolver,
+              },
+            },
+          );
+          providerOptions = companions.get('security-reviewer')?.providerOptions;
+        } else {
+          const ctx = initializeSession(
+            projectCwd,
+            consumer === 'assistant' ? 'interactive' : 'coder',
+          );
+          providerOptions = ctx.providerOptions;
+        }
+
+        expect(providerOptions).toMatchObject({
+          deepseekHarness: { maxTokens: 4096, reasoningEffort: 'low' },
+        });
+      } finally {
+        if (previous === undefined) {
+          delete process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+        } else {
+          process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = previous;
+        }
+        invalidateGlobalConfigCache();
+        invalidateAllResolvedConfigCache();
+      }
+    },
+  );
+
+  it.each(['assistant', 'non-workflow'] as const)(
+    'applies an explicit DeepSeek option when a provider override selects DeepSeek for %s',
+    (consumer) => {
+      writeGlobalConfig(['language: en']);
+      writeGlobalRuntimeFile({
+        version: 1,
+        provider: {
+          defaults: { profile: 'default' },
+          profiles: {
+            default: {
+              provider: 'codex',
+              model: 'gpt-runtime',
+              options: { fast_mode: true },
+            },
+          },
+        },
+      });
+      const previousProvider = process.env.TAKT_PROVIDER;
+      const previousEffort = process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+      process.env.TAKT_PROVIDER = 'deepseek-harness';
+      process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = 'low';
+      invalidateGlobalConfigCache();
+      invalidateAllResolvedConfigCache();
+      try {
+        const context = initializeSession(
+          projectCwd,
+          consumer === 'assistant' ? 'interactive' : 'coder',
+        );
+
+        expect(context.providerType).toBe('deepseek-harness');
+        expect(context.providerOptions).toEqual({
+          deepseekHarness: { reasoningEffort: 'low' },
+        });
+      } finally {
+        if (previousProvider === undefined) {
+          delete process.env.TAKT_PROVIDER;
+        } else {
+          process.env.TAKT_PROVIDER = previousProvider;
+        }
+        if (previousEffort === undefined) {
+          delete process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+        } else {
+          process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = previousEffort;
+        }
+        invalidateGlobalConfigCache();
+        invalidateAllResolvedConfigCache();
+      }
+    },
+  );
+
+  it('rejects a project provider option when an unrelated environment option is present', () => {
+    writeGlobalConfig([
+      'language: en',
+      'provider_options:',
+      '  codex:',
+      '    network_access: true',
+    ]);
+    writeGlobalRuntimeFile(activeRuntimeSection());
+    const previousEffort = process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+    process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = 'low';
+    invalidateGlobalConfigCache();
+    invalidateAllResolvedConfigCache();
+    try {
+      expect(() => resolveAuxiliaryProviderEnvironment(projectCwd, WORKFLOW))
+        .toThrow(/config\.yaml:provider_options/);
+    } finally {
+      if (previousEffort === undefined) {
+        delete process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+      } else {
+        process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = previousEffort;
+      }
+      invalidateGlobalConfigCache();
+      invalidateAllResolvedConfigCache();
+    }
+  });
+
+  it('composes environment options for a companion that falls back to runtime defaults', () => {
+    writeGlobalConfig(['language: en']);
+    writeGlobalRuntimeFile({
+      version: 1,
+      companion: { enabled: true },
+      provider: {
+        defaults: { profile: 'default' },
+        profiles: {
+          default: {
+            provider: 'deepseek-harness',
+            model: 'deepseek-v4-flash',
+            options: { max_tokens: 4096, reasoning_effort: 'high' },
+          },
+        },
+      },
+    });
+    const previousEffort = process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+    process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = 'low';
+    invalidateGlobalConfigCache();
+    invalidateAllResolvedConfigCache();
+    try {
+      const runtime = resolveAuxiliaryRuntimeEnvironment(projectCwd, COMPANION_WORKFLOW);
+      const companions = resolveWorkflowCompanions(COMPANION_WORKFLOW, runtime.providerEnvironment, {
+        projectCwd,
+        lookupCwd: projectCwd,
+        providerConfigMode: runtime.providerConfigMode,
+        providerSectionActive: runtime.providerSectionActive,
+        providerOptionsResolution: {
+          configProviderOptions: runtime.configProviderOptions,
+          providerOptionsSource: runtime.providerOptionsSource,
+          providerOptionsOriginResolver: runtime.providerOptionsOriginResolver,
+        },
+      });
+
+      expect(companions.get('security-reviewer')).toMatchObject({
+        provider: 'deepseek-harness',
+        model: 'deepseek-v4-flash',
+        providerOptions: {
+          deepseekHarness: { maxTokens: 4096, reasoningEffort: 'low' },
+        },
+      });
+    } finally {
+      if (previousEffort === undefined) {
+        delete process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+      } else {
+        process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = previousEffort;
+      }
+      invalidateGlobalConfigCache();
+      invalidateAllResolvedConfigCache();
+    }
   });
 
   it('propagates the effective companion review mode through the auxiliary runtime environment', () => {
@@ -381,6 +632,75 @@ describe('getWorkflowDescription consumes the compiled provider environment', ()
       provider: 'opencode',
       model: 'opencode/big-pickle',
     });
+  });
+
+  it('prints effective runtime selector options with the environment winner', async () => {
+    writeGlobalConfig(['language: en']);
+    writeGlobalRuntimeFile({
+      version: 1,
+      provider: {
+        defaults: { profile: 'default' },
+        profiles: {
+          default: {
+            provider: 'deepseek-harness',
+            model: 'default-model',
+            options: { max_tokens: 4096, reasoning_effort: 'high' },
+          },
+          selector: {
+            provider: 'deepseek-harness',
+            model: 'selector-model',
+            options: { max_tokens: 4096, reasoning_effort: 'high' },
+          },
+        },
+        targets: { internal_agents: { selector: { profile: 'selector' } } },
+      },
+    });
+    const previousEffort = process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+    process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = 'low';
+    invalidateGlobalConfigCache();
+    invalidateAllResolvedConfigCache();
+    writeWorkflow('preview-deepseek.yaml', [
+      'name: preview-deepseek',
+      'initial_step: reviewers',
+      'max_steps: 1',
+      'steps:',
+      '  - name: reviewers',
+      '    instruction: Review the change.',
+      '    parallel:',
+      '      fixed: []',
+      '      pool:',
+      '        - name: security',
+      '          description: Review security.',
+      '          instruction: Review security.',
+      '          rules:',
+      '            - condition: approved',
+      '              next: COMPLETE',
+      '      selection:',
+      '        mode: replace',
+      '    rules:',
+      '      - condition: all("approved")',
+      '        next: COMPLETE',
+    ]);
+
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    let output = '';
+    try {
+      await previewPrompts(projectCwd, 'preview-deepseek');
+      output = log.mock.calls.flat().join('\n');
+    } finally {
+      log.mockRestore();
+      if (previousEffort === undefined) {
+        delete process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT;
+      } else {
+        process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = previousEffort;
+      }
+      invalidateGlobalConfigCache();
+      invalidateAllResolvedConfigCache();
+    }
+
+    expect(output).toContain('Dynamic selector provider options:');
+    expect(output).toContain('"maxTokens":4096');
+    expect(output).toContain('"reasoningEffort":"low"');
   });
 });
 

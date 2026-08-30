@@ -1,6 +1,13 @@
 import type { ProviderRoutingEntry, WorkflowConfig } from '../../core/models/index.js';
 import { isNormalOrTeamLeaderWorkflowStep } from '../../core/models/types.js';
 import type { CompiledProviderEnvironment } from './runtime-provider/environment.js';
+import type { ProviderConfigMode } from './runtime-provider/mode.js';
+import type { StepProviderOptions } from '../../core/models/workflow-types.js';
+import type {
+  ProviderOptionsOriginResolver,
+  ProviderOptionsSource,
+} from '../../core/workflow/provider-options-trace.js';
+import { resolveEffectiveRuntimeProfileProviderOptions } from './providerOptions.js';
 import {
   collectReachableSteps,
   collectReachableWorkflowCallSteps,
@@ -21,18 +28,28 @@ function collectLocalCompanionNames(workflow: WorkflowConfig): string[] {
   return [...names];
 }
 
+interface CompanionProviderOptionsResolution {
+  configProviderOptions?: StepProviderOptions;
+  providerOptionsSource?: ProviderOptionsSource;
+  providerOptionsOriginResolver?: ProviderOptionsOriginResolver;
+}
+
+interface WorkflowCompanionResolutionOptions {
+  projectCwd: string;
+  lookupCwd: string;
+  providerConfigMode: ProviderConfigMode;
+  providerSectionActive: boolean;
+  workflowCallResolver?: WorkflowCallResolver;
+  providerOptionsResolution?: CompanionProviderOptionsResolution;
+}
+
 function collectCompanionNames(
   workflow: WorkflowConfig,
-  options: {
-    projectCwd: string;
-    lookupCwd: string;
-    workflowCallResolver?: WorkflowCallResolver;
-  } | undefined,
+  options: WorkflowCompanionResolutionOptions,
   activeReferences: ReadonlySet<string>,
   depth: number,
 ): string[] {
   const names = new Set(collectLocalCompanionNames(workflow));
-  if (options === undefined) return [...names];
   for (const step of collectReachableWorkflowCallSteps(workflow)) {
     if (depth + 1 > MAX_WORKFLOW_CALL_DEPTH) {
       throw new Error(`Companion resolution exceeded workflow-call depth ${MAX_WORKFLOW_CALL_DEPTH}`);
@@ -68,14 +85,29 @@ function defaultResolution(environment: CompiledProviderEnvironment): ProviderRo
   };
 }
 
+function applyProviderOptionsResolution(
+  entry: ProviderRoutingEntry,
+  resolution: CompanionProviderOptionsResolution | undefined,
+): ProviderRoutingEntry {
+  if (resolution === undefined) {
+    return { ...entry };
+  }
+  const providerOptions = resolveEffectiveRuntimeProfileProviderOptions(
+    resolution.providerOptionsSource,
+    resolution.providerOptionsOriginResolver,
+    resolution.configProviderOptions,
+    entry.providerOptions,
+  );
+  return {
+    ...entry,
+    ...(providerOptions === undefined ? {} : { providerOptions }),
+  };
+}
+
 export function resolveWorkflowCompanions(
   workflow: WorkflowConfig,
   environment: CompiledProviderEnvironment,
-  options?: {
-    projectCwd: string;
-    lookupCwd: string;
-    workflowCallResolver?: WorkflowCallResolver;
-  },
+  options: WorkflowCompanionResolutionOptions,
 ): Map<string, ProviderRoutingEntry> {
   const names = collectCompanionNames(
     workflow,
@@ -84,7 +116,7 @@ export function resolveWorkflowCompanions(
     0,
   );
   if (names.length === 0) return new Map();
-  if (environment.providerSource !== 'runtime-v1') {
+  if (options.providerConfigMode !== 'runtime-v1' || !options.providerSectionActive) {
     throw new Error('Companion reviewers require runtime.yaml; migrate provider configuration from config.yaml');
   }
   const defaults = defaultResolution(environment);
@@ -94,7 +126,7 @@ export function resolveWorkflowCompanions(
     if (!entry?.provider) {
       throw new Error(`Companion "${name}" has no runtime.yaml provider target or defaults assignment`);
     }
-    resolved.set(name, { ...entry });
+    resolved.set(name, applyProviderOptionsResolution(entry, options.providerOptionsResolution));
   }
   return resolved;
 }

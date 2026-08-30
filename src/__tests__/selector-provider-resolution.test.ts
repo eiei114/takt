@@ -33,6 +33,22 @@ describe('selector provider resolution', () => {
     }, testCase.overrides)).toThrow(/model must not be empty/);
   });
 
+  it('should normalize a non-empty selector model reference', () => {
+    const model = ' route/model:variant/extra ';
+    const resolved = resolveSelectorProviderFromConfig({
+      local: {},
+      global: {},
+    }, {
+      provider: 'deepseek-harness',
+      model,
+    });
+
+    expect(resolved).toMatchObject({
+      provider: 'deepseek-harness',
+      model: 'route/model:variant/extra',
+    });
+  });
+
   it('should prioritize CLI provider and model over project and global selector configuration', () => {
     const resolved = resolveSelectorProviderFromConfig({
       local: {
@@ -362,8 +378,9 @@ describe('workflow selector resolution', () => {
       '        reasoning_effort: low',
       '    selector:',
       '      provider: deepseek-harness',
-      '      model: selector-model',
+      '      model: " route/model:variant "',
       '      options:',
+      '        max_tokens: 4096',
       '        reasoning_effort: low',
       '  targets:',
       '    internal_agents:',
@@ -383,8 +400,8 @@ describe('workflow selector resolution', () => {
       applies: true,
       selectorProvider: {
         provider: 'deepseek-harness',
-        model: 'selector-model',
-        providerOptions: { deepseekHarness: { reasoningEffort: 'low' } },
+        model: 'route/model:variant',
+        providerOptions: { deepseekHarness: { maxTokens: 4096, reasoningEffort: 'low' } },
       },
     });
   });
@@ -400,8 +417,10 @@ describe('workflow selector resolution', () => {
       applies: true,
       selectorProvider: {
         provider: 'deepseek-harness',
-        model: 'selector-model',
-        providerOptions: { deepseekHarness: { reasoningEffort: 'max' } },
+        model: 'route/model:variant',
+        providerOptions: {
+          deepseekHarness: { maxTokens: 4096, reasoningEffort: 'max' },
+        },
       },
     });
   });

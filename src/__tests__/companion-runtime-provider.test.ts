@@ -54,7 +54,12 @@ describe('CT-COMP-03 runtime-only companion provider resolution', () => {
       profiles: { default: { provider: 'codex', model: 'default-model' } },
     });
 
-    const resolved = resolveWorkflowCompanions(workflow, environment);
+    const resolved = resolveWorkflowCompanions(workflow, environment, {
+      projectCwd: '/project',
+      lookupCwd: '/worktree',
+      providerConfigMode: 'runtime-v1',
+      providerSectionActive: true,
+    });
 
     expect([...resolved.keys()].sort()).toEqual(['design-reviewer', 'security-reviewer']);
   });
@@ -86,13 +91,38 @@ describe('CT-COMP-03 runtime-only companion provider resolution', () => {
       },
     });
 
-    const resolved = resolveWorkflowCompanions(companionWorkflow(), environment);
+    const resolved = resolveWorkflowCompanions(companionWorkflow(), environment, {
+      projectCwd: '/project',
+      lookupCwd: '/worktree',
+      providerConfigMode: 'runtime-v1',
+      providerSectionActive: true,
+    });
 
     expect(resolved.get('security-reviewer')).toMatchObject({
       provider: 'claude-sdk',
       model: 'security-model',
     });
     expect(resolved.get('design-reviewer')).toMatchObject({
+      provider: 'codex',
+      model: 'default-model',
+    });
+  });
+
+  it('should use runtime configuration mode when a provider override changes the effective source', () => {
+    const compiled = compileRuntimeProviderEnvironment({
+      defaults: { profile: 'default' },
+      profiles: { default: { provider: 'codex', model: 'default-model' } },
+    });
+    const environment = { ...compiled, providerSource: 'env' as const };
+
+    const resolved = resolveWorkflowCompanions(companionWorkflow(), environment, {
+      projectCwd: '/project',
+      lookupCwd: '/worktree',
+      providerConfigMode: 'runtime-v1',
+      providerSectionActive: true,
+    });
+
+    expect(resolved.get('security-reviewer')).toMatchObject({
       provider: 'codex',
       model: 'default-model',
     });
@@ -119,6 +149,8 @@ describe('CT-COMP-03 runtime-only companion provider resolution', () => {
     const resolved = resolveWorkflowCompanions(parent, environment, {
       projectCwd: '/project',
       lookupCwd: '/worktree',
+      providerConfigMode: 'runtime-v1',
+      providerSectionActive: true,
       workflowCallResolver: () => child,
     });
 
@@ -154,6 +186,8 @@ describe('CT-COMP-03 runtime-only companion provider resolution', () => {
     const resolved = resolveWorkflowCompanions(parent, environment, {
       projectCwd: '/project',
       lookupCwd: '/worktree',
+      providerConfigMode: 'runtime-v1',
+      providerSectionActive: true,
       workflowCallResolver,
     });
 
@@ -181,7 +215,12 @@ describe('CT-COMP-03 runtime-only companion provider resolution', () => {
       providerOptions: undefined,
     });
 
-    expect(resolveWorkflowCompanions(workflow, environment).size).toBe(0);
+    expect(resolveWorkflowCompanions(workflow, environment, {
+      projectCwd: '/project',
+      lookupCwd: '/worktree',
+      providerConfigMode: 'legacy',
+      providerSectionActive: false,
+    }).size).toBe(0);
   });
 
   it.each([
@@ -230,7 +269,12 @@ describe('CT-COMP-03 runtime-only companion provider resolution', () => {
       providerOptions: undefined,
     });
 
-    expect(() => resolveWorkflowCompanions(companionWorkflow(), legacy))
+    expect(() => resolveWorkflowCompanions(companionWorkflow(), legacy, {
+      projectCwd: '/project',
+      lookupCwd: '/worktree',
+      providerConfigMode: 'legacy',
+      providerSectionActive: false,
+    }))
       .toThrow(/runtime\.yaml/);
   });
 
@@ -240,7 +284,12 @@ describe('CT-COMP-03 runtime-only companion provider resolution', () => {
       profiles: { opencode: { provider: 'opencode', model: 'opencode/model' } },
     });
 
-    expect(resolveWorkflowCompanions(companionWorkflow(), environment)).toMatchObject(
+    expect(resolveWorkflowCompanions(companionWorkflow(), environment, {
+      projectCwd: '/project',
+      lookupCwd: '/worktree',
+      providerConfigMode: 'runtime-v1',
+      providerSectionActive: true,
+    })).toMatchObject(
       new Map([
         ['security-reviewer', { provider: 'opencode', model: 'opencode/model' }],
         ['design-reviewer', { provider: 'opencode', model: 'opencode/model' }],
@@ -254,7 +303,12 @@ describe('CT-COMP-03 runtime-only companion provider resolution', () => {
       profiles: { unsupported: { provider: 'cursor', model: 'cursor/model' } },
     });
 
-    expect(resolveWorkflowCompanions(companionWorkflow(), environment)).toMatchObject(
+    expect(resolveWorkflowCompanions(companionWorkflow(), environment, {
+      projectCwd: '/project',
+      lookupCwd: '/worktree',
+      providerConfigMode: 'runtime-v1',
+      providerSectionActive: true,
+    })).toMatchObject(
       new Map([
         ['security-reviewer', { provider: 'cursor', model: 'cursor/model' }],
         ['design-reviewer', { provider: 'cursor', model: 'cursor/model' }],

@@ -5,7 +5,11 @@ import type { ProviderType } from '../../core/workflow/types.js';
 import { validateProviderModelRequirements } from '../../core/workflow/provider-model-requirements.js';
 import { loadGlobalConfig } from './global/globalConfig.js';
 import { loadProjectConfig } from './project/projectConfig.js';
-import { resolveConfigValueWithSource } from './resolveConfigValue.js';
+import {
+  resolveConfigValueWithSource,
+  resolveProviderOptionsWithTrace,
+} from './resolveConfigValue.js';
+import { resolveEffectiveRuntimeProfileProviderOptions } from './providerOptions.js';
 import { resolveRuntimeNonWorkflowProvider } from './runtime-provider/internal-agents.js';
 import { composeRuntimeProviderOverride } from './runtime-provider/override.js';
 
@@ -37,10 +41,12 @@ export function resolveNonWorkflowProviderModel(cwd: string): ResolvedNonWorkflo
   const runtime = resolveRuntimeNonWorkflowProvider(cwd);
   if (runtime !== undefined) {
     // An env (`TAKT_PROVIDER`/`TAKT_MODEL`) override is a runtime override in both modes, the same
-    // rule the selector/assistant seams apply: a provider override drops the runtime-tied
-    // model/options, while a model-only override keeps the runtime provider and its options.
+    // rule the selector/assistant seams apply: a provider override drops the runtime-tied model
+    // and profile options before independent config/environment leaves are composed, while a
+    // model-only override keeps the runtime provider and its options.
     const configuredProvider = resolveConfigValueWithSource(cwd, 'provider');
     const configuredModel = resolveConfigValueWithSource(cwd, 'model');
+    const providerOptions = resolveProviderOptionsWithTrace(cwd);
     const composed = composeRuntimeProviderOverride(
       {
         provider: runtime.provider,
@@ -53,6 +59,12 @@ export function resolveNonWorkflowProviderModel(cwd: string): ResolvedNonWorkflo
         model: configuredModel.source === 'env' ? configuredModel.value : undefined,
       },
     );
+    const effectiveProviderOptions = resolveEffectiveRuntimeProfileProviderOptions(
+      providerOptions.source,
+      providerOptions.originResolver,
+      providerOptions.value,
+      composed.providerOptions,
+    );
     // Same fail-fast the selector seam applies: providers that require a model (e.g. opencode's
     // `provider/model` format) must not defer the error to the provider SDK.
     validateProviderModelRequirements(composed.provider, composed.model, {
@@ -62,7 +74,7 @@ export function resolveNonWorkflowProviderModel(cwd: string): ResolvedNonWorkflo
       runtimeManaged: true,
       provider: composed.provider,
       ...(composed.model !== undefined ? { model: composed.model } : {}),
-      ...(composed.providerOptions !== undefined ? { providerOptions: composed.providerOptions } : {}),
+      ...(effectiveProviderOptions !== undefined ? { providerOptions: effectiveProviderOptions } : {}),
       ...(composed.permissionMode !== undefined ? { permissionMode: composed.permissionMode } : {}),
     };
   }
