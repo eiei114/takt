@@ -45,16 +45,15 @@ function hasLegacyProviderOptions(
   providerOptionsSource: ProviderOptionsSource | undefined,
   providerOptionsOriginResolver: ProviderOptionsOriginResolver | undefined,
 ): boolean {
-  const paths = getPresentProviderOptionPaths(providerOptions);
-  if (paths.length === 0) {
-    return false;
-  }
   if (providerOptionsOriginResolver === undefined) {
-    if (providerOptionsSource === 'default') {
-      return false;
-    }
-    throw new Error('Provider option origin metadata is required for mixed-configuration detection');
+    // Direct executeWorkflow callers may provide resolved options without trace metadata. Preserve
+    // the pre-trace aggregate source rule for those callers; traced task paths inspect each leaf.
+    return (
+      (providerOptionsSource === 'project' || providerOptionsSource === 'global')
+      && isNonEmptyRecord(providerOptions as Record<string, unknown> | undefined)
+    );
   }
+  const paths = getPresentProviderOptionPaths(providerOptions);
   return paths.some((path) => {
     const origin = providerOptionsOriginResolver(path);
     return origin === 'local' || origin === 'global';
@@ -121,8 +120,8 @@ export function collectLegacyProviderSignals(
     });
   }
   // A resolved provider_options value can mix project/global leaves with unrelated env leaves,
-  // so the aggregate source cannot identify whether any legacy configuration remains. Inspect
-  // each present leaf instead; built-in defaults are the only source that needs no trace resolver.
+  // so traced callers inspect each present leaf. Callers without trace metadata retain the
+  // aggregate source rule above.
   if (hasLegacyProviderOptions(
     legacy.providerOptions,
     providerOptionsSource,

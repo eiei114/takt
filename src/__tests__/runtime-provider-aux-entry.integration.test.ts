@@ -256,7 +256,7 @@ describe('resolveAuxiliaryProviderEnvironment', () => {
     },
   );
 
-  it('rejects a project provider option when an unrelated environment option is present', () => {
+  it('rejects a global provider option when an unrelated environment option is present', () => {
     writeGlobalConfig([
       'language: en',
       'provider_options:',

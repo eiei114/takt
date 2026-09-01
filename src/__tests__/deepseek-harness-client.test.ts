@@ -70,6 +70,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness bridge lifecycle', () => {
   let root: string;
   let pythonPath: string;
   let bridgeInputPath: string;
+  let bridgeProxyPath: string;
 
   beforeEach(async () => {
     const python = findPython();
@@ -78,6 +79,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness bridge lifecycle', () => {
     }
     root = await mkdtemp(path.join(os.tmpdir(), 'takt-deepseek-harness-'));
     bridgeInputPath = path.join(root, 'bridge-input.jsonl');
+    bridgeProxyPath = path.join(root, 'bridge-proxy.py');
     const moduleDir = path.join(root, 'deepseek_harness');
     await mkdir(moduleDir);
     await writeFile(path.join(moduleDir, '__init__.py'), `
@@ -225,8 +227,47 @@ class DeepSeekHarness:
 `, 'utf8');
     pythonPath = path.join(root, 'python-wrapper.sh');
     await writeFile(
+      bridgeProxyPath,
+      `
+import select
+import subprocess
+import sys
+
+capture_path = sys.argv[1]
+python_path = sys.argv[2]
+bridge = subprocess.Popen([python_path, *sys.argv[3:]], stdin=subprocess.PIPE)
+try:
+    with open(capture_path, 'ab') as capture:
+        while bridge.poll() is None:
+            readable, _, _ = select.select([sys.stdin.buffer], [], [], 0.1)
+            if not readable:
+                continue
+            line = sys.stdin.buffer.readline()
+            if not line:
+                break
+            capture.write(line)
+            capture.flush()
+            if bridge.stdin is None:
+                break
+            try:
+                bridge.stdin.write(line)
+                bridge.stdin.flush()
+            except BrokenPipeError:
+                break
+finally:
+    if bridge.stdin is not None:
+        try:
+            bridge.stdin.close()
+        except BrokenPipeError:
+            pass
+return_code = bridge.wait()
+raise SystemExit(return_code)
+`,
+      'utf8',
+    );
+    await writeFile(
       pythonPath,
-      `#!/bin/sh\nprintf 'started\\n' >> "${root}/bridge-launches.txt"\ntee "${bridgeInputPath}" | PYTHONPATH="${root}:${'${PYTHONPATH:-}'}" exec "${python}" "$@"\n`,
+      `#!/bin/sh\nprintf 'started\\n' >> "${root}/bridge-launches.txt"\nPYTHONPATH="${root}:${'${PYTHONPATH:-}'}" exec "${python}" "${bridgeProxyPath}" "${bridgeInputPath}" "${python}" "$@"\n`,
       'utf8',
     );
     await chmod(pythonPath, 0o755);
@@ -255,7 +296,8 @@ class DeepSeekHarness:
       ) as Record<string, unknown>;
 
       expect(response).toMatchObject({ status: 'done', content: 'hello' });
-      expect(sdkOptions.model).toBe('route/model:variant');
+      expect(sdkOptions.provider).toBe('route');
+      expect(sdkOptions.model).toBe('model:variant');
       expect(Object.prototype.hasOwnProperty.call(sdkOptions, 'reasoning_effort')).toBe(true);
       expect(sdkOptions.reasoning_effort).toBe(reasoningEffort);
     },
@@ -285,7 +327,8 @@ class DeepSeekHarness:
 
     expect(response).toMatchObject({ status: 'done', content: 'hello' });
     expect(Object.prototype.hasOwnProperty.call(startConfig, 'reasoningEffort')).toBe(false);
-    expect(sdkOptions.model).toBe('route/model/extra:variant');
+    expect(sdkOptions.provider).toBe('route');
+    expect(sdkOptions.model).toBe('model/extra:variant');
     expect(Object.prototype.hasOwnProperty.call(sdkOptions, 'reasoning_effort')).toBe(false);
   });
 
@@ -897,29 +940,28 @@ class DeepSeekHarness:
     expect((await readFile(counterFile, 'utf8')).trim().split('\n')).toEqual(['initialized']);
   });
 
-  it('does not share a process when the effective route or model changes', async () => {
-    const counterFile = path.join(root, 'routing-starts.txt');
+  it('rejects a session when the effective route or model changes', async () => {
+    const counterFile = path.join(root, 'routing-session-starts.txt');
     const calls = [
-      ['route-a-session', 'openai/gpt-5.4'],
-      ['model-b-session', 'openai/gpt-5.5'],
-      ['route-b-session', 'anthropic/gpt-5.4'],
+      ['openai/gpt-5.4', 'done'],
+      ['openai/gpt-5.5', 'error'],
+      ['anthropic/gpt-5.4', 'error'],
     ] as const;
+    const responses = [] as Array<Awaited<ReturnType<typeof callDeepSeekHarness>>>;
 
-    for (const [sessionId, model] of calls) {
-      const response = await callDeepSeekHarness('worker', 'hello', {
+    for (const [model] of calls) {
+      responses.push(await callDeepSeekHarness('worker', 'hello', {
         cwd: root,
         model,
-        sessionId,
+        sessionId: 'routing-session',
         providerOptions: { pythonPath, sessionRoot: counterFile, requestTimeoutMs: 10_000 },
-      });
-      expect(response.status).toBe('done');
+      }));
     }
 
-    expect((await readFile(counterFile, 'utf8')).trim().split('\n')).toEqual([
-      'initialized',
-      'initialized',
-      'initialized',
-    ]);
+    expect(responses.map((response) => response.status)).toEqual(calls.map(([, status]) => status));
+    expect(responses[1]?.content).toContain('different project, session root, or bridge configuration');
+    expect(responses[2]?.content).toContain('different project, session root, or bridge configuration');
+    expect((await readFile(counterFile, 'utf8')).trim().split('\n')).toEqual(['initialized']);
   });
 
   it('reuses the same effort configuration and rejects a session with a different effort', async () => {

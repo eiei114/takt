@@ -732,6 +732,24 @@ describe('collectLegacyProviderSignals', () => {
     expect(collectLegacyProviderSignals(legacy, 'env', () => 'env')).toEqual([]);
   });
 
+  it('uses the aggregate source when provider option origin metadata is unavailable', () => {
+    const legacy = {
+      provider: undefined,
+      providerSource: 'default' as const,
+      model: undefined,
+      modelSource: 'default' as const,
+      personaProviders: undefined,
+      providerRouting: undefined,
+      autoRouting: undefined,
+      providerOptions: { codex: { networkAccess: true } },
+    };
+
+    expect(collectLegacyProviderSignals(legacy, 'project').map((signal) => signal.setting))
+      .toContain('provider_options');
+    expect(collectLegacyProviderSignals(legacy, 'global').map((signal) => signal.setting))
+      .toContain('provider_options');
+  });
+
   it('reports provider_options only when explicitly configured in project/global config.yaml', () => {
     const legacy = {
       provider: undefined,
