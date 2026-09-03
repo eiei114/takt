@@ -457,8 +457,36 @@ describe('buildRawTaktProvidersOrThrow', () => {
     });
   });
 
-  it('should preserve DeepSeek Harness selector options through the strict normalized schema', () => {
+  it('should preserve non-reasoning DeepSeek selector options and model references', () => {
     const result = buildRawTaktProvidersOrThrow({
+      selector: {
+        provider: 'deepseek-harness',
+        model: 'route/model:variant',
+        providerOptions: {
+          deepseekHarness: {
+            pythonPath: '/usr/bin/python3',
+            maxTokens: 4096,
+          },
+        },
+      },
+    });
+
+    expect(result).toEqual({
+      selector: {
+        provider: 'deepseek-harness',
+        model: 'route/model:variant',
+        provider_options: {
+          deepseek_harness: {
+            python_path: '/usr/bin/python3',
+            max_tokens: 4096,
+          },
+        },
+      },
+    });
+  });
+
+  it('should reject DeepSeek reasoning effort in legacy takt_providers selector options', () => {
+    expect(() => buildRawTaktProvidersOrThrow({
       selector: {
         provider: 'deepseek-harness',
         providerOptions: {
@@ -469,20 +497,7 @@ describe('buildRawTaktProvidersOrThrow', () => {
           },
         },
       },
-    });
-
-    expect(result).toEqual({
-      selector: {
-        provider: 'deepseek-harness',
-        provider_options: {
-          deepseek_harness: {
-            python_path: '/usr/bin/python3',
-            max_tokens: 4096,
-            reasoning_effort: 'high',
-          },
-        },
-      },
-    });
+    })).toThrow();
   });
 
   it.each(['HIGH', 'medium'] as const)(

@@ -898,6 +898,44 @@ describe('runtime provider options through workflow execution', () => {
     },
   );
 
+  it('hands a runtime profile DeepSeek reasoning_effort to the main workflow agent', async () => {
+    writeGlobalRuntimeFile({
+      version: 1,
+      provider: {
+        defaults: { profile: 'default' },
+        profiles: {
+          default: {
+            provider: 'deepseek-harness',
+            model: 'route/main',
+            options: { reasoning_effort: 'high' },
+          },
+        },
+      },
+    });
+    invalidateGlobalConfigCache();
+    invalidateAllResolvedConfigCache();
+    mockRunAgentSequence([makeResponse({ persona: 'planner', content: 'done' })]);
+    mockRuleEvaluationSequence([{ index: 0, method: 'phase3_tag' }]);
+
+    const result = await runWorkflowExecution({
+      task: 'test runtime DeepSeek option handoff',
+      cwd: workflowProjectCwd,
+      projectCwd: workflowProjectCwd,
+      workflowIdentifier: 'runtime-provider-handoff',
+      outputMode: 'silent',
+    });
+
+    expect(result.success, result.reason ?? 'workflow execution failed').toBe(true);
+    expect(vi.mocked(runAgent)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(runAgent).mock.calls[0]?.[2]).toMatchObject({
+      resolvedProvider: 'deepseek-harness',
+      resolvedModel: 'route/main',
+      resolvedProviderOptions: {
+        deepseekHarness: { reasoningEffort: 'high' },
+      },
+    });
+  });
+
   it('passes effective options to dynamic selector and companion calls through workflow bootstrap', async () => {
     writeFileSync(join(workflowProjectCwd, 'baseline.txt'), 'baseline\n', 'utf-8');
     initializeGitFixture(workflowProjectCwd, ['baseline.txt']);
@@ -1012,10 +1050,20 @@ describe('runtime provider options through workflow execution', () => {
     expect(result.success, result.reason ?? 'workflow execution failed').toBe(true);
     const selectorCall = providerCalls.find((options) => options.internalAgentName === 'dynamic-parallel-selector');
     const companionCall = providerCalls.find((options) => options.internalAgentName === 'testing-review-companion');
+    const selectedParticipantCall = providerCalls.find(
+      (options) => options.workflowMeta?.currentStep === 'selected-review',
+    );
     expect(selectorCall?.resolvedExecution?.providerOptions).toMatchObject({
       deepseekHarness: { maxTokens: 4096, reasoningEffort: 'low' },
     });
     expect(companionCall?.resolvedExecution?.providerOptions).toMatchObject({
+      deepseekHarness: { maxTokens: 4096, reasoningEffort: 'low' },
+    });
+    expect(selectedParticipantCall).toBeDefined();
+    expect(selectedParticipantCall?.providerOptions).toMatchObject({
+      deepseekHarness: { maxTokens: 4096, reasoningEffort: 'low' },
+    });
+    expect(selectedParticipantCall?.resolvedProviderOptions).toMatchObject({
       deepseekHarness: { maxTokens: 4096, reasoningEffort: 'low' },
     });
   });

@@ -1291,6 +1291,59 @@ steps:
     });
   });
 
+  it('workflow_call は親 runtime の DeepSeek provider options を子 workflow に引き継ぐ', async () => {
+    writeWorkflow(tmpDir, 'takt/coding.yaml', `name: takt/coding
+subworkflow:
+  callable: true
+initial_step: review
+steps:
+  - name: review
+    persona: reviewer
+    instruction: "Review child workflow"
+    rules:
+      - condition: done
+        next: COMPLETE
+`);
+
+    const config = createParentWorkflow(tmpDir, {
+      name: 'parent',
+      initial_step: 'delegate',
+      max_steps: 10,
+      steps: [{
+        name: 'delegate',
+        kind: 'workflow_call',
+        call: 'takt/coding',
+        rules: [{ condition: 'COMPLETE', next: 'COMPLETE' }],
+      }],
+    });
+    const providerOptions = {
+      deepseekHarness: { maxTokens: 4096, reasoningEffort: 'high' as const },
+    };
+
+    vi.mocked(runAgent).mockResolvedValueOnce(makeResponse({
+      persona: 'reviewer',
+      content: 'done',
+    }));
+    mockRuleEvaluationSequence([{ index: 0, method: 'phase3_tag' }]);
+
+    engine = new WorkflowEngine(config, tmpDir, 'Inherit DeepSeek runtime options', createWorkflowCallOptions(tmpDir, {
+      provider: 'deepseek-harness',
+      model: 'route/workflow',
+      providerSource: 'runtime-v1',
+      providerOptionsProviderSource: 'runtime-v1',
+      providerOptions,
+    }));
+
+    await engine.run();
+
+    const options = vi.mocked(runAgent).mock.calls[0]?.[2];
+
+    expect(options?.resolvedProvider).toBe('deepseek-harness');
+    expect(options?.resolvedModel).toBe('route/workflow');
+    expect(options?.providerOptions).toEqual(providerOptions);
+    expect(options?.resolvedProviderOptions).toEqual(providerOptions);
+  });
+
   it('workflow_call は親 step に継承済みの provider 設定を子 workflow に引き継ぐ', async () => {
     writeWorkflow(tmpDir, 'takt/coding.yaml', `name: takt/coding
 subworkflow:

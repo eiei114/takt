@@ -1494,7 +1494,6 @@ export class StepExecutor {
     const sessionKey = buildSessionKey(executableStep, {
       provider: providerInfo.provider,
       model: providerInfo.model,
-      providerOptions: builtAgentOptions.providerOptions,
       mcpServerIdentity: builtAgentOptions.mcpServerIdentity,
     });
     log.debug('Running step', {

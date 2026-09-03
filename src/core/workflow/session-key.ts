@@ -10,15 +10,11 @@
  */
 
 import type { WorkflowStep } from '../models/types.js';
-import type { StepProviderOptions } from '../models/workflow-types.js';
 import type { ProviderType } from '../../shared/types/provider.js';
-
-const DEEPSEEK_UNSET_REASONING_EFFORT = 'unset';
 
 export interface ResolvedSessionTarget {
   provider?: ProviderType;
   model?: string;
-  providerOptions?: StepProviderOptions;
   /** Deterministic MCP server set identity including non-secret server structure. */
   mcpServerIdentity?: string;
 }
@@ -45,8 +41,7 @@ function normalizeMcpServerIdentity(rawIdentity: string): string {
  * - Base key: `step.sessionKey ?? step.persona ?? step.name`
  * - A resolved provider and model are encoded with the base key as a JSON tuple
  *   to disambiguate arbitrary component values.
- * - DeepSeek adds its effective reasoning effort, including an explicit unset marker,
- *   so persisted sessions cannot cross effort configurations.
+ * - Provider generation options are not part of the session identity.
  *
  * sessionKey is validated at parse time by Zod (z.string().trim().min(1).optional()),
  * so it is guaranteed to be a non-empty, trimmed string when present.
@@ -61,7 +56,6 @@ export function buildSessionKey(step: WorkflowStep, resolvedTarget?: ResolvedSes
   const base = step.sessionKey ?? step.persona ?? step.name;
   const provider = resolvedTarget === undefined ? step.provider : resolvedTarget.provider;
   const model = resolvedTarget === undefined ? step.model : resolvedTarget.model;
-  const providerOptions = resolvedTarget === undefined ? step.providerOptions : resolvedTarget.providerOptions;
   const rawMcpIdentity = resolvedTarget?.mcpServerIdentity;
   // Normalize legacy identities while preserving the canonical JSON identity
   // produced by the MCP resolver (order.md:269,333).
@@ -74,16 +68,6 @@ export function buildSessionKey(step: WorkflowStep, resolvedTarget?: ResolvedSes
     components.push(provider);
     if (model !== undefined) {
       components.push(model);
-    }
-    if (provider === 'deepseek-harness') {
-      const reasoningEffort = providerOptions?.deepseekHarness?.reasoningEffort;
-      components.push({
-        deepseekHarness: {
-          reasoningEffort: reasoningEffort === undefined
-            ? DEEPSEEK_UNSET_REASONING_EFFORT
-            : reasoningEffort,
-        },
-      });
     }
   }
   if (mcpIdentity !== undefined && mcpIdentity.length > 0) {

@@ -133,12 +133,20 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
     cordisTrust: 'untrusted' as const,
     getOrigin: trace.getOrigin,
   };
+  const projectConfigProviderOptionsPolicy = {
+    ...projectProviderOptionsPolicy,
+    deepseekReasoningEffortTrust: 'environment-only' as const,
+  };
+  const projectLegacyProviderOptionsPolicy = {
+    ...projectProviderOptionsPolicy,
+    deepseekReasoningEffortTrust: 'runtime-profile-only' as const,
+  };
   const normalizedProvider = normalizeConfigProviderReference(
     provider as RawProviderReference,
     model as string | undefined,
     provider_options as Record<string, unknown> | undefined,
     {
-      ...projectProviderOptionsPolicy,
+      ...projectConfigProviderOptionsPolicy,
       pathPrefix: 'provider_options',
     },
   );
@@ -155,7 +163,7 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
       model?: string;
       provider_options?: Record<string, unknown>;
     }> | undefined,
-    projectProviderOptionsPolicy,
+    projectLegacyProviderOptionsPolicy,
   );
   const normalizedProviderRouting = normalizeProviderRouting(
     provider_routing as {
@@ -163,7 +171,7 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
       tags?: Record<string, string | { type?: string; provider?: string; model?: string; provider_options?: Record<string, unknown> }>;
       steps?: Record<string, string | { type?: string; provider?: string; model?: string; provider_options?: Record<string, unknown> }>;
     } | undefined,
-    projectProviderOptionsPolicy,
+    projectLegacyProviderOptionsPolicy,
   );
   const analyticsConfig = normalizeAnalytics(analytics as Record<string, unknown> | undefined);
   const normalizedTaktProviders = normalizeTaktProviders(
@@ -179,7 +187,7 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
       };
     } | undefined,
     {
-      ...projectProviderOptionsPolicy,
+      ...projectLegacyProviderOptionsPolicy,
       pathPrefix: 'takt_providers.selector.provider_options',
     },
   );
@@ -216,7 +224,7 @@ export function loadProjectConfig(projectDir: string): ProjectConfig {
     provider: normalizedProvider.provider,
     model: normalizedProvider.model,
     providerOptions: normalizedProvider.providerOptions,
-    autoRouting: normalizeAutoRoutingConfig(auto_routing, projectProviderOptionsPolicy),
+    autoRouting: normalizeAutoRoutingConfig(auto_routing, projectLegacyProviderOptionsPolicy),
     rateLimitFallback: normalizeRateLimitFallback(rate_limit_fallback),
     providerProfiles: normalizeProviderProfiles(
       parsedConfigResult.provider_profiles as Record<string, {
@@ -250,6 +258,14 @@ export function loadProjectConfigTraceState(projectDir: string): ConfigTrace {
 export function saveProjectConfig(projectDir: string, config: ProjectConfig): void {
   const configDir = getProjectConfigDir(projectDir);
   const configPath = getProjectConfigPath(projectDir);
+  const trace = loadProjectConfigTraceState(projectDir);
+  const projectProviderOptionSerializationPolicy = {
+    deepseekReasoningEffortTrust: 'environment-only' as const,
+    getOrigin: trace.getOrigin,
+  };
+  const legacyProviderOptionSerializationPolicy = {
+    deepseekReasoningEffortTrust: 'runtime-profile-only' as const,
+  };
   if (!existsSync(configDir)) {
     mkdirSync(configDir, { recursive: true });
   }
@@ -272,7 +288,10 @@ export function saveProjectConfig(projectDir: string, config: ProjectConfig): vo
     delete savePayload.telemetry;
   }
 
-  const rawAutoRouting = denormalizeAutoRoutingConfig(config.autoRouting);
+  const rawAutoRouting = denormalizeAutoRoutingConfig(
+    config.autoRouting,
+    legacyProviderOptionSerializationPolicy,
+  );
   if (rawAutoRouting) {
     savePayload.auto_routing = rawAutoRouting;
   } else {
@@ -293,7 +312,10 @@ export function saveProjectConfig(projectDir: string, config: ProjectConfig): vo
   } else {
     delete savePayload.provider_profiles;
   }
-  const rawProviderOptions = denormalizeProviderOptions(config.providerOptions);
+  const rawProviderOptions = denormalizeProviderOptions(
+    config.providerOptions,
+    projectProviderOptionSerializationPolicy,
+  );
   if (rawProviderOptions) {
     savePayload.provider_options = rawProviderOptions;
   } else {
@@ -316,13 +338,19 @@ export function saveProjectConfig(projectDir: string, config: ProjectConfig): vo
     if (config.pipeline.prBodyTemplate !== undefined) pr.pr_body_template = config.pipeline.prBodyTemplate;
     if (Object.keys(pr).length > 0) savePayload.pipeline = pr;
   }
-  const rawPersonaProviders = denormalizePersonaProviders(config.personaProviders);
+  const rawPersonaProviders = denormalizePersonaProviders(
+    config.personaProviders,
+    legacyProviderOptionSerializationPolicy,
+  );
   if (rawPersonaProviders && Object.keys(rawPersonaProviders).length > 0) {
     savePayload.persona_providers = rawPersonaProviders;
   } else {
     delete savePayload.persona_providers;
   }
-  const rawProviderRouting = denormalizeProviderRouting(config.providerRouting);
+  const rawProviderRouting = denormalizeProviderRouting(
+    config.providerRouting,
+    legacyProviderOptionSerializationPolicy,
+  );
   if (rawProviderRouting) {
     savePayload.provider_routing = rawProviderRouting;
   } else {
@@ -330,6 +358,7 @@ export function saveProjectConfig(projectDir: string, config: ProjectConfig): vo
   }
   const rawTaktProviders = buildRawTaktProvidersOrThrow(config.taktProviders, {
     baseUrlTrust: 'loopback-only',
+    deepseekReasoningEffortTrust: 'runtime-profile-only',
     pathPrefix: 'takt_providers.selector.provider_options',
   });
   if (rawTaktProviders) {

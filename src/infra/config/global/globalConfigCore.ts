@@ -131,16 +131,28 @@ export class GlobalConfigManager {
     assertValidGlobalConfig(parsedConfig, configPath, true);
     assertNoUnknownGlobalConfigKeys(rawConfig);
     const parsed = GlobalConfigSchema.parse(rawConfig);
+    const globalConfigProviderOptionsPolicy = {
+      deepseekReasoningEffortTrust: 'environment-only' as const,
+      getOrigin: trace.getOrigin,
+    };
+    const globalLegacyProviderOptionsPolicy = {
+      deepseekReasoningEffortTrust: 'runtime-profile-only' as const,
+      getOrigin: trace.getOrigin,
+    };
     const normalizedProvider = normalizeConfigProviderReference(
       parsed.provider as RawProviderReference,
       parsed.model,
       parsed.provider_options as Record<string, unknown> | undefined,
+      {
+        ...globalConfigProviderOptionsPolicy,
+        pathPrefix: 'provider_options',
+      },
     );
     const config: GlobalConfig = {
       language: parsed.language,
       provider: normalizedProvider.provider,
       model: normalizedProvider.model,
-      autoRouting: normalizeAutoRoutingConfig(parsed.auto_routing),
+      autoRouting: normalizeAutoRoutingConfig(parsed.auto_routing, globalLegacyProviderOptionsPolicy),
       logging: parsed.logging ? {
         level: parsed.logging.level,
         trace: parsed.logging.trace,
@@ -237,6 +249,7 @@ export class GlobalConfigManager {
             provider_options?: Record<string, unknown>;
           };
         } | undefined,
+        globalLegacyProviderOptionsPolicy,
       ),
       personaProviders: normalizePersonaProviders(
         parsed.persona_providers as Record<string, string | {
@@ -245,6 +258,7 @@ export class GlobalConfigManager {
           model?: string;
           provider_options?: Record<string, unknown>;
         }> | undefined,
+        globalLegacyProviderOptionsPolicy,
       ),
       providerRouting: normalizeProviderRouting(
         parsed.provider_routing as {
@@ -252,6 +266,7 @@ export class GlobalConfigManager {
           tags?: Record<string, string | { type?: string; provider?: string; model?: string; provider_options?: Record<string, unknown> }>;
           steps?: Record<string, string | { type?: string; provider?: string; model?: string; provider_options?: Record<string, unknown> }>;
         } | undefined,
+        globalLegacyProviderOptionsPolicy,
       ),
       branchNameStrategy: parsed.branch_name_strategy as GlobalConfig['branchNameStrategy'],
       minimalOutput: parsed.minimal_output as boolean | undefined,
@@ -281,9 +296,13 @@ export class GlobalConfigManager {
 
   save(config: GlobalConfig): void {
     const configPath = getGlobalConfigPath();
-    const raw = serializeGlobalConfig(config);
+    const trace = this.getTrace();
+    const raw = serializeGlobalConfig(config, { getOrigin: trace.getOrigin });
 
-    const rawTaktProviders = buildRawTaktProvidersOrThrow(config.taktProviders);
+    const rawTaktProviders = buildRawTaktProvidersOrThrow(config.taktProviders, {
+      deepseekReasoningEffortTrust: 'runtime-profile-only',
+      pathPrefix: 'takt_providers.selector.provider_options',
+    });
     if (rawTaktProviders) {
       raw.takt_providers = rawTaktProviders;
     }

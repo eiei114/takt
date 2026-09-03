@@ -11,8 +11,19 @@ import {
   denormalizeAssistantConfig,
 } from '../configNormalizers.js';
 import { denormalizeObservabilityConfig } from '../observabilityConfig.js';
+import type { NormalizeProviderOptionsOptions } from '../providerOptions.js';
 
-export function serializeGlobalConfig(config: GlobalConfig): Record<string, unknown> {
+export function serializeGlobalConfig(
+  config: GlobalConfig,
+  options: Pick<NormalizeProviderOptionsOptions, 'getOrigin'> = {},
+): Record<string, unknown> {
+  const configProviderOptionSerializationPolicy = {
+    deepseekReasoningEffortTrust: 'environment-only' as const,
+    getOrigin: options.getOrigin,
+  };
+  const legacyProviderOptionSerializationPolicy = {
+    deepseekReasoningEffortTrust: 'runtime-profile-only' as const,
+  };
   const raw: Record<string, unknown> = {
     language: config.language,
     provider: config.provider,
@@ -48,7 +59,10 @@ export function serializeGlobalConfig(config: GlobalConfig): Record<string, unkn
   if (rawTelemetry) {
     raw.telemetry = rawTelemetry;
   }
-  const rawAutoRouting = denormalizeAutoRoutingConfig(config.autoRouting);
+  const rawAutoRouting = denormalizeAutoRoutingConfig(
+    config.autoRouting,
+    legacyProviderOptionSerializationPolicy,
+  );
   if (rawAutoRouting) {
     raw.auto_routing = rawAutoRouting;
   }
@@ -131,7 +145,10 @@ export function serializeGlobalConfig(config: GlobalConfig): Record<string, unkn
   if (config.workflowCategoriesFile) {
     raw.workflow_categories_file = config.workflowCategoriesFile;
   }
-  const rawProviderOptions = denormalizeProviderOptions(config.providerOptions);
+  const rawProviderOptions = denormalizeProviderOptions(
+    config.providerOptions,
+    configProviderOptionSerializationPolicy,
+  );
   if (rawProviderOptions) {
     raw.provider_options = rawProviderOptions;
   }
@@ -228,11 +245,17 @@ export function serializeGlobalConfig(config: GlobalConfig): Record<string, unkn
   if (rawAssistant) {
     raw.assistant = rawAssistant;
   }
-  const rawPersonaProviders = denormalizePersonaProviders(config.personaProviders);
+  const rawPersonaProviders = denormalizePersonaProviders(
+    config.personaProviders,
+    legacyProviderOptionSerializationPolicy,
+  );
   if (rawPersonaProviders && Object.keys(rawPersonaProviders).length > 0) {
     raw.persona_providers = rawPersonaProviders;
   }
-  const rawProviderRouting = denormalizeProviderRouting(config.providerRouting);
+  const rawProviderRouting = denormalizeProviderRouting(
+    config.providerRouting,
+    legacyProviderOptionSerializationPolicy,
+  );
   if (rawProviderRouting) {
     raw.provider_routing = rawProviderRouting;
   }

@@ -34,6 +34,7 @@ import {
 } from './providerReference.js';
 import {
   assertAllowedNormalizedProviderBaseUrls,
+  assertAllowedDeepSeekReasoningEffort,
   normalizeProviderOptions,
   type NormalizeProviderOptionsOptions,
 } from './providerOptions.js';
@@ -187,6 +188,7 @@ export function normalizeAutoRoutingConfig(
 
 export function denormalizeAutoRoutingConfig(
   config: AutoRoutingConfig | undefined,
+  options: NormalizeProviderOptionsOptions = {},
 ): RawAutoRoutingConfig | undefined {
   if (!config) {
     return undefined;
@@ -202,7 +204,10 @@ export function denormalizeAutoRoutingConfig(
     },
     candidates: config.candidates.map((candidate, index) => {
       const path = `auto_routing.candidates[${index}]`;
-      const rawProviderOptions = denormalizeProviderOptions(candidate.providerOptions);
+      const rawProviderOptions = denormalizeProviderOptions(candidate.providerOptions, {
+        ...options,
+        pathPrefix: `${path}.provider_options`,
+      });
       if (candidate.providerOptions !== undefined) {
         assertNormalizedProviderOptions(path, rawProviderOptions);
       }
@@ -369,8 +374,9 @@ export function normalizePersonaProviders(
 
 export function denormalizePersonaProviders(
   personaProviders: Record<string, PersonaProviderEntry> | undefined,
+  options: NormalizeProviderOptionsOptions = {},
 ): Record<string, Record<string, unknown>> | undefined {
-  return denormalizeProviderRoutingEntries(personaProviders, 'persona_providers');
+  return denormalizeProviderRoutingEntries(personaProviders, 'persona_providers', options);
 }
 
 function normalizeProviderRoutingEntries<TEntry extends PersonaProviderEntry>(
@@ -434,6 +440,7 @@ function normalizeProviderRoutingEntries<TEntry extends PersonaProviderEntry>(
 function denormalizeProviderRoutingEntries<TEntry extends PersonaProviderEntry>(
   entriesByKey: Record<string, TEntry> | undefined,
   pathPrefix: string,
+  options: NormalizeProviderOptionsOptions = {},
 ): Record<string, Record<string, unknown>> | undefined {
   if (!entriesByKey) {
     return undefined;
@@ -454,7 +461,10 @@ function denormalizeProviderRoutingEntries<TEntry extends PersonaProviderEntry>(
       rawEntry.model = entry.model;
     }
 
-    const rawProviderOptions = denormalizeProviderOptions(entry.providerOptions);
+    const rawProviderOptions = denormalizeProviderOptions(entry.providerOptions, {
+      ...options,
+      pathPrefix: `${path}.provider_options`,
+    });
     if (entry.providerOptions !== undefined) {
       assertNormalizedProviderOptions(path, rawProviderOptions);
     }
@@ -491,6 +501,7 @@ export function normalizeProviderRouting(
 
 export function denormalizeProviderRouting(
   providerRouting: ProviderRoutingConfig | undefined,
+  options: NormalizeProviderOptionsOptions = {},
 ): {
   personas?: Record<string, Record<string, unknown>>;
   tags?: Record<string, Record<string, unknown>>;
@@ -498,9 +509,9 @@ export function denormalizeProviderRouting(
 } | undefined {
   if (!providerRouting) return undefined;
   const result = {
-    personas: denormalizeProviderRoutingEntries(providerRouting.personas, 'provider_routing.personas'),
-    tags: denormalizeProviderRoutingEntries(providerRouting.tags, 'provider_routing.tags'),
-    steps: denormalizeProviderRoutingEntries(providerRouting.steps, 'provider_routing.steps'),
+    personas: denormalizeProviderRoutingEntries(providerRouting.personas, 'provider_routing.personas', options),
+    tags: denormalizeProviderRoutingEntries(providerRouting.tags, 'provider_routing.tags', options),
+    steps: denormalizeProviderRoutingEntries(providerRouting.steps, 'provider_routing.steps', options),
   };
   return result.personas || result.tags || result.steps ? result : undefined;
 }
@@ -657,7 +668,15 @@ export function buildRawTaktProvidersOrThrow(
       selector: {
         ...(selector.provider !== undefined ? { provider: selector.provider } : {}),
         ...(selector.model !== undefined ? { model: selector.model } : {}),
-        ...(selector.providerOptions !== undefined ? { provider_options: denormalizeProviderOptions(selector.providerOptions) } : {}),
+        ...(selector.providerOptions !== undefined
+          ? {
+              provider_options: denormalizeProviderOptions(selector.providerOptions, {
+                ...options,
+                deepseekReasoningEffortTrust: options.deepseekReasoningEffortTrust ?? 'runtime-profile-only',
+                pathPrefix: 'takt_providers.selector.provider_options',
+              }),
+            }
+          : {}),
       },
     } : {}),
   };
@@ -665,6 +684,7 @@ export function buildRawTaktProvidersOrThrow(
 
 export function denormalizeProviderOptions(
   providerOptions: StepProviderOptions | undefined,
+  options: NormalizeProviderOptionsOptions = {},
 ): Record<string, unknown> | undefined {
   if (!providerOptions) {
     return undefined;
@@ -816,6 +836,15 @@ export function denormalizeProviderOptions(
     };
   }
   if (providerOptions.deepseekHarness !== undefined) {
+    const deepseekOptionsPath = `${options.pathPrefix ?? 'provider_options'}.deepseek_harness`;
+    const reasoningEffortOrigin = options.deepseekReasoningEffortTrust === 'environment-only'
+      ? options.getOrigin?.(`${deepseekOptionsPath}.reasoning_effort`) ?? 'default'
+      : undefined;
+    assertAllowedDeepSeekReasoningEffort(
+      `${deepseekOptionsPath}.reasoning_effort`,
+      providerOptions.deepseekHarness.reasoningEffort,
+      options,
+    );
     const deepseekHarness = {
       ...(providerOptions.deepseekHarness.pythonPath !== undefined
         ? { python_path: providerOptions.deepseekHarness.pythonPath }
@@ -842,6 +871,8 @@ export function denormalizeProviderOptions(
         ? { runtime_mode: providerOptions.deepseekHarness.runtimeMode }
         : {}),
       ...(providerOptions.deepseekHarness.reasoningEffort !== undefined
+        && reasoningEffortOrigin !== 'env'
+        && reasoningEffortOrigin !== 'cli'
         ? { reasoning_effort: providerOptions.deepseekHarness.reasoningEffort }
         : {}),
     };

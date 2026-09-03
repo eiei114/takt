@@ -899,8 +899,12 @@ provider_options:
 `deepseek-harness` 在 Python 3.10+ 子进程中启动官方 `deepseek-harness-sdk`，通过逐行 JSON-RPC bridge 通信。请单独安装匹配的 runtime：
 
 ```bash
-python3 -m pip install deepseek-harness-sdk deepseek-harness-runtime-bin
+python3 -m pip install \
+  'deepseek-harness-sdk==0.1.2a3' \
+  'deepseek-harness-runtime-bin==0.1.2a3'
 ```
+
+TAKT 要求 `0.1.2a3` 或更高版本的新 SDK API。旧版 `0.1.1` 不接受 `reasoning_effort`，会在启动 harness 前被拒绝。新版 SDK 还要求显式的 harness home；TAKT 会将 `session_root` 用作该 home，未设置时默认使用 `<project>/.takt/deepseek-harness`。
 
 官方 runtime wheel 支持 Linux x64/arm64 和 macOS arm64；Windows 与 macOS x64 会快速失败，TAKT 不会 fallback。认证使用环境变量 `DEEPSEEK_API_KEY`，可选 `DEEPSEEK_BASE_URL`；API key 不会写入 workflow/config 或命令参数。
 
@@ -910,19 +914,28 @@ export TAKT_DEEPSEEK_HARNESS_LIVE=1
 npm run test:deepseek-harness:live
 ```
 
+在 runtime 模式中，将 DeepSeek provider option 配置在命名 profile 中：
+
 ```yaml
-provider: deepseek-harness
-model: deepseek-v4-flash
-provider_options:
-  deepseek_harness:
-    base_url: http://127.0.0.1:8787/v1  # 可选；项目配置/runtime profile 中使用 loopback
-    session_root: .takt/deepseek-sessions
-    max_tokens: 4096
-    request_timeout_ms: 3600000
-    shutdown_timeout_ms: 1000
-    runtime_mode: exe                  # exe 或 node；node 仅用于显式 SDK 开发模式
-    reasoning_effort: high              # off、low、high 或 max
+version: 1
+provider:
+  defaults:
+    profile: deepseek-default
+  profiles:
+    deepseek-default:
+      provider: deepseek-harness
+      model: deepseek-v4-flash
+      options:
+        base_url: http://127.0.0.1:8787/v1  # 可选；项目配置/runtime profile 中使用 loopback
+        session_root: .takt/deepseek-sessions
+        max_tokens: 4096
+        request_timeout_ms: 3600000
+        shutdown_timeout_ms: 1000
+        runtime_mode: exe                  # exe 或 node；node 仅用于显式 SDK 开发模式
+        reasoning_effort: high              # off、low、high 或 max
 ```
+
+相同的 `reasoning_effort` 值也可以通过下面的环境变量 override 提供。
 
 DeepSeek Harness 的 `model` 字段既接受 `deepseek-v4-flash` 这样的纯 model
 引用，也接受 `openai/gpt-5.4` 或 `my-gateway/org/custom-model` 这样的
@@ -938,13 +951,13 @@ allowlist，也不转换 provider alias。route 和 model 两部分都会按原�
 provider 和 model 字段传给 bridge/SDK；若 SDK 拒绝，错误会标明原始引用以及
 bridge/SDK 的失败位置。
 
-`python_path` 和 `cordis` 只允许来自受信任的全局配置或对应环境变量；项目设置使用默认 `python3`。`session_root` 和 `cordis` 相对配置的工作目录解析。带有 `session_key` 的 workflow 会复用 session；one-shot call 会立即关闭 bridge。官方 event 会转换成 TAKT 的 text、thinking、tool-use、tool-result、error 和 result event。system prompt、TAKT `allowed_tools`、MCP server map、图片附件、structured output、permission mode 和 `maxTurns` 不属于官方 SDK 调用，会被警告并忽略；工具组合请通过 Cordis 配置。
+`python_path` 和 `cordis` 只允许来自受信任的全局配置或对应环境变量；项目设置使用默认 `python3`。`session_root` 和 `cordis` 相对配置的工作目录解析。`session_root` 会作为新 SDK 的 `dsh_home` 传入；如果从受信任来源提供 `cordis`，它会作为 SDK `patches` 选项中的一个 invocation patch 传入，文件必须使用新版 SDK patch 格式。带有 `session_key` 的 workflow 会复用 session；one-shot call 会立即关闭 bridge。官方 event 会转换成 TAKT 的 text、thinking、tool-use、tool-result、error 和 result event。system prompt、TAKT `allowed_tools`、MCP server map、图片附件、structured output、permission mode 和 `maxTurns` 不属于官方 SDK 调用，会被警告并忽略；工具组合请通过 SDK profile 或 patch 文件配置。
 
-`reasoning_effort` 是 DeepSeek Harness 专用 provider option。只接受完全匹配的 `off`、`low`、`high`、`max`；大写、首尾空格、别名和未知值会在配置校验时失败，并显示收到的值和允许的值。未设置时，TAKT 会从 bridge 和 SDK 配置中完全省略 `reasoning_effort`，交由官方 SDK 使用其默认值。分割后的 model 部分会原样传给 SDK；其中的 `:` 和额外 `/` 会保留为 model ID 的一部分，推理强度只能通过此 provider option 设置。runtime 模式中，将同一字段放在 `provider.profiles.<name>.options` 下。
+`reasoning_effort` 是 DeepSeek Harness 专用 provider option。只接受完全匹配的 `off`、`low`、`high`、`max`；大写、首尾空格、别名和未知值会在配置校验时失败，并显示收到的值和允许的值。未设置时，TAKT 会从 bridge 和 SDK 配置中完全省略 `reasoning_effort`，交由官方 SDK 使用其默认值。分割后的 model 部分会原样传给 SDK；其中的 `:` 和额外 `/` 会保留为 model ID 的一部分，推理强度只能通过此 provider option 设置。runtime 模式中，将同一字段放在 `provider.profiles.<name>.options` 下。该字段不接受 workflow step 的 `provider_options`，也不接受 legacy `config.yaml` 中的 `provider_options.deepseek_harness`、`provider_routing`、`persona_providers`、`auto_routing` 或 `takt_providers`；不支持 model suffix、别名或 migration。
 
-Provider options 从 runtime profile、capability preset，以及 legacy 模式下保留的项目/全局 `config.yaml` 和环境变量 override 路径解析。workflow YAML 不能在 step 或 `workflow_config` 中内联定义 `provider_options`；它只能引用受支持的 capability preset。preview、doctor、validation、summary、report 等辅助入口也使用与 workflow 执行相同的 runtime 解析契约。
+Provider options 从 runtime profile、capability preset，以及 legacy 模式下保留的项目/全局 `config.yaml` 和环境变量 override 路径解析。workflow YAML 不能在 step 或 `workflow_config` 中内联定义 `provider_options`；它只能引用受支持的 capability preset。preview、doctor、validation、summary、report 等辅助入口也使用与 workflow 执行相同的 runtime 解析契约。上述 legacy 路径不适用于 DeepSeek Harness 的 `reasoning_effort`；该字段只从 `provider.profiles.<name>.options.reasoning_effort` 和标准环境变量 override 解析。
 
-`provider_options` 的优先级按 leaf 独立解析。对大多数 leaf，来自环境变量或 CLI 的 config leaf 优先于其他来源。`base_url` 是例外：legacy `provider_routing` 的配置优先于 TAKT 环境变量覆盖，因此 workflow 可以只将选定的 provider 路由到 proxy。`base_url` 的顺序为 `provider_routing.steps` > `provider_routing.tags` > `provider_routing.personas` > 已弃用的 `persona_providers` > project `.takt/config.yaml` > global `~/.takt/config.yaml` > TAKT 环境变量覆盖。preview、doctor、validation、summary、report 等辅助入口也使用与 workflow 执行相同的 `base_url` 优先级。其他 leaf 在 env/CLI config override 之后，遵循相同的 routing 到 global 顺序。
+`provider_options` 的优先级按 leaf 独立解析。对大多数 leaf，来自环境变量或 CLI 的 config leaf 优先于其他来源。`base_url` 是例外：legacy `provider_routing` 的配置优先于 TAKT 环境变量覆盖，因此 workflow 可以只将选定的 provider 路由到 proxy。`base_url` 的顺序为 `provider_routing.steps` > `provider_routing.tags` > `provider_routing.personas` > 已弃用的 `persona_providers` > project `.takt/config.yaml` > global `~/.takt/config.yaml` > TAKT 环境变量覆盖。preview、doctor、validation、summary、report 等辅助入口也使用与 workflow 执行相同的 `base_url` 优先级。其他 leaf 在 env/CLI config override 之后，遵循相同的 routing 到 global 顺序；DeepSeek Harness 的 `reasoning_effort` 除外，只能使用 runtime profile 或标准环境变量 override。
 
 对应的 provider option 环境变量是 `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT`；它必须是 `off`、`low`、`high` 或 `max` 之一。未设置时使用官方 SDK 默认值。
 

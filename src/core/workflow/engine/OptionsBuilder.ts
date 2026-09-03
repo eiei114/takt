@@ -133,9 +133,8 @@ export class OptionsBuilder {
 
   resolveSessionKey(step: WorkflowStep, runtime?: RuntimeStepResolution): string {
     const providerInfo = this.resolveStepProviderModel(step, runtime);
-    const providerOptions = this.resolveMergedProviderOptions(step, providerInfo, runtime);
     const mcpServers = this.resolveMcpServersForStep(step, providerInfo.provider);
-    return this.buildResolvedSessionKey(step, providerInfo, providerOptions, mcpServers);
+    return this.buildResolvedSessionKey(step, providerInfo, mcpServers);
   }
 
   /**
@@ -672,13 +671,11 @@ export class OptionsBuilder {
   private buildResolvedSessionKey(
     step: WorkflowStep,
     providerInfo: Pick<StepProviderInfo, 'provider' | 'model'>,
-    providerOptions: StepProviderOptions | undefined,
     mcpServers: Record<string, McpServerConfig> | undefined,
   ): string {
     return buildSessionKey(step, {
       provider: providerInfo.provider,
       model: providerInfo.model,
-      providerOptions,
       mcpServerIdentity: this.resolveMcpServerIdentityForEffectiveServers(mcpServers),
     });
   }
@@ -718,7 +715,6 @@ export class OptionsBuilder {
     const sessionKey = this.buildResolvedSessionKey(
       step,
       providerInfo,
-      mergedProviderOptions,
       mcpServers,
     );
 

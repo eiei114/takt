@@ -1120,6 +1120,7 @@ describe('WorkflowEngine Integration: Loop Monitors', () => {
       engine = new WorkflowEngine(config, tmpDir, 'test task', {
         projectCwd: tmpDir,
         provider: 'claude',
+        providerOptionsOriginResolver: () => 'local',
         internalAgentSeats: {
           loopJudge: {
             provider: 'codex',
@@ -1187,6 +1188,7 @@ describe('WorkflowEngine Integration: Loop Monitors', () => {
       engine = new WorkflowEngine(config, tmpDir, 'test task', {
         projectCwd: tmpDir,
         provider: 'claude',
+        providerOptionsOriginResolver: () => 'local',
         providerOptions: {
           claude: {
             baseUrl: 'http://127.0.0.1:8787',
@@ -1322,6 +1324,7 @@ describe('WorkflowEngine Integration: Loop Monitors', () => {
       engine = new WorkflowEngine(config, tmpDir, 'test task', {
         projectCwd: tmpDir,
         provider: 'mock',
+        providerOptionsOriginResolver: () => 'local',
         internalAgentSeats: {
           loopJudge: {
             provider: 'opencode',
@@ -1414,6 +1417,7 @@ describe('WorkflowEngine Integration: Loop Monitors', () => {
       engine = new WorkflowEngine(config, tmpDir, 'test task', {
         projectCwd: tmpDir,
         provider: 'claude',
+        providerOptionsOriginResolver: () => 'local',
         model: 'opencode/cli-judge-model',
         modelSource: 'cli',
         internalAgentSeats: {
@@ -1462,6 +1466,7 @@ describe('WorkflowEngine Integration: Loop Monitors', () => {
       engine = new WorkflowEngine(config, tmpDir, 'test task', {
         projectCwd: tmpDir,
         provider: 'codex',
+        providerOptionsOriginResolver: () => 'local',
         providerSource: 'cli',
         model: 'cli-model',
         modelSource: 'cli',

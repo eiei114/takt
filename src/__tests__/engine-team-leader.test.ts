@@ -321,6 +321,47 @@ describe('WorkflowEngine Integration: TeamLeaderRunner', () => {
     expect(output!.content).not.toContain('Normal terminal part ran');
   });
 
+  it('team leader and worker calls receive the resolved DeepSeek provider options', async () => {
+    const config = buildTeamLeaderConfig();
+    const providerOptions = {
+      deepseekHarness: { maxTokens: 4096, reasoningEffort: 'high' as const },
+    };
+    const engine = new WorkflowEngine(config, tmpDir, 'implement feature', {
+      projectCwd: tmpDir,
+      provider: 'deepseek-harness',
+      model: 'route/team',
+      providerSource: 'runtime-v1',
+      providerOptionsProviderSource: 'runtime-v1',
+      providerOptions,
+    });
+
+    mockRunAgentWithPrompt(
+      makeResponse({
+        persona: 'team-leader',
+        structuredOutput: {
+          parts: [{ id: 'part-1', title: 'API', instruction: 'Implement API' }],
+        },
+      }),
+      makeResponse({ persona: 'coder', content: 'API done' }),
+      makeResponse({
+        persona: 'team-leader',
+        structuredOutput: { done: true, reasoning: 'enough', parts: [] },
+      }),
+    );
+    vi.mocked(mockRuleEvaluation).mockReturnValueOnce({ index: 0, method: 'phase3_tag' });
+
+    const state = await engine.run();
+
+    expect(state.status).toBe('completed');
+    expect(vi.mocked(runAgent)).toHaveBeenCalledTimes(3);
+    for (const [, , options] of vi.mocked(runAgent).mock.calls) {
+      expect(options?.resolvedProvider ?? options?.resolvedExecution?.provider).toBe('deepseek-harness');
+      expect(options?.resolvedModel ?? options?.resolvedExecution?.model).toBe('route/team');
+      expect(options?.providerOptions ?? options?.resolvedExecution?.providerOptions).toEqual(providerOptions);
+      expect(options?.resolvedProviderOptions ?? options?.resolvedExecution?.providerOptions).toEqual(providerOptions);
+    }
+  });
+
   it('Team Leader は dynamic facet を一度だけ選択し、親と全 worker part に同じ内容を渡す', async () => {
     const config = buildDynamicFacetTeamLeaderConfig();
     const engine = new WorkflowEngine(config, tmpDir, 'implement feature', {
@@ -2989,6 +3030,7 @@ describe('WorkflowEngine Integration: TeamLeaderRunner', () => {
             guards: { callTimeoutMs: PROVIDER_CALL_TIMEOUT_MIN_MS },
           },
         },
+        providerOptionsOriginResolver: () => 'local',
         companionEnabled: true,
         companionProviders: { reviewer: { provider: 'mock' } },
         companionDiffReader,
@@ -3131,6 +3173,7 @@ describe('WorkflowEngine Integration: TeamLeaderRunner', () => {
             guards: { callTimeoutMs: PROVIDER_CALL_TIMEOUT_MIN_MS },
           },
         },
+        providerOptionsOriginResolver: () => 'local',
         companionEnabled: true,
         companionProviders: { reviewer: { provider: 'mock' } },
         companionDiffReader,
@@ -6244,6 +6287,7 @@ describe('WorkflowEngine Integration: TeamLeaderRunner', () => {
           },
         },
       },
+      providerOptionsOriginResolver: () => 'local',
       personaProviders: {
         coder: {
           provider: 'opencode',
@@ -6386,6 +6430,7 @@ describe('WorkflowEngine Integration: TeamLeaderRunner', () => {
           },
         },
       },
+      providerOptionsOriginResolver: () => 'local',
     });
 
     mockRunAgentWithPrompt(

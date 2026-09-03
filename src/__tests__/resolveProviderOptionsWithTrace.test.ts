@@ -87,7 +87,7 @@ describe('resolveProviderOptionsWithTrace', () => {
     });
   });
 
-  it('global provider_options の DeepSeek reasoning_effort を file origin として返す', () => {
+  it('global provider_options の file-origin DeepSeek reasoning_effort を拒否する', () => {
     writeFileSync(
       globalConfigPath,
       [
@@ -100,10 +100,7 @@ describe('resolveProviderOptionsWithTrace', () => {
     );
     invalidateGlobalConfigCache();
 
-    const result = resolveProviderOptionsWithTrace(projectDir);
-
-    expect(result.value?.deepseekHarness).toEqual({ reasoningEffort: 'low' });
-    expect(result.originResolver('deepseekHarness.reasoningEffort')).toBe('global');
+    expect(() => resolveProviderOptionsWithTrace(projectDir)).toThrow();
   });
 
   it('DeepSeek reasoning_effort の environment override を source=env として返す', () => {

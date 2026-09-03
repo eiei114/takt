@@ -109,29 +109,49 @@ def _start_harness(config: dict[str, Any]) -> Any:
         raise RuntimeError("DeepSeek Harness requires Python 3.10 or newer")
 
     try:
-        from deepseek_harness import DeepSeekHarness
+        from deepseek_harness import DeepSeekHarness, DeepSeekHarnessConfig
     except Exception as error:
         raise RuntimeError(
             "DeepSeek Harness Python SDK is unavailable. Install deepseek-harness-sdk "
             "with its matching deepseek-harness-runtime-bin wheel."
         ) from error
 
+    sdk_fields = getattr(DeepSeekHarnessConfig, "__dataclass_fields__", {})
+    required_fields = {"dsh_home", "profile", "patches", "reasoning_effort"}
+    missing_fields = sorted(field for field in required_fields if field not in sdk_fields)
+    if missing_fields:
+        raise RuntimeError(
+            "DeepSeek Harness SDK 0.1.2a3 or newer is required; installed SDK is missing "
+            + ", ".join(missing_fields)
+            + ". Upgrade both deepseek-harness-sdk and deepseek-harness-runtime-bin together."
+        )
+
+    dsh_home = config.get("dshHome")
+    if not isinstance(dsh_home, str) or not dsh_home:
+        raise RuntimeError("DeepSeek Harness bridge requires an explicit dshHome")
+
     kwargs: dict[str, Any] = {
         "provider": config["provider"],
         "model": config["model"],
         "cwd": config["cwd"],
         "runtime_cwd": config["cwd"],
+        "dsh_home": dsh_home,
+        "profile": "sdk",
     }
     optional_fields = {
         "maxTokens": "max_tokens",
-        "sessionRoot": "session_root",
-        "cordis": "cordis",
         "reasoningEffort": "reasoning_effort",
     }
     for wire_name, sdk_name in optional_fields.items():
         value = config.get(wire_name)
         if value is not None:
             kwargs[sdk_name] = value
+    cordis = config.get("cordis")
+    if cordis is not None:
+        # The new SDK accepts invocation-scoped Cordis composition as ordered
+        # patch files. Keep the existing trusted Takt option at the bridge
+        # boundary while speaking only the new SDK API.
+        kwargs["patches"] = (cordis,)
     timeout_ms = config.get("requestTimeoutMs")
     if timeout_ms is not None:
         kwargs["request_timeout_seconds"] = timeout_ms / 1000
@@ -249,11 +269,7 @@ def _handle_request(harness: Any, request: dict[str, Any]) -> Any:
 def _close_harness(harness: Any) -> None:
     if harness is None:
         return
-    try:
-        harness.close()
-    except BaseException:
-        # Cleanup must not mask the original protocol or broken-pipe failure.
-        pass
+    harness.close()
 
 
 def main() -> int:

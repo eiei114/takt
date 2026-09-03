@@ -38,9 +38,6 @@ const MAX_REPORTS = 50;
 const MAX_REPORT_BYTES = 256 * 1024;
 
 export class RunOccurrenceNotFoundError extends Error {
-  /**
-   * Create an error for a run occurrence that cannot be found.
-   */
   constructor() {
     super('Occurrence was not found in this run');
   }
@@ -80,14 +77,6 @@ interface RunMeta {
   readonly failure?: { readonly step: string; readonly error: string };
 }
 
-/**
- * Require an unknown value to be a non-array object record.
- *
- * @param value - Value to validate
- * @param label - Label used in the validation error
- * @returns The value narrowed to a readonly object record
- * @throws Error if the value is null, not an object, or an array
- */
 function requireRecord(value: unknown, label: string): Readonly<Record<string, unknown>> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`${label} must be an object`);
@@ -95,14 +84,6 @@ function requireRecord(value: unknown, label: string): Readonly<Record<string, u
   return value as Readonly<Record<string, unknown>>;
 }
 
-/**
- * Require an unknown value to be a non-empty string.
- *
- * @param value - Value to validate
- * @param label - Label used in the validation error
- * @returns The validated string
- * @throws Error if the value is not a non-empty string
- */
 function requireString(value: unknown, label: string): string {
   if (typeof value !== 'string' || value.length === 0) {
     throw new Error(`${label} must be a non-empty string`);
@@ -110,27 +91,11 @@ function requireString(value: unknown, label: string): string {
   return value;
 }
 
-/**
- * Validate an optional string value.
- *
- * @param value - Optional value to validate
- * @param label - Label used in the validation error
- * @returns `undefined` when omitted, otherwise the validated string
- * @throws Error if a provided value is not a non-empty string
- */
 function optionalString(value: unknown, label: string): string | undefined {
   if (value === undefined) return undefined;
   return requireString(value, label);
 }
 
-/**
- * Validate an optional non-negative integer value.
- *
- * @param value - Optional value to validate
- * @param label - Label used in the validation error
- * @returns `undefined` when omitted, otherwise the validated integer
- * @throws Error if a provided value is not a non-negative integer
- */
 function optionalInteger(value: unknown, label: string): number | undefined {
   if (value === undefined) return undefined;
   if (!Number.isInteger(value) || (value as number) < 0) {
@@ -139,14 +104,6 @@ function optionalInteger(value: unknown, label: string): number | undefined {
   return value as number;
 }
 
-/**
- * Parse and validate run metadata against the directory slug that contains it.
- *
- * @param value - Raw run metadata value
- * @param expectedSlug - Slug expected from the containing directory
- * @returns Validated run metadata; malformed optional failure values are omitted
- * @throws Error if required metadata, status, slug, resume point, or another provided optional scalar field is invalid
- */
 function parseRunMeta(value: unknown, expectedSlug: string): RunMeta {
   const raw = requireRecord(value, 'Run metadata');
   const runSlug = requireString(raw.runSlug, 'runSlug');
@@ -369,12 +326,6 @@ async function loadRunMeta(
 
 type RunStoreLocation = StatePaths;
 
-/**
- * Extract the state and runs directories used by the run store.
- *
- * @param input - Run store location
- * @returns The state and runs directory paths
- */
 function resolveRunStoreLocation(input: RunStoreLocation): {
   readonly stateDirectory: string;
   readonly runsDirectory: string;
@@ -382,12 +333,6 @@ function resolveRunStoreLocation(input: RunStoreLocation): {
   return { stateDirectory: input.stateDirectory, runsDirectory: input.runsDirectory };
 }
 
-/**
- * Create the compact run summary exposed by the collection reader.
- *
- * @param meta - Validated run metadata
- * @returns Summary fields for the run
- */
 function summarize(meta: RunMeta) {
   return {
     slug: meta.runSlug,
@@ -531,13 +476,6 @@ async function collectReportPaths(
 
 type WorkflowStackFrame = NonNullable<RunLogEvent['stack']>[number];
 
-/**
- * Determine whether one workflow stack is a prefix of another stack.
- *
- * @param left - Candidate prefix stack
- * @param right - Stack to compare against
- * @returns `true` when every frame in `left` matches the corresponding frame in `right`
- */
 function stackFramesMatch(
   left: readonly WorkflowStackFrame[],
   right: readonly WorkflowStackFrame[],

@@ -156,6 +156,52 @@ describe('compileRuntimeProviderEnvironment (profile options)', () => {
     });
   });
 
+  it('carries DeepSeek reasoning_effort through runtime defaults and routing entries', () => {
+    const section: RuntimeProviderSection = {
+      defaults: { profile: 'base' },
+      profiles: {
+        base: { provider: 'deepseek-harness', model: 'base-model', options: { reasoning_effort: 'low' } },
+        persona: { provider: 'deepseek-harness', model: 'persona-model', options: { reasoning_effort: 'high' } },
+        tag: { provider: 'deepseek-harness', model: 'tag-model', options: { reasoning_effort: 'max' } },
+        step: { provider: 'deepseek-harness', model: 'step-model', options: { reasoning_effort: 'off' } },
+      },
+      targets: {
+        personas: { coder: { profile: 'persona' } },
+        tags: { review: { profile: 'tag' } },
+        steps: { 'workflow/review': { profile: 'step' } },
+      },
+    };
+
+    const env = compileRuntimeProviderEnvironment(section);
+
+    expect(env.providerOptions).toEqual({
+      deepseekHarness: { reasoningEffort: 'low' },
+    });
+    expect(env.personaProviders).toEqual({
+      coder: {
+        provider: 'deepseek-harness',
+        model: 'persona-model',
+        providerOptions: { deepseekHarness: { reasoningEffort: 'high' } },
+      },
+    });
+    expect(env.providerRouting).toEqual({
+      tags: {
+        review: {
+          provider: 'deepseek-harness',
+          model: 'tag-model',
+          providerOptions: { deepseekHarness: { reasoningEffort: 'max' } },
+        },
+      },
+      steps: {
+        'workflow/review': {
+          provider: 'deepseek-harness',
+          model: 'step-model',
+          providerOptions: { deepseekHarness: { reasoningEffort: 'off' } },
+        },
+      },
+    });
+  });
+
   it('carries Pi thinking_level through defaults and persona/tag/step routing entries', () => {
     const section: RuntimeProviderSection = {
       defaults: { profile: 'base' },
@@ -732,23 +778,23 @@ describe('collectLegacyProviderSignals', () => {
     expect(collectLegacyProviderSignals(legacy, 'env', () => 'env')).toEqual([]);
   });
 
-  it('uses the aggregate source when provider option origin metadata is unavailable', () => {
-    const legacy = {
-      provider: undefined,
-      providerSource: 'default' as const,
-      model: undefined,
-      modelSource: 'default' as const,
-      personaProviders: undefined,
-      providerRouting: undefined,
-      autoRouting: undefined,
-      providerOptions: { codex: { networkAccess: true } },
-    };
+  it.each(['project', 'global'] as const)(
+    'rejects provider options when %s origin metadata is unavailable',
+    (source) => {
+      const legacy = {
+        provider: undefined,
+        providerSource: 'default' as const,
+        model: undefined,
+        modelSource: 'default' as const,
+        personaProviders: undefined,
+        providerRouting: undefined,
+        autoRouting: undefined,
+        providerOptions: { codex: { networkAccess: true } },
+      };
 
-    expect(collectLegacyProviderSignals(legacy, 'project').map((signal) => signal.setting))
-      .toContain('provider_options');
-    expect(collectLegacyProviderSignals(legacy, 'global').map((signal) => signal.setting))
-      .toContain('provider_options');
-  });
+      expect(() => collectLegacyProviderSignals(legacy, source)).toThrow();
+    },
+  );
 
   it('reports provider_options only when explicitly configured in project/global config.yaml', () => {
     const legacy = {

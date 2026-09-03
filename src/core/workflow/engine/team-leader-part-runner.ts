@@ -197,7 +197,6 @@ export async function runTeamLeaderPart(
         buildPartScopedSessionKey(partStepForExecution, {
           provider: partProviderInfo.provider,
           model: partProviderInfo.model,
-          providerOptions: options.providerOptions,
           mcpServerIdentity: options.mcpServerIdentity,
         }),
         response.sessionId,

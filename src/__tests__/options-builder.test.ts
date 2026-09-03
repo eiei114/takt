@@ -45,6 +45,7 @@ function createBuilder(
 ): OptionsBuilder {
   const currentWorkflowStack = phaseContextSources.currentWorkflowStack;
   const reportsRootDir = phaseContextSources.reportsRootDir;
+  const providerOptionsSource = engineOverrides.providerOptionsSource;
   const engineOptions: WorkflowEngineOptions = {
     projectCwd: '/project',
     provider: 'codex',
@@ -53,6 +54,10 @@ function createBuilder(
         defaultPermissionMode: 'full',
       },
     },
+    providerOptionsOriginResolver: () => (
+      providerOptionsSource === 'global' ? 'global'
+        : providerOptionsSource === 'env' ? 'env' : 'local'
+    ),
     ...engineOverrides,
   };
 
@@ -333,7 +338,7 @@ describe('OptionsBuilder.buildBaseOptions', () => {
     });
   });
 
-  it('lets step override project provider options when origin resolver is absent', () => {
+  it('lets step override project provider options with an origin-aware resolver', () => {
     const step = createStep({
       providerOptions: {
         codex: { networkAccess: false },
@@ -939,6 +944,71 @@ describe('OptionsBuilder.buildResumeOptions', () => {
     expect(fallbackOptions).toBeDefined();
     expect(fallbackOptions?.permissionMode).toBeUndefined();
     expect(fallbackOptions?.allowedTools).toBeUndefined();
+  });
+
+  it('hands provider options through resume, new-session retry, and fallback report attempts', () => {
+    const providerOptions = {
+      deepseekHarness: {
+        maxTokens: 4096,
+        reasoningEffort: 'low' as const,
+      },
+    };
+    const deepseekStep = createStep({
+      provider: 'deepseek-harness',
+      model: 'deepseek-v4-flash',
+      providerOptions,
+    });
+    const builder = createBuilder(deepseekStep);
+
+    const resumeOptions = builder.buildResumeOptions(deepseekStep, 'session-123', { maxTurns: 3 });
+    const newSessionOptions = builder.buildNewSessionReportOptions(deepseekStep, {
+      allowedTools: ['Read'],
+      maxTurns: 3,
+    });
+
+    expect(resumeOptions.providerOptions).toEqual(providerOptions);
+    expect(resumeOptions.resolvedProviderOptions).toEqual(providerOptions);
+    expect(resumeOptions.sessionId).toBe('session-123');
+    expect(resumeOptions.permissionMode).toBeUndefined();
+    expect(resumeOptions.allowedTools).toBeUndefined();
+
+    expect(newSessionOptions.providerOptions).toEqual(providerOptions);
+    expect(newSessionOptions.resolvedProviderOptions).toEqual(providerOptions);
+    expect(newSessionOptions.sessionId).toBeUndefined();
+    expect(newSessionOptions.permissionMode).toBeUndefined();
+    expect(newSessionOptions.allowedTools).toEqual(['Read']);
+
+    const fallbackStep = createStep({
+      provider: 'opencode',
+      model: 'opencode/report-model',
+    });
+    const fallbackBuilder = createBuilder(fallbackStep, {
+      reportFallbackProvider: {
+        provider: 'deepseek-harness',
+        model: 'deepseek-v4-flash',
+        providerOptions,
+      },
+    });
+    const fallbackOptions = fallbackBuilder.buildFallbackReportOptions(
+      fallbackStep,
+      {
+        cwd: '/project',
+        resolvedProvider: 'opencode',
+        resolvedModel: 'opencode/report-model',
+      },
+      { allowedTools: [], maxTurns: 3 },
+    );
+
+    expect(fallbackOptions).toBeDefined();
+    if (fallbackOptions === undefined) {
+      throw new Error('Expected fallback report options');
+    }
+    expect(fallbackOptions.resolvedProvider).toBe('deepseek-harness');
+    expect(fallbackOptions.providerOptions).toEqual(providerOptions);
+    expect(fallbackOptions.resolvedProviderOptions).toEqual(providerOptions);
+    expect(fallbackOptions.sessionId).toBeUndefined();
+    expect(fallbackOptions.permissionMode).toBeUndefined();
+    expect(fallbackOptions.allowedTools).toBeUndefined();
   });
 
   it('preserves an explicit permission requirement for DeepSeek report phases', () => {

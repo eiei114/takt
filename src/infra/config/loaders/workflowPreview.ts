@@ -379,16 +379,22 @@ function resolvePreviewAllowedTools(
     providerInfo.providerSource,
     resolution.profileScopedProviderOptions,
   );
-  const baseProviderOptions = !resolution.profileScopedProviderOptions
-    || providerInfo.providerSource === resolution.providerSource
+  const runtimeProfileProviderOptions = resolution.profileScopedProviderOptions
+    && providerInfo.providerSource === resolution.providerSource
     ? resolution.providerOptions
     : undefined;
+  const baseProviderOptions = resolution.profileScopedProviderOptions
+    ? resolution.configProviderOptions
+    : resolution.providerOptions;
   const mergedProviderOptions = resolveEffectiveProviderOptions(
     resolution.providerOptionsSource,
     resolution.providerOptionsOriginResolver,
     baseProviderOptions,
     stepProviderOptions,
-    mergeProviderOptions(...profileLayers.map((layer) => layer.options)),
+    mergeProviderOptions(
+      runtimeProfileProviderOptions,
+      ...profileLayers.map((layer) => layer.options),
+    ),
   );
   const resolvedProvider = providerInfo.provider;
 

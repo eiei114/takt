@@ -718,7 +718,7 @@ describe('workflow selector resolution', () => {
     });
   });
 
-  it('should preserve DeepSeek reasoning_effort and model content through workflow selector resolution', () => {
+  it('should reject DeepSeek reasoning_effort from legacy workflow selector config', () => {
     const projectDir = createProject([
       'takt_providers:',
       '  selector:',
@@ -729,16 +729,7 @@ describe('workflow selector resolution', () => {
       '        reasoning_effort: high',
     ].join('\n'));
 
-    expect(resolveWorkflowSelectorForProject(makeDynamicWorkflow(), projectDir)).toEqual({
-      applies: true,
-      selectorProvider: expect.objectContaining({
-        provider: 'deepseek-harness',
-        model: 'route/model:variant',
-        providerOptions: {
-          deepseekHarness: { reasoningEffort: 'high' },
-        },
-      }),
-    });
+    expect(() => resolveWorkflowSelectorForProject(makeDynamicWorkflow(), projectDir)).toThrow();
   });
 
   it('should keep compatible Claude options', () => {

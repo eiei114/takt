@@ -114,12 +114,14 @@ type ProviderBaseUrlTrust = 'trusted' | 'loopback-only' | 'local-loopback-only';
 type ProviderPythonPathTrust = 'trusted' | 'untrusted' | 'local-untrusted';
 type ProviderPathTrust = 'trusted' | 'untrusted' | 'local-untrusted';
 type ProviderCordisTrust = 'trusted' | 'untrusted' | 'local-untrusted';
+type DeepSeekReasoningEffortTrust = 'trusted' | 'environment-only' | 'runtime-profile-only';
 
 export interface NormalizeProviderOptionsOptions {
   baseUrlTrust?: ProviderBaseUrlTrust;
   pythonPathTrust?: ProviderPythonPathTrust;
   pathTrust?: ProviderPathTrust;
   cordisTrust?: ProviderCordisTrust;
+  deepseekReasoningEffortTrust?: DeepSeekReasoningEffortTrust;
   pathPrefix?: string;
   getOrigin?: (path: string) => ProviderOptionsTraceOrigin;
 }
@@ -284,6 +286,31 @@ function assertAllowedProviderCordis(
   throw new Error(
     `Configuration error: ${path} may only be set by trusted user configuration. `
     + 'Use global config or TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS.',
+  );
+}
+
+export function assertAllowedDeepSeekReasoningEffort(
+  path: string,
+  value: DeepSeekHarnessReasoningEffort | undefined,
+  options: NormalizeProviderOptionsOptions,
+): void {
+  if (value === undefined) {
+    return;
+  }
+  const trust = options.deepseekReasoningEffortTrust ?? 'trusted';
+  if (trust === 'trusted') {
+    return;
+  }
+  if (trust === 'environment-only') {
+    const origin = options.getOrigin?.(path) ?? 'default';
+    if (origin === 'env' || origin === 'cli') {
+      return;
+    }
+  }
+  throw new Error(
+    `Configuration error: ${path} is not supported in legacy config provider options. `
+    + 'Configure it in a runtime.yaml provider profile or with '
+    + 'TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT.',
   );
 }
 
@@ -494,6 +521,11 @@ export function normalizeProviderOptions(
     assertAllowedProviderCordis(
       `${deepseekOptionsPath}.cordis`,
       options.deepseek_harness.cordis,
+      normalizationOptions,
+    );
+    assertAllowedDeepSeekReasoningEffort(
+      `${deepseekOptionsPath}.reasoning_effort`,
+      options.deepseek_harness.reasoning_effort,
       normalizationOptions,
     );
     const deepseekHarness: DeepSeekHarnessProviderOptions = {
@@ -799,22 +831,19 @@ export function mergeProviderOptions(
   return merged;
 }
 
-function resolveFallbackOrigin(
-  source: ProviderOptionsSource | undefined,
-): ProviderOptionsTraceOrigin {
-  if (source === 'project') return 'local';
-  if (source === 'global') return 'global';
-  if (source === 'env') return 'env';
-  return 'default';
-}
-
 export function resolveProviderOptionOrigin(
   resolver: ProviderOptionsOriginResolver | undefined,
   path: string,
   fallbackSource: ProviderOptionsSource | undefined,
 ): ProviderOptionsTraceOrigin {
   if (!resolver) {
-    return resolveFallbackOrigin(fallbackSource);
+    if (fallbackSource !== undefined && fallbackSource !== 'default') {
+      throw new Error(
+        `Configuration error: provider option origin is required for ${path}; `
+        + 'the source layer cannot be used as an origin fallback',
+      );
+    }
+    return 'default';
   }
 
   if (
@@ -1012,6 +1041,14 @@ function resolveExplicitConfigProviderOptions(
     return undefined;
   }
   if (originResolver === undefined) {
+    if (
+      (source === 'project' || source === 'global')
+      && getPresentProviderOptionPaths(resolvedConfigOptions).length > 0
+    ) {
+      throw new Error(
+        'Configuration error: provider option origin resolver is required for explicit configuration values',
+      );
+    }
     return resolvedConfigOptions;
   }
   const explicitOptions = mergeProviderOptions(resolvedConfigOptions);
@@ -1058,8 +1095,16 @@ export function resolveEffectiveProviderOptions(
   stepOptions: StepProviderOptions | undefined,
   personaOptions?: StepProviderOptions,
 ): StepProviderOptions | undefined {
-  if (!resolvedConfigOptions) {
+  if (!resolvedConfigOptions || getPresentProviderOptionPaths(resolvedConfigOptions).length === 0) {
     return mergeProviderOptions(personaOptions, stepOptions);
+  }
+  if (
+    originResolver === undefined
+    && (source === 'project' || source === 'global')
+  ) {
+    throw new Error(
+      'Configuration error: provider option origin resolver is required for explicit configuration values',
+    );
   }
   if (!personaOptions && !stepOptions) {
     return resolvedConfigOptions;
@@ -1787,7 +1832,9 @@ export function resolveProviderOptionSource(
 ): ProviderResolutionSource | undefined {
   const configValue = getValueAtPath(configOptions, path);
   const stepValue = getValueAtPath(stepOptions, path);
-  const origin = resolveProviderOptionOrigin(originResolver, path, configSource);
+  const origin = configValue === undefined
+    ? 'default'
+    : resolveProviderOptionOrigin(originResolver, path, configSource);
 
   if (
     path !== 'claude.baseUrl'

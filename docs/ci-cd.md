@@ -204,7 +204,7 @@ export TAKT_KIRO_API_KEY=...
 
 Priority: Environment variables take precedence over `config.yaml` settings.
 
-> **Note**: If you set credentials for an SDK provider (Claude SDK, Codex, OpenCode, or Pi), installing its CLI is not necessary. TAKT directly calls the respective API. `deepseek-harness` additionally requires Python 3.10+, the matching `deepseek-harness-sdk`/`deepseek-harness-runtime-bin` packages, and Linux x64/arm64 or macOS arm64. Windows and macOS x64 are unsupported. Cursor, Copilot, and Kiro require their CLIs to be installed.
+> **Note**: If you set credentials for an SDK provider (Claude SDK, Codex, OpenCode, or Pi), installing its CLI is not necessary. TAKT directly calls the respective API. `deepseek-harness` additionally requires Python 3.10+, `deepseek-harness-sdk==0.1.2a3` with `deepseek-harness-runtime-bin==0.1.2a3`, and Linux x64/arm64 or macOS arm64. Windows and macOS x64 are unsupported. Cursor, Copilot, and Kiro require their CLIs to be installed.
 
 ## Cost Considerations
 

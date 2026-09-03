@@ -54,6 +54,7 @@ export function createWorkflowCallOptions(
     projectCwd: projectDir,
     provider: 'mock',
     model: 'parent-model',
+    providerOptionsOriginResolver: () => 'local',
     selectorGitCommandRunner: new GitSelectorCommandRunner(),
     workflowCallResolver: ({
       parentWorkflow,

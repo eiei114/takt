@@ -115,7 +115,9 @@ TAKT 需要 Node.js `>=22.22.0`。
 `deepseek-harness` 通过私有 JSON-RPC bridge 使用官方 Python SDK。请在 Python 3.10+ 中安装匹配的 SDK/runtime 包：
 
 ```bash
-python3 -m pip install deepseek-harness-sdk deepseek-harness-runtime-bin
+python3 -m pip install \
+  'deepseek-harness-sdk==0.1.2a3' \
+  'deepseek-harness-runtime-bin==0.1.2a3'
 ```
 
 官方 runtime 当前支持 Linux x64/arm64 和 macOS arm64。Windows 和 macOS x64 会快速失败；TAKT 不会静默切换到其他 provider。请设置 `DEEPSEEK_API_KEY`，也可以设置 `DEEPSEEK_BASE_URL`。Python SDK 与 `deepseek-harness-runtime-bin` 必须来自匹配的版本。这是 developer-preview 兼容性边界；使用新的 SDK/runtime 组合前，请按照配置指南执行 opt-in live smoke。

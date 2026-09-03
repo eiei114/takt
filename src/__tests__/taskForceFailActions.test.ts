@@ -59,7 +59,6 @@ vi.mock('../shared/ui/index.js', () => ({
 
 vi.mock('../shared/utils/index.js', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
-  /** Test mock that returns an Error's message or the stringified value. */
   getErrorMessage: (error: unknown) => error instanceof Error ? error.message : String(error),
 }));
 

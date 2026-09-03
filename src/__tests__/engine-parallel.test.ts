@@ -904,7 +904,8 @@ describe('WorkflowEngine Integration: Parallel Step Aggregation', () => {
     let facetSelectionCount = 0;
     vi.mocked(runAgent).mockImplementation(async (persona, instruction, options) => {
       if (options?.outputSchema !== undefined) {
-        const selectedIds = facetSelectionCount++ % 2 === 0 ? ['web'] : ['cli'];
+        const selectedIds = instruction.includes('\nStep:\nsecurity\n') ? ['web'] : ['cli'];
+        facetSelectionCount += 1;
         return makeResponse({
           persona: 'selector',
           structuredOutput: { selected_ids: selectedIds, rationale: 'repeatable child selection' },
@@ -921,11 +922,12 @@ describe('WorkflowEngine Integration: Parallel Step Aggregation', () => {
       return { index: 0, method: 'phase3_tag' };
     });
 
-    const state = await new WorkflowEngine(config, tmpDir, 'Repeat static parallel children', {
+    const engine = new WorkflowEngine(config, tmpDir, 'Repeat static parallel children', {
       projectCwd: tmpDir,
       provider: 'mock',
       selectorProvider: MOCK_SELECTOR_PROVIDER,
-    }).run();
+    });
+    const state = await engine.run();
 
     expect(state.status).toBe('completed');
     expect(state.iteration).toBe(2);

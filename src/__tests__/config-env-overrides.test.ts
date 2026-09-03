@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { parse as parseYaml } from 'yaml';
 import { envVarNameFromPath } from '../infra/config/env/config-env-overrides.js';
 import { clearTaktEnv, restoreTaktEnv, type TaktEnvSnapshot } from './helpers/taktEnv.js';
 
@@ -57,8 +58,8 @@ vi.mock('../infra/config/paths.js', async (importOriginal) => {
   };
 });
 
-const { loadGlobalConfig, invalidateGlobalConfigCache } = await import('../infra/config/global/globalConfig.js');
-const { loadProjectConfig } = await import('../infra/config/project/projectConfig.js');
+const { loadGlobalConfig, saveGlobalConfig, invalidateGlobalConfigCache } = await import('../infra/config/global/globalConfig.js');
+const { loadProjectConfig, saveProjectConfig } = await import('../infra/config/project/projectConfig.js');
 const { getProjectConfigDir } = await import('../infra/config/paths.js');
 
 let taktEnvSnapshot: TaktEnvSnapshot;
@@ -106,6 +107,75 @@ describe('config traced env overrides', () => {
       deepseekHarness: { reasoningEffort: 'low' },
     });
   });
+
+  it('global config は file-origin の DeepSeek reasoning_effort を拒否する', () => {
+    mkdirSync(globalTaktDir, { recursive: true });
+    writeFileSync(
+      globalConfigPath,
+      [
+        'language: en',
+        'provider_options:',
+        '  deepseek_harness:',
+        '    reasoning_effort: low',
+      ].join('\n'),
+      'utf-8',
+    );
+    process.env.TAKT_PROVIDER_OPTIONS_CODEX_NETWORK_ACCESS = 'true';
+
+    expect(() => loadGlobalConfig()).toThrow();
+  });
+
+  it.each(DEEPSEEK_REASONING_EFFORTS)(
+    'global config は origin なしの DeepSeek reasoning_effort %s を保存時に拒否する',
+    (reasoningEffort) => {
+      mkdirSync(globalTaktDir, { recursive: true });
+      writeFileSync(globalConfigPath, 'language: en\nprovider: codex\n', 'utf-8');
+      const before = readFileSync(globalConfigPath, 'utf-8');
+      const config = loadGlobalConfig();
+      config.providerOptions = { deepseekHarness: { reasoningEffort } };
+
+      expect(() => saveGlobalConfig(config)).toThrow();
+      expect(readFileSync(globalConfigPath, 'utf-8')).toBe(before);
+    },
+  );
+
+  it.each(DEEPSEEK_REASONING_EFFORTS)(
+    'global config は env-origin の DeepSeek reasoning_effort %s を legacy field に戻さず保存する',
+    (reasoningEffort) => {
+      mkdirSync(globalTaktDir, { recursive: true });
+      writeFileSync(
+        globalConfigPath,
+        [
+          'language: en',
+          'provider: codex',
+          'provider_options:',
+          '  deepseek_harness:',
+          '    max_tokens: 4096',
+          '  codex:',
+          '    network_access: true',
+        ].join('\n'),
+        'utf-8',
+      );
+      process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = reasoningEffort;
+
+      const config = loadGlobalConfig();
+      saveGlobalConfig(config);
+
+      const raw = parseYaml(readFileSync(globalConfigPath, 'utf-8')) as {
+        provider_options?: {
+          deepseek_harness?: Record<string, unknown>;
+          codex?: Record<string, unknown>;
+        };
+      };
+      expect(raw).toMatchObject({
+        provider_options: {
+          deepseek_harness: { max_tokens: 4096 },
+          codex: { network_access: true },
+        },
+      });
+      expect(raw.provider_options?.deepseek_harness).not.toHaveProperty('reasoning_effort');
+    },
+  );
 
   it.each(INVALID_DEEPSEEK_REASONING_EFFORTS)(
     'global config は不正な DeepSeek reasoning_effort の env override %j を拒否する',
@@ -178,6 +248,81 @@ describe('config traced env overrides', () => {
       deepseekHarness: { reasoningEffort: 'high' },
     });
   });
+
+  it('project config は file-origin の DeepSeek reasoning_effort を拒否する', () => {
+    const projectDir = join(testRoot, 'project-deepseek-reasoning-effort-file');
+    const configDir = getProjectConfigDir(projectDir);
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(
+      join(configDir, 'config.yaml'),
+      [
+        'provider: deepseek-harness',
+        'provider_options:',
+        '  deepseek_harness:',
+        '    reasoning_effort: low',
+      ].join('\n'),
+      'utf-8',
+    );
+    process.env.TAKT_PROVIDER_OPTIONS_CODEX_NETWORK_ACCESS = 'true';
+
+    expect(() => loadProjectConfig(projectDir)).toThrow();
+  });
+
+  it.each(DEEPSEEK_REASONING_EFFORTS)(
+    'project config は origin なしの DeepSeek reasoning_effort %s を保存時に拒否する',
+    (reasoningEffort) => {
+      const projectDir = join(testRoot, `project-deepseek-save-rejection-${reasoningEffort}`);
+      const configDir = getProjectConfigDir(projectDir);
+      mkdirSync(configDir, { recursive: true });
+      const configPath = join(configDir, 'config.yaml');
+      writeFileSync(configPath, 'provider: codex\n', 'utf-8');
+      const before = readFileSync(configPath, 'utf-8');
+      const config = loadProjectConfig(projectDir);
+      config.providerOptions = { deepseekHarness: { reasoningEffort } };
+
+      expect(() => saveProjectConfig(projectDir, config)).toThrow();
+      expect(readFileSync(configPath, 'utf-8')).toBe(before);
+    },
+  );
+
+  it.each(DEEPSEEK_REASONING_EFFORTS)(
+    'project config は env-origin の DeepSeek reasoning_effort %s を legacy field に戻さず保存する',
+    (reasoningEffort) => {
+      const projectDir = join(testRoot, `project-deepseek-save-env-${reasoningEffort}`);
+      const configDir = getProjectConfigDir(projectDir);
+      mkdirSync(configDir, { recursive: true });
+      writeFileSync(
+        join(configDir, 'config.yaml'),
+        [
+          'provider: codex',
+          'provider_options:',
+          '  deepseek_harness:',
+          '    max_tokens: 4096',
+          '  codex:',
+          '    network_access: true',
+        ].join('\n'),
+        'utf-8',
+      );
+      process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT = reasoningEffort;
+
+      const config = loadProjectConfig(projectDir);
+      saveProjectConfig(projectDir, config);
+
+      const raw = parseYaml(readFileSync(join(configDir, 'config.yaml'), 'utf-8')) as {
+        provider_options?: {
+          deepseek_harness?: Record<string, unknown>;
+          codex?: Record<string, unknown>;
+        };
+      };
+      expect(raw).toMatchObject({
+        provider_options: {
+          deepseek_harness: { max_tokens: 4096 },
+          codex: { network_access: true },
+        },
+      });
+      expect(raw.provider_options?.deepseek_harness).not.toHaveProperty('reasoning_effort');
+    },
+  );
 
   it.each(INVALID_DEEPSEEK_REASONING_EFFORTS)(
     'project config は不正な DeepSeek reasoning_effort の env override %j を拒否する',

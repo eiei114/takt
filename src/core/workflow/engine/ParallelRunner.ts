@@ -504,7 +504,6 @@ export class ParallelRunner {
         const subSessionKey = buildSessionKey(executableSubStep, {
           provider: subPm.provider,
           model: subPm.model,
-          providerOptions: baseOptions.providerOptions,
           mcpServerIdentity: baseOptions.mcpServerIdentity,
         });
         const compactionOutcome = await compactSessionBeforePhase1(executableSubStep, baseOptions);

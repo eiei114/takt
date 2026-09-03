@@ -793,7 +793,6 @@ function buildReportAttemptIdentity(
       : buildSessionKey(step, {
           provider: providerInfo.provider,
           model: providerInfo.model,
-          providerOptions: options.providerOptions,
           mcpServerIdentity: options.mcpServerIdentity,
         }),
     sessionId: response.sessionId ?? options.sessionId,

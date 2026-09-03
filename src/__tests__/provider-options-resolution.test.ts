@@ -28,7 +28,33 @@ function asProviderOptions(value: unknown): StepProviderOptions {
   return value as StepProviderOptions;
 }
 
+const localOriginResolver = (_path: string) => 'local' as const;
+const globalOriginResolver = (_path: string) => 'global' as const;
+
 describe('resolveEffectiveProviderOptions', () => {
+  it('rejects DeepSeek reasoning effort when its origin resolver is absent', () => {
+    expect(() => resolveEffectiveProviderOptions(
+      'project',
+      undefined,
+      asProviderOptions({ deepseekHarness: { reasoningEffort: 'high' } }),
+      asProviderOptions({ deepseekHarness: { reasoningEffort: 'low' } }),
+    )).toThrow();
+  });
+
+  it('allows direct resolved options without config source trace metadata', () => {
+    expect(resolveEffectiveProviderOptions(
+      undefined,
+      undefined,
+      asProviderOptions({ codex: { networkAccess: true } }),
+      asProviderOptions({ codex: { reasoningEffort: 'high' } }),
+    )).toEqual({
+      codex: {
+        networkAccess: true,
+        reasoningEffort: 'high',
+      },
+    });
+  });
+
   it('Skill leaves do not inherit a sibling provider origin', () => {
     const resolver = (path: string) => (
       path === 'codex' || path === 'claude' ? 'env' : 'default'
@@ -79,7 +105,7 @@ describe('resolveEffectiveProviderOptions', () => {
     });
     expect(resolveEffectiveProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       configOptions,
       stepOptions,
       personaOptions,
@@ -95,7 +121,7 @@ describe('resolveEffectiveProviderOptions', () => {
       stepOptions,
       [{ source: 'persona_providers', options: personaOptions }],
       configOptions,
-      undefined,
+      localOriginResolver,
       'project',
     )).toBe('step');
 
@@ -135,7 +161,7 @@ describe('resolveEffectiveProviderOptions', () => {
 
     expect(resolveEffectiveProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       configOptions,
       stepOptions,
       personaOptions,
@@ -145,7 +171,7 @@ describe('resolveEffectiveProviderOptions', () => {
       stepOptions,
       [],
       configOptions,
-      undefined,
+      localOriginResolver,
       'project',
     )).toBe('step');
   });
@@ -156,7 +182,7 @@ describe('resolveEffectiveProviderOptions', () => {
 
     expect(resolveEffectiveProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       configOptions,
       undefined,
       personaOptions,
@@ -166,7 +192,7 @@ describe('resolveEffectiveProviderOptions', () => {
       undefined,
       [{ source: 'persona_providers', options: personaOptions }],
       configOptions,
-      undefined,
+      localOriginResolver,
       'project',
     )).toBe('persona_providers');
   });
@@ -239,7 +265,7 @@ describe('resolveEffectiveProviderOptions', () => {
 
       expect(resolveEffectiveProviderOptions(
         'project',
-        undefined,
+        localOriginResolver,
         { codex: { networkAccess } },
         { codex: { permissionControl: 'codex' } },
       )).toEqual({ codex: { networkAccess, permissionControl: 'codex' } });
@@ -266,7 +292,7 @@ describe('resolveEffectiveProviderOptions', () => {
   it('falls back to step precedence for local/global sources', () => {
     const result = resolveEffectiveProviderOptions(
       'global',
-      undefined,
+      globalOriginResolver,
       { claude: { sandbox: { allowUnsandboxedCommands: true } } },
       { claude: { sandbox: { excludedCommands: ['./gradlew'] } } },
     );
@@ -306,31 +332,6 @@ describe('resolveEffectiveProviderOptions', () => {
     });
   });
 
-  it('DeepSeek reasoningEffort は step > persona > config の通常優先度で解決される', () => {
-    const resolved = resolveEffectiveProviderOptions(
-      'project',
-      undefined,
-      asProviderOptions({ deepseekHarness: { reasoningEffort: 'low' } }),
-      asProviderOptions({ deepseekHarness: { reasoningEffort: 'high' } }),
-      asProviderOptions({ deepseekHarness: { reasoningEffort: 'medium' } }),
-    );
-
-    expect(resolved).toEqual({
-      deepseekHarness: { reasoningEffort: 'high' },
-    });
-    expect(resolveProviderOptionSource(
-      'deepseekHarness.reasoningEffort',
-      asProviderOptions({ deepseekHarness: { reasoningEffort: 'high' } }),
-      [{
-        source: 'persona_providers',
-        options: asProviderOptions({ deepseekHarness: { reasoningEffort: 'medium' } }),
-      }],
-      asProviderOptions({ deepseekHarness: { reasoningEffort: 'low' } }),
-      undefined,
-      'project',
-    )).toBe('step');
-  });
-
   it('baseUrl は step > persona > config の優先で解決される', () => {
     const configOptions = {
       codex: { baseUrl: 'http://config.example.test/v1' },
@@ -347,7 +348,7 @@ describe('resolveEffectiveProviderOptions', () => {
 
     const result = resolveEffectiveProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       configOptions,
       stepOptions,
       personaOptions,
@@ -472,7 +473,7 @@ describe('resolveEffectiveProviderOptions', () => {
   it('kiro.agent は step > persona > config の優先で解決される', () => {
     expect(resolveEffectiveProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       { kiro: { agent: 'config-agent' } },
       { kiro: { agent: 'step-agent' } },
       { kiro: { agent: 'persona-agent' } },
@@ -482,7 +483,7 @@ describe('resolveEffectiveProviderOptions', () => {
 
     expect(resolveEffectiveProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       { kiro: { agent: 'config-agent' } },
       undefined,
       { kiro: { agent: 'persona-agent' } },
@@ -492,7 +493,7 @@ describe('resolveEffectiveProviderOptions', () => {
 
     expect(resolveEffectiveProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       { kiro: { agent: 'config-agent' } },
       undefined,
       undefined,
@@ -506,7 +507,7 @@ describe('resolveEffectiveProviderOptions', () => {
       { kiro: { agent: 'step-agent' } },
       [],
       { kiro: { agent: 'config-agent' } },
-      undefined,
+      localOriginResolver,
       'project',
     )).toBe('step');
   });
@@ -514,7 +515,7 @@ describe('resolveEffectiveProviderOptions', () => {
   it('kiro.agent のみ指定でも結果は undefined にならない', () => {
     const result = resolveEffectiveProviderOptions(
       'global',
-      undefined,
+      globalOriginResolver,
       { kiro: { agent: 'global-agent' } },
       { kiro: { agent: 'step-agent' } },
     );
@@ -576,7 +577,7 @@ describe('resolveEffectiveTeamLeaderPartProviderOptions', () => {
   it('non-Claude part では claude.allowedTools を除去しつつ他の providerOptions は維持する', () => {
     const result = resolveEffectiveTeamLeaderPartProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       {
         opencode: { networkAccess: true },
         claude: {
@@ -611,7 +612,7 @@ describe('resolveEffectiveTeamLeaderPartProviderOptions', () => {
   it('Pi part keeps thinkingLevel while removing Claude allowed tools', () => {
     const result = resolveEffectiveTeamLeaderPartProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       {
         pi: { thinkingLevel: 'medium' },
         claude: { allowedTools: ['Read', 'Glob'] },
@@ -631,7 +632,7 @@ describe('resolveEffectiveTeamLeaderPartProviderOptions', () => {
   it('Claude part で part_allowed_tools 未指定なら merged claude.allowedTools を維持する', () => {
     const result = resolveEffectiveTeamLeaderPartProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       {
         claude: {
           allowedTools: ['Read', 'Glob'],
@@ -658,7 +659,7 @@ describe('resolveEffectiveTeamLeaderPartProviderOptions', () => {
   it('claude.allowedTools 除去経路でも kiro.agent は維持される', () => {
     const result = resolveEffectiveTeamLeaderPartProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       { kiro: { agent: 'config-agent' } },
       {
         kiro: { agent: 'step-agent' },
@@ -680,7 +681,7 @@ describe('resolveEffectiveTeamLeaderPartProviderOptions', () => {
   it('part_allowed_tools を runtime で渡す場合は Claude part でも claude.allowedTools を除去する', () => {
     const result = resolveEffectiveTeamLeaderPartProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       {
         claude: {
           allowedTools: ['Read', 'Glob'],
@@ -717,7 +718,7 @@ describe('resolveProviderOptionSource', () => {
       { claude: { effort: 'xhigh' } },
       [],
       undefined,
-      undefined,
+      localOriginResolver,
       undefined,
     );
     expect(source).toBe('step');
@@ -729,43 +730,21 @@ describe('resolveProviderOptionSource', () => {
       undefined,
       [{ source: 'persona_providers', options: { claude: { effort: 'high' } } }],
       undefined,
-      undefined,
+      localOriginResolver,
       undefined,
     );
     expect(source).toBe('persona_providers');
   });
 
-  it('Given only config has value (no resolver), When resolve, Then source derives from configSource', () => {
-    expect(
-      resolveProviderOptionSource(
-        'claude.effort',
-        undefined,
-        [],
-        { claude: { effort: 'medium' } },
-        undefined,
-        'project',
-      ),
-    ).toBe('project');
-    expect(
-      resolveProviderOptionSource(
-        'claude.effort',
-        undefined,
-        [],
-        { claude: { effort: 'medium' } },
-        undefined,
-        'global',
-      ),
-    ).toBe('global');
-    expect(
-      resolveProviderOptionSource(
-        'claude.effort',
-        undefined,
-        [],
-        { claude: { effort: 'medium' } },
-        undefined,
-        'default',
-      ),
-    ).toBe('default');
+  it('rejects a configured provider option when its origin resolver is absent', () => {
+    expect(() => resolveProviderOptionSource(
+      'claude.effort',
+      undefined,
+      [],
+      { claude: { effort: 'medium' } },
+      undefined,
+      'project',
+    )).toThrow();
   });
 
   it('Given env/cli origin with config value, Then config wins over step/layers (mirrors selectProviderValue)', () => {
@@ -815,7 +794,7 @@ describe('resolveProviderOptionsSources (all paths)', () => {
         deepseekHarness: { reasoningEffort: 'high' },
       } }],
       { copilot: { effort: 'medium' } },
-      undefined,
+      (path) => path === 'copilot.effort' ? 'global' : 'default',
       'global',
     );
     expect(result).toEqual({
@@ -871,7 +850,7 @@ describe('resolveProviderOptionsSources (all paths)', () => {
         },
       ],
       { copilot: { effort: 'medium' } },
-      undefined,
+      (path) => path === 'copilot.effort' ? 'local' : 'default',
       'project',
     );
 
@@ -908,7 +887,7 @@ describe('resolveProviderOptionsSources (all paths)', () => {
       { kiro: { agent: 'step-agent' } },
       [],
       undefined,
-      undefined,
+      localOriginResolver,
       undefined,
     );
 
@@ -932,7 +911,7 @@ describe('resolveProviderOptionsSources (all paths)', () => {
       },
       [],
       undefined,
-      undefined,
+      localOriginResolver,
       undefined,
     );
 
@@ -1318,7 +1297,7 @@ describe('claude_terminal provider_options normalization', () => {
   it('Given config, persona, and step claudeTerminal options, When resolving effective options, Then source precedence is preserved', () => {
     const resolved = resolveEffectiveProviderOptions(
       'project',
-      undefined,
+      localOriginResolver,
       asProviderOptions({
         claudeTerminal: {
           backend: 'tmux',

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProviderEventLogger } from '../core/logging/providerEventLogger.js';
 import {
   callDeepSeekHarness,
@@ -64,6 +64,16 @@ function asTestDeepSeekProviderOptions(value: unknown): TestDeepSeekProviderOpti
   return value as TestDeepSeekProviderOptions;
 }
 
+async function waitForFile(filePath: string): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (!existsSync(filePath)) {
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for ${filePath}`);
+    }
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+}
+
 it.skipIf(supportedPlatform)('DeepSeek Harness fails fast with an actionable unsupported-platform error', async () => {
   const response = await callDeepSeekHarness('worker', 'hello', { cwd: process.cwd() });
 
@@ -118,6 +128,16 @@ class SdkProtocolError(Exception):
 class JsonRpcError(Exception):
     pass
 
+class DeepSeekHarnessConfig:
+    __dataclass_fields__ = ({
+        'session_root': None,
+    } if os.path.exists(os.path.join(os.getcwd(), 'FAKE_OLD_SDK')) else {
+        'dsh_home': None,
+        'profile': None,
+        'patches': None,
+        'reasoning_effort': None,
+    })
+
 class DeepSeekHarness:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
@@ -125,6 +145,10 @@ class DeepSeekHarness:
         config_file = os.path.join(kwargs['cwd'], 'bridge-start-configs.jsonl')
         with open(config_file, 'a', encoding='utf-8') as config:
             config.write(json.dumps(kwargs, sort_keys=True) + '\\n')
+        effort = kwargs.get('reasoning_effort', 'unset')
+        lifecycle_file = os.path.join(kwargs['cwd'], 'bridge-lifecycle.jsonl')
+        with open(lifecycle_file, 'a', encoding='utf-8') as lifecycle:
+            lifecycle.write(json.dumps({'event': 'start', 'effort': effort}, sort_keys=True) + '\\n')
         if kwargs.get('provider') == 'unknown-route':
             raise RuntimeError('SDK rejected unknown provider route "unknown-route"')
         if kwargs.get('model') == 'unknown-model':
@@ -137,21 +161,42 @@ class DeepSeekHarness:
             raise FileNotFoundError('missing DeepSeek Harness runtime wheel')
         if kwargs.get('model') == 'terminal-diagnostic-model':
             raise RuntimeError('SDK diagnostic \\x1b]52;clipboard\\x07\\x1b[31mraw\\x1b[0m\\x01')
-        counter_file = kwargs.get('session_root')
+        counter_file = kwargs.get('dsh_home')
         if counter_file:
+            os.makedirs(os.path.dirname(counter_file), exist_ok=True)
             with open(counter_file, 'a', encoding='utf-8') as counter:
                 counter.write('initialized\\n')
-        if os.path.basename(self.kwargs.get('cordis', '')) == 'FAKE_CAPTURE_KWARGS':
+        if self.patch_marker() == 'FAKE_CAPTURE_KWARGS':
             with open(os.path.join(self.kwargs['cwd'], 'sdk-kwargs.json'), 'w', encoding='utf-8') as config:
                 json.dump(self.kwargs, config)
 
+    def patch_marker(self):
+        patches = self.kwargs.get('patches', ())
+        return os.path.basename(patches[0]) if patches else ''
+
     def start(self):
-        if os.path.basename(self.kwargs.get('cordis', '')) == 'FAKE_START_FAILURE':
+        if self.patch_marker() == 'FAKE_START_FAILURE':
             raise RuntimeError('startup failure')
 
     def close(self):
-        if os.path.basename(self.kwargs.get('cordis', '')) == 'FAKE_CLOSE_HANG':
+        if self.patch_marker() == 'FAKE_CLOSE_HANG':
             time.sleep(30)
+        if self.patch_marker() == 'FAKE_CLOSE_BARRIER':
+            patch_path = self.kwargs['patches'][0]
+            entered_path = patch_path + '.entered'
+            release_path = patch_path + '.release'
+            try:
+                with open(entered_path, 'x', encoding='utf-8'):
+                    pass
+            except FileExistsError:
+                pass
+            while not os.path.exists(release_path):
+                time.sleep(0.01)
+        effort = self.kwargs.get('reasoning_effort', 'unset')
+        with open(os.path.join(self.kwargs['cwd'], 'bridge-lifecycle.jsonl'), 'a', encoding='utf-8') as lifecycle:
+            lifecycle.write(json.dumps({'event': 'close', 'effort': effort}, sort_keys=True) + '\\n')
+        if self.patch_marker() == 'FAKE_CLOSE_FAILURE':
+            raise RuntimeError('close failure')
         self.closed = True
 
     def start_session(self, session_id=None):
@@ -162,6 +207,25 @@ class DeepSeekHarness:
             def run(self, input, *, on_notification=None):
                 return harness.run(input, session_id=active_session, on_notification=on_notification)
         return Session()
+
+    def session_history_path(self):
+        dsh_home = self.kwargs.get('dsh_home')
+        if dsh_home:
+            os.makedirs(os.path.dirname(dsh_home), exist_ok=True)
+            return dsh_home + '.history.jsonl'
+        return os.path.join(self.kwargs['cwd'], 'sdk-session-history-state.jsonl')
+
+    def read_session_history(self, session_id):
+        history_path = self.session_history_path()
+        if not os.path.exists(history_path):
+            return []
+        records = []
+        with open(history_path, 'r', encoding='utf-8') as history:
+            for line in history:
+                record = json.loads(line)
+                if record.get('sessionId') == session_id:
+                    records.append(record)
+        return records
 
     def run(self, input, *, session_id=None, on_notification=None):
         if input == 'hang':
@@ -175,6 +239,16 @@ class DeepSeekHarness:
         if input == 'unexpected-exit':
             os._exit(23)
         active_session = session_id or 'generated-session'
+        previous_history = self.read_session_history(active_session)
+        history_record = {
+            'effort': self.kwargs.get('reasoning_effort', 'unset'),
+            'input': input,
+            'sessionId': active_session,
+        }
+        with open(self.session_history_path(), 'a', encoding='utf-8') as session_history:
+            session_history.write(json.dumps(history_record, sort_keys=True) + '\\n')
+        with open(os.path.join(self.kwargs['cwd'], 'sdk-session-history.jsonl'), 'a', encoding='utf-8') as history:
+            history.write(json.dumps(history_record, sort_keys=True) + '\\n')
         if input.startswith('capture-prompt:'):
             with open(os.path.join(self.kwargs['cwd'], 'received-prompt.txt'), 'w', encoding='utf-8') as prompt_file:
                 prompt_file.write(input)
@@ -192,7 +266,13 @@ class DeepSeekHarness:
         finish_reason = input.split(':', 1)[1] if input.startswith('reason:') else 'completed'
         event_finish_reason = 'blocked' if input == 'mismatched-reason' else finish_reason
         result_finish_reason = None if input == 'missing-result-reason' else finish_reason
-        text = secret if secret_events else 'hello'
+        remembered = 'missing'
+        for record in reversed(previous_history):
+            previous_input = record.get('input')
+            if isinstance(previous_input, str) and previous_input.startswith('remember:'):
+                remembered = previous_input.split(':', 1)[1]
+                break
+        text = remembered if input == 'recall' else (secret if secret_events else 'hello')
         tool_arguments = '{"path":"' + (secret if secret_events else 'README.md') + '"}'
         events = [
             {'type': 'assistant/chunk', 'data': {'chunk': {'type': 'reasoning-delta', 'text': secret if secret_events else 'thinking'}}},
@@ -235,7 +315,7 @@ class DeepSeekHarness:
             else:
                 for event in events:
                     on_notification(Notification('session.event', {'sessionId': active_session, 'event': event}))
-        final_response = 'firstsecond' if input == 'message-events' else (secret if secret_events else 'hello')
+        final_response = 'firstsecond' if input == 'message-events' else text
         return Result(active_session, final_response, result_finish_reason)
 `, 'utf8');
     pythonPath = path.join(root, 'python-wrapper.sh');
@@ -299,6 +379,7 @@ raise SystemExit(return_code)
         model: 'route/model:variant',
         providerOptions: asTestDeepSeekProviderOptions({
           pythonPath,
+          sessionRoot: 'custom-dsh-home',
           cordis: 'FAKE_CAPTURE_KWARGS',
           requestTimeoutMs: 10_000,
           reasoningEffort,
@@ -311,6 +392,13 @@ raise SystemExit(return_code)
       expect(response).toMatchObject({ status: 'done', content: 'hello' });
       expect(sdkOptions.provider).toBe('route');
       expect(sdkOptions.model).toBe('model:variant');
+      expect(sdkOptions.profile).toBe('sdk');
+      expect(sdkOptions.dsh_home).toBe(path.join(root, 'custom-dsh-home'));
+      expect(Object.prototype.hasOwnProperty.call(sdkOptions, 'session_root')).toBe(false);
+      expect(Object.prototype.hasOwnProperty.call(sdkOptions, 'cordis')).toBe(false);
+      expect(sdkOptions.patches).toEqual([
+        path.join(root, 'FAKE_CAPTURE_KWARGS'),
+      ]);
       expect(Object.prototype.hasOwnProperty.call(sdkOptions, 'reasoning_effort')).toBe(true);
       expect(sdkOptions.reasoning_effort).toBe(reasoningEffort);
     },
@@ -342,7 +430,26 @@ raise SystemExit(return_code)
     expect(Object.prototype.hasOwnProperty.call(startConfig, 'reasoningEffort')).toBe(false);
     expect(sdkOptions.provider).toBe('route');
     expect(sdkOptions.model).toBe('model/extra:variant');
+    expect(sdkOptions.profile).toBe('sdk');
+    expect(sdkOptions.dsh_home).toBe(path.join(root, '.takt', 'deepseek-harness'));
+    expect(Object.prototype.hasOwnProperty.call(sdkOptions, 'session_root')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(sdkOptions, 'cordis')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(sdkOptions, 'reasoning_effort')).toBe(false);
+  });
+
+  it('rejects an SDK without the 0.1.2a3 constructor fields before creating a harness', async () => {
+    await writeFile(path.join(root, 'FAKE_OLD_SDK'), '1', 'utf8');
+
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.content).toContain('0.1.2a3');
+    expect(response.content).toContain('dsh_home');
+    expect(response.content).toContain('reasoning_effort');
+    expect(existsSync(path.join(root, 'bridge-start-configs.jsonl'))).toBe(false);
   });
 
   it.each(['', ' ', ' high ', 'HIGH', 'minimal', 'medium', 'xhigh', 'unknown'] as const)(
@@ -977,43 +1084,301 @@ raise SystemExit(return_code)
     expect((await readFile(counterFile, 'utf8')).trim().split('\n')).toEqual(['initialized']);
   });
 
-  it('reuses the same effort configuration and rejects a session with a different effort', async () => {
-    const counterFile = path.join(root, 'reasoning-effort-bridge-starts.txt');
-    const highOptions = asTestDeepSeekProviderOptions({
+  it.each([
+    ['off', 'low'],
+    ['low', 'high'],
+    ['high', 'max'],
+    ['max', undefined],
+    [undefined, 'off'],
+  ] as const)('reuses the logical session while replacing the bridge for %s -> %s reasoning effort', async (firstEffort, secondEffort) => {
+    const counterFile = path.join(root, `reasoning-effort-${firstEffort ?? 'unset'}-${secondEffort ?? 'unset'}.txt`);
+    const optionsFor = (reasoningEffort: 'off' | 'low' | 'high' | 'max' | undefined) => asTestDeepSeekProviderOptions({
       pythonPath,
       sessionRoot: counterFile,
       requestTimeoutMs: 10_000,
-      reasoningEffort: 'high',
+      ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
     });
-    const first = await callDeepSeekHarness('worker', 'hello', {
+    const firstPrompt = `remember:${firstEffort ?? 'unset'}-token`;
+    const first = await callDeepSeekHarness('worker', firstPrompt, {
       cwd: root,
       model: 'route/model:variant',
       sessionId: 'reasoning-effort-session',
-      providerOptions: highOptions,
+      providerOptions: optionsFor(firstEffort),
     });
-    const second = await callDeepSeekHarness('worker', 'hello', {
+    const second = await callDeepSeekHarness('worker', 'recall', {
       cwd: root,
       model: 'route/model:variant',
       sessionId: 'reasoning-effort-session',
-      providerOptions: highOptions,
+      providerOptions: optionsFor(secondEffort),
     });
-    const differentEffort = await callDeepSeekHarness('worker', 'hello', {
-      cwd: root,
-      model: 'route/model:variant',
-      sessionId: 'reasoning-effort-session',
-      providerOptions: asTestDeepSeekProviderOptions({
-        pythonPath,
-        sessionRoot: counterFile,
-        requestTimeoutMs: 10_000,
-        reasoningEffort: 'low',
-      }),
-    });
+    const configurations = (await readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8'))
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const history = (await readFile(path.join(root, 'sdk-session-history.jsonl'), 'utf8'))
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const lifecycle = (await readFile(path.join(root, 'bridge-lifecycle.jsonl'), 'utf8'))
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
 
     expect(first).toMatchObject({ status: 'done', sessionId: 'reasoning-effort-session' });
     expect(second).toMatchObject({ status: 'done', sessionId: 'reasoning-effort-session' });
-    expect(differentEffort.status).toBe('error');
-    expect(differentEffort.content).toContain('different project, session root, or bridge configuration');
-    expect((await readFile(counterFile, 'utf8')).trim().split('\n')).toEqual(['initialized']);
+    expect(configurations.map((configuration) => configuration.reasoning_effort ?? 'unset'))
+      .toEqual([firstEffort ?? 'unset', secondEffort ?? 'unset']);
+    expect(history.map(({ input, sessionId }) => ({ input, sessionId }))).toEqual([
+      { input: firstPrompt, sessionId: 'reasoning-effort-session' },
+      { input: 'recall', sessionId: 'reasoning-effort-session' },
+    ]);
+    expect(second.content).toBe(`${firstEffort ?? 'unset'}-token`);
+    expect(lifecycle.filter(({ event }) => event === 'start')).toHaveLength(2);
+    expect(lifecycle.filter(({ event }) => event === 'close')).toHaveLength(1);
+    expect((await readFile(counterFile, 'utf8')).trim().split('\n')).toHaveLength(2);
+  });
+
+  it('uses forced process termination when the SDK close operation fails', async () => {
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      providerOptions: asTestDeepSeekProviderOptions({
+        pythonPath,
+        cordis: 'FAKE_CLOSE_FAILURE',
+        requestTimeoutMs: 10_000,
+      }),
+    });
+    const lifecycle = (await readFile(path.join(root, 'bridge-lifecycle.jsonl'), 'utf8'))
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+    expect(response.status).toBe('error');
+    expect(response.content).toContain('close failure');
+    expect(lifecycle).toEqual([
+      { effort: 'unset', event: 'start' },
+      { effort: 'unset', event: 'close' },
+    ]);
+  });
+
+  it('propagates a close failure while retiring a replaced session bridge', async () => {
+    const sessionId = 'replacement-close-failure-session';
+    const optionsFor = (reasoningEffort: 'low' | 'high') => asTestDeepSeekProviderOptions({
+      pythonPath,
+      sessionRoot: path.join(root, 'replacement-close-failure-root'),
+      cordis: 'FAKE_CLOSE_FAILURE',
+      requestTimeoutMs: 10_000,
+      reasoningEffort,
+    });
+
+    const started = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId,
+      providerOptions: optionsFor('low'),
+    });
+    const replaced = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId,
+      providerOptions: optionsFor('high'),
+    });
+
+    expect(started).toMatchObject({ status: 'done', sessionId });
+    expect(replaced.status).toBe('error');
+    expect(replaced.content).toContain('close failure');
+  });
+
+  it('propagates a close failure from global process cleanup', async () => {
+    const started = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId: 'global-close-failure-session',
+      providerOptions: asTestDeepSeekProviderOptions({
+        pythonPath,
+        cordis: 'FAKE_CLOSE_FAILURE',
+        requestTimeoutMs: 10_000,
+      }),
+    });
+    expect(started.status).toBe('done');
+
+    await expect(closeDeepSeekHarnessProcesses()).rejects.toThrow('close failure');
+  });
+
+  it('preserves close and termination failures from global process cleanup', async () => {
+    const started = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId: 'global-combined-cleanup-failure-session',
+      providerOptions: asTestDeepSeekProviderOptions({
+        pythonPath,
+        cordis: 'FAKE_CLOSE_FAILURE',
+        requestTimeoutMs: 10_000,
+      }),
+    });
+    expect(started.status).toBe('done');
+
+    const originalKill = process.kill.bind(process);
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (typeof pid === 'number' && pid < 0 && signal === 'SIGTERM') {
+        throw new Error('forced termination failure');
+      }
+      return originalKill(pid, signal);
+    });
+    try {
+      const error = await closeDeepSeekHarnessProcesses().then(
+        () => undefined,
+        (caught: unknown) => caught,
+      );
+
+      expect(error).toBeInstanceOf(Error);
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toContain('close failure');
+      expect(message).toContain('forced termination failure');
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+
+  it('reports both operation and cleanup failures from a one-shot call', async () => {
+    const response = await callDeepSeekHarness('worker', 'jsonrpc-failure', {
+      cwd: root,
+      providerOptions: asTestDeepSeekProviderOptions({
+        pythonPath,
+        cordis: 'FAKE_CLOSE_FAILURE',
+        requestTimeoutMs: 10_000,
+      }),
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.content).toContain('jsonrpc failure');
+    expect(response.content).toContain('close failure');
+  });
+
+  it('serializes concurrent replacement of the same logical session', async () => {
+    const sessionId = 'replacement-race-session';
+    const sessionRoot = path.join(root, 'replacement-race-root');
+    const barrier = path.join(root, 'FAKE_CLOSE_BARRIER');
+    const baseOptions = {
+      pythonPath,
+      sessionRoot,
+      cordis: barrier,
+      requestTimeoutMs: 10_000,
+    };
+    const started = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId,
+      providerOptions: asTestDeepSeekProviderOptions({
+        ...baseOptions,
+        reasoningEffort: 'low',
+      }),
+    });
+    expect(started).toMatchObject({ status: 'done', sessionId });
+
+    const firstReplacement = callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId,
+      providerOptions: asTestDeepSeekProviderOptions({
+        ...baseOptions,
+        reasoningEffort: 'high',
+      }),
+    });
+    await waitForFile(`${barrier}.entered`);
+    const secondReplacement = callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId,
+      providerOptions: asTestDeepSeekProviderOptions({
+        ...baseOptions,
+        reasoningEffort: 'high',
+      }),
+    });
+    await writeFile(`${barrier}.release`, 'release', 'utf8');
+
+    const responses = await Promise.all([firstReplacement, secondReplacement]);
+    expect(responses).toEqual([
+      expect.objectContaining({ status: 'done', sessionId }),
+      expect.objectContaining({ status: 'done', sessionId }),
+    ]);
+
+    await closeDeepSeekHarnessProcesses();
+    const configurations = (await readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8'))
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const lifecycle = (await readFile(path.join(root, 'bridge-lifecycle.jsonl'), 'utf8'))
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+    expect(configurations.map((configuration) => configuration.reasoning_effort ?? 'unset'))
+      .toEqual(['low', 'high']);
+    expect(lifecycle.filter(({ event, effort }) => event === 'start' && effort === 'high')).toHaveLength(1);
+    expect(lifecycle.filter(({ event, effort }) => event === 'close' && effort === 'low')).toHaveLength(1);
+    expect(lifecycle.filter(({ event, effort }) => event === 'close' && effort === 'high')).toHaveLength(1);
+  });
+
+  it('serializes global cleanup with an in-flight session replacement', async () => {
+    const sessionId = 'replacement-cleanup-race-session';
+    const sessionRoot = path.join(root, 'replacement-cleanup-race-root');
+    const barrier = path.join(root, 'FAKE_CLOSE_BARRIER');
+    const baseOptions = {
+      pythonPath,
+      sessionRoot,
+      cordis: barrier,
+      requestTimeoutMs: 10_000,
+    };
+    const started = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId,
+      providerOptions: asTestDeepSeekProviderOptions({
+        ...baseOptions,
+        reasoningEffort: 'low',
+      }),
+    });
+    expect(started).toMatchObject({ status: 'done', sessionId });
+
+    const replacement = callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId,
+      providerOptions: asTestDeepSeekProviderOptions({
+        ...baseOptions,
+        reasoningEffort: 'high',
+      }),
+    });
+    await waitForFile(`${barrier}.entered`);
+    const cleanup = closeDeepSeekHarnessProcesses();
+    await writeFile(`${barrier}.release`, 'release', 'utf8');
+
+    const response = await replacement;
+    await cleanup;
+    expect(response).toMatchObject({ status: 'done', sessionId });
+
+    const lifecycle = (await readFile(path.join(root, 'bridge-lifecycle.jsonl'), 'utf8'))
+      .trim()
+      .split(/\r?\n/u)
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+
+    expect(lifecycle.filter(({ event, effort }) => event === 'start' && effort === 'high')).toHaveLength(1);
+    expect(lifecycle.filter(({ event, effort }) => event === 'close' && effort === 'low')).toHaveLength(1);
+    expect(lifecycle.filter(({ event, effort }) => event === 'close' && effort === 'high')).toHaveLength(1);
+  });
+
+  it('propagates a bridge termination failure from process cleanup', async () => {
+    const sessionId = 'cleanup-failure-session';
+    const started = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      sessionId,
+      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+    });
+    expect(started).toMatchObject({ status: 'done', sessionId });
+
+    const originalKill = process.kill.bind(process);
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((pid, signal) => {
+      if (typeof pid === 'number' && pid < 0 && signal === 'SIGTERM') {
+        throw new Error('forced termination failure');
+      }
+      return originalKill(pid, signal);
+    });
+    try {
+      await expect(closeDeepSeekHarnessProcesses()).rejects.toThrow('forced termination failure');
+    } finally {
+      killSpy.mockRestore();
+    }
   });
 
   it('rejects a relative session root that traverses a symlink outside the project', async () => {
@@ -1212,7 +1577,8 @@ raise SystemExit(return_code)
       },
     });
 
-    expect(response.status).toBe('done');
+    expect(response.status).toBe('error');
+    expect(response.content).toContain('timed out');
     expect(Date.now() - startedAt).toBeLessThan(5_000);
   });
 
