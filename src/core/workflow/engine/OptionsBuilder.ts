@@ -68,6 +68,19 @@ function isAutoProviderOptionsSource(
     || source === 'auto.fallback';
 }
 
+function isTrustedRuntimeProviderOptionsSource(
+  source: StepProviderInfo['providerSource'],
+  profileScoped: boolean,
+): boolean {
+  return source === 'env'
+    || source === 'cli'
+    || source === 'runtime-v1'
+    || (profileScoped && (
+      source === 'promotion'
+      || isAutoProviderOptionsSource(source)
+    ));
+}
+
 function mergeRuntimeAndDirectStepProviderOptions(
   runtime: RuntimeStepResolution,
   runtimeProviderOptions: StepProviderOptions | undefined,
@@ -326,39 +339,64 @@ export class OptionsBuilder {
     if (runtime?.providerInfoResolution === 'fully_resolved') {
       return runtime.providerInfo?.providerOptions;
     }
-    const middleProviderOptions = mergeProviderOptions(
-      ...this.resolveProfileScopedProviderOptionLayers(
-        step,
-        resolvedProviderInfo.providerSource,
-      ).map((layer) => layer.options),
-    );
-    const runtimeProfileProviderOptions = this.resolveRuntimeProfileProviderOptions(
+    const profileScoped = this.engineOptions.providerOptionsProviderSource !== undefined;
+    const profileLayers = this.resolveProfileScopedProviderOptionLayers(
+      step,
       resolvedProviderInfo.providerSource,
     );
-    const profileProviderOptions = mergeProviderOptions(
-      runtimeProfileProviderOptions,
-      middleProviderOptions,
+    const legacyLayerOptions = mergeProviderOptions(
+      ...profileLayers
+        .filter((layer) => !profileScoped || layer.source === 'capabilities')
+        .map((layer) => layer.options),
     );
-    const directStepProviderOptions = this.resolveIdentityAwareDirectStepProviderOptions(
-      step,
-      resolvedProviderInfo,
+    const runtimeProfileProviderOptions = mergeProviderOptions(
+      this.resolveRuntimeProfileProviderOptions(resolvedProviderInfo.providerSource),
+      ...profileLayers
+        .filter((layer) => profileScoped && layer.source !== 'capabilities')
+        .map((layer) => layer.options),
     );
+    const directStepProviderOptions = resolveDirectStepProviderOptions(step);
     const runtimeProviderOptions = runtime?.providerInfo?.providerOptions;
+    const internalProviderOptions = this.isInternalProviderIdentity(step, resolvedProviderInfo)
+      ? step.internalProviderOptions
+      : undefined;
+    const runtimeProviderOptionsAreTrusted = isTrustedRuntimeProviderOptionsSource(
+      resolvedProviderInfo.providerSource,
+      profileScoped,
+    );
+    const inheritedRuntimeProviderOptions = runtimeProviderOptionsAreTrusted
+      ? runtimeProviderOptions
+      : undefined;
+    const untrustedRuntimeProviderOptions = runtimeProviderOptionsAreTrusted
+      ? undefined
+      : runtimeProviderOptions;
+    const trustedRuntimeProviderOptions = mergeProviderOptions(
+      runtimeProfileProviderOptions,
+      internalProviderOptions,
+      inheritedRuntimeProviderOptions,
+    );
     const baseProviderOptions = this.resolveConfigProviderOptions();
 
     if (runtimeProviderOptions && !runtime.teamLeaderPart) {
       if (runtime.providerInfo?.providerSource !== 'promotion') {
+        const runtimeOptions = profileScoped
+          ? inheritedRuntimeProviderOptions
+          : undefined;
+        const legacyOptions = profileScoped
+          ? mergeProviderOptions(legacyLayerOptions, untrustedRuntimeProviderOptions)
+          : mergeProviderOptions(untrustedRuntimeProviderOptions, legacyLayerOptions);
         return resolveEffectiveProviderOptions(
           this.engineOptions.providerOptionsSource,
           this.engineOptions.providerOptionsOriginResolver,
           baseProviderOptions,
           directStepProviderOptions,
-          mergeProviderOptions(runtimeProviderOptions, middleProviderOptions),
+          legacyOptions,
+          mergeProviderOptions(trustedRuntimeProviderOptions, runtimeOptions),
         );
       }
       const stepProviderOptions = mergeRuntimeAndDirectStepProviderOptions(
         runtime,
-        runtimeProviderOptions,
+        untrustedRuntimeProviderOptions,
         directStepProviderOptions,
       );
       return resolveEffectiveProviderOptions(
@@ -366,14 +404,15 @@ export class OptionsBuilder {
         this.engineOptions.providerOptionsOriginResolver,
         baseProviderOptions,
         stepProviderOptions,
-        profileProviderOptions,
+        legacyLayerOptions,
+        trustedRuntimeProviderOptions,
       );
     }
 
     if (runtime?.teamLeaderPart) {
       const stepProviderOptions = mergeRuntimeAndDirectStepProviderOptions(
         runtime,
-        runtimeProviderOptions,
+        untrustedRuntimeProviderOptions,
         directStepProviderOptions,
       );
       return resolveEffectiveTeamLeaderPartProviderOptions(
@@ -383,7 +422,8 @@ export class OptionsBuilder {
         stepProviderOptions,
         resolvedProviderInfo.provider,
         runtime.teamLeaderPart.partAllowedTools,
-        profileProviderOptions,
+        legacyLayerOptions,
+        trustedRuntimeProviderOptions,
       );
     }
 
@@ -392,7 +432,8 @@ export class OptionsBuilder {
       this.engineOptions.providerOptionsOriginResolver,
       baseProviderOptions,
       directStepProviderOptions,
-      profileProviderOptions,
+      legacyLayerOptions,
+      trustedRuntimeProviderOptions,
     );
   }
 
@@ -801,6 +842,7 @@ export class OptionsBuilder {
 
     const fallbackRuntime: RuntimeStepResolution = {
       providerInfo: this.engineOptions.reportFallbackProvider,
+      providerInfoResolution: 'fully_resolved',
     };
     const maxTurns = this.resolveSupportedMaxTurns(step, overrides.maxTurns, fallbackRuntime);
     const options: RunAgentOptions = {

@@ -831,19 +831,22 @@ export function mergeProviderOptions(
   return merged;
 }
 
+function resolveFallbackOrigin(
+  source: ProviderOptionsSource | undefined,
+): ProviderOptionsTraceOrigin {
+  if (source === 'project') return 'local';
+  if (source === 'global') return 'global';
+  if (source === 'env') return 'env';
+  return 'default';
+}
+
 export function resolveProviderOptionOrigin(
   resolver: ProviderOptionsOriginResolver | undefined,
   path: string,
   fallbackSource: ProviderOptionsSource | undefined,
 ): ProviderOptionsTraceOrigin {
   if (!resolver) {
-    if (fallbackSource !== undefined && fallbackSource !== 'default') {
-      throw new Error(
-        `Configuration error: provider option origin is required for ${path}; `
-        + 'the source layer cannot be used as an origin fallback',
-      );
-    }
-    return 'default';
+    return resolveFallbackOrigin(fallbackSource);
   }
 
   if (
@@ -1041,14 +1044,6 @@ function resolveExplicitConfigProviderOptions(
     return undefined;
   }
   if (originResolver === undefined) {
-    if (
-      (source === 'project' || source === 'global')
-      && getPresentProviderOptionPaths(resolvedConfigOptions).length > 0
-    ) {
-      throw new Error(
-        'Configuration error: provider option origin resolver is required for explicit configuration values',
-      );
-    }
     return resolvedConfigOptions;
   }
   const explicitOptions = mergeProviderOptions(resolvedConfigOptions);
@@ -1061,6 +1056,41 @@ function resolveExplicitConfigProviderOptions(
     }
   }
   return Object.keys(explicitOptions).length === 0 ? undefined : explicitOptions;
+}
+
+function assertNoLegacyDeepSeekReasoningEffort(
+  location: string,
+  providerOptions: StepProviderOptions | undefined,
+): void {
+  if (providerOptions?.deepseekHarness?.reasoningEffort === undefined) {
+    return;
+  }
+  throw new Error(
+    `Configuration error: deepseekHarness.reasoningEffort is not supported in ${location}. `
+    + 'Configure it in a runtime.yaml provider profile or with '
+    + 'TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_REASONING_EFFORT.',
+  );
+}
+
+function assertConfiguredDeepSeekReasoningEffort(
+  source: ProviderOptionsSource | undefined,
+  originResolver: ProviderOptionsOriginResolver | undefined,
+  providerOptions: StepProviderOptions | undefined,
+): void {
+  assertAllowedDeepSeekReasoningEffort(
+    'deepseekHarness.reasoningEffort',
+    providerOptions?.deepseekHarness?.reasoningEffort,
+    {
+      deepseekReasoningEffortTrust: 'environment-only',
+      getOrigin: originResolver,
+    },
+  );
+  if (providerOptions?.deepseekHarness?.reasoningEffort !== undefined && source === undefined) {
+    throw new Error(
+      'Configuration error: deepseekHarness.reasoningEffort requires a traced environment '
+      + 'override or a runtime.yaml provider profile',
+    );
+  }
 }
 
 /**
@@ -1084,6 +1114,7 @@ export function resolveEffectiveRuntimeProfileProviderOptions(
     originResolver,
     configProviderOptions,
     undefined,
+    undefined,
     runtimeProfileOptions,
   );
 }
@@ -1093,18 +1124,15 @@ export function resolveEffectiveProviderOptions(
   originResolver: ProviderOptionsOriginResolver | undefined,
   resolvedConfigOptions: StepProviderOptions | undefined,
   stepOptions: StepProviderOptions | undefined,
-  personaOptions?: StepProviderOptions,
+  legacyPersonaOptions?: StepProviderOptions,
+  runtimeProfileOptions?: StepProviderOptions,
 ): StepProviderOptions | undefined {
+  assertConfiguredDeepSeekReasoningEffort(source, originResolver, resolvedConfigOptions);
+  assertNoLegacyDeepSeekReasoningEffort('workflow step provider options', stepOptions);
+  assertNoLegacyDeepSeekReasoningEffort('persona or routing provider options', legacyPersonaOptions);
+  const personaOptions = mergeProviderOptions(runtimeProfileOptions, legacyPersonaOptions);
   if (!resolvedConfigOptions || getPresentProviderOptionPaths(resolvedConfigOptions).length === 0) {
     return mergeProviderOptions(personaOptions, stepOptions);
-  }
-  if (
-    originResolver === undefined
-    && (source === 'project' || source === 'global')
-  ) {
-    throw new Error(
-      'Configuration error: provider option origin resolver is required for explicit configuration values',
-    );
   }
   if (!personaOptions && !stepOptions) {
     return resolvedConfigOptions;
@@ -1708,14 +1736,16 @@ export function resolveEffectiveTeamLeaderPartProviderOptions(
   stepOptions: StepProviderOptions | undefined,
   resolvedProvider: ProviderType | undefined,
   partAllowedTools: string[] | undefined,
-  personaOptions?: StepProviderOptions,
+  legacyPersonaOptions?: StepProviderOptions,
+  runtimeProfileOptions?: StepProviderOptions,
 ): StepProviderOptions | undefined {
   const mergedProviderOptions = resolveEffectiveProviderOptions(
     source,
     originResolver,
     resolvedConfigOptions,
     stepOptions,
-    personaOptions,
+    legacyPersonaOptions,
+    runtimeProfileOptions,
   );
 
   const shouldStripClaudeTools = partAllowedTools !== undefined

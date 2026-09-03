@@ -105,6 +105,18 @@ describe.skipIf(!lifecycleRuntimeSupported)('DeepSeek Harness bridge lifecycle',
     bridgeProxyPath = path.join(root, 'bridge-proxy.py');
     const moduleDir = path.join(root, 'deepseek_harness');
     await mkdir(moduleDir);
+    for (const [directory, name] of [
+      ['deepseek_harness_sdk-0.1.2a3.dist-info', 'deepseek-harness-sdk'],
+      ['deepseek_harness_runtime_bin-0.1.2a3.dist-info', 'deepseek-harness-runtime-bin'],
+    ] as const) {
+      const distInfoDir = path.join(root, directory);
+      await mkdir(distInfoDir);
+      await writeFile(
+        path.join(distInfoDir, 'METADATA'),
+        `Metadata-Version: 2.1\nName: ${name}\nVersion: 0.1.2a3\n`,
+        'utf8',
+      );
+    }
     await writeFile(path.join(moduleDir, '__init__.py'), `
 import json
 import os
@@ -449,6 +461,24 @@ raise SystemExit(return_code)
     expect(response.content).toContain('0.1.2a3');
     expect(response.content).toContain('dsh_home');
     expect(response.content).toContain('reasoning_effort');
+    expect(existsSync(path.join(root, 'bridge-start-configs.jsonl'))).toBe(false);
+  });
+
+  it('rejects an SDK/runtime package version mismatch before creating a harness', async () => {
+    await writeFile(
+      path.join(root, 'deepseek_harness_runtime_bin-0.1.2a3.dist-info', 'METADATA'),
+      'Metadata-Version: 2.1\nName: deepseek-harness-runtime-bin\nVersion: 0.1.2a2\n',
+      'utf8',
+    );
+
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      providerOptions: { pythonPath, requestTimeoutMs: 10_000 },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.content).toContain('exact supported release pair');
+    expect(response.content).toContain("runtime='0.1.2a2'");
     expect(existsSync(path.join(root, 'bridge-start-configs.jsonl'))).toBe(false);
   });
 

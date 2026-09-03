@@ -30,7 +30,11 @@ export function createLocalRepo(): LocalRepo {
   return {
     path: repoPath,
     cleanup: () => {
-      rmSync(repoPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      try {
+        rmSync(repoPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      } catch {
+        // Best-effort cleanup: Windows may retain transient Git/process handles.
+      }
     },
   };
 }

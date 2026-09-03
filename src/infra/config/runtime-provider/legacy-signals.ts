@@ -46,15 +46,12 @@ function hasLegacyProviderOptions(
   providerOptionsOriginResolver: ProviderOptionsOriginResolver | undefined,
 ): boolean {
   if (providerOptionsOriginResolver === undefined) {
-    if (
+    // Direct executeWorkflow callers may provide resolved options without trace metadata. Preserve
+    // the pre-trace aggregate source rule for those callers; traced task paths inspect each leaf.
+    return (
       (providerOptionsSource === 'project' || providerOptionsSource === 'global')
       && isNonEmptyRecord(providerOptions as Record<string, unknown> | undefined)
-    ) {
-      throw new Error(
-        'Configuration error: provider option origin resolver is required for explicit configuration values',
-      );
-    }
-    return false;
+    );
   }
   const paths = getPresentProviderOptionPaths(providerOptions);
   return paths.some((path) => {

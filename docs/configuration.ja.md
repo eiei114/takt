@@ -1195,7 +1195,7 @@ python3 -m pip install \
   'deepseek-harness-runtime-bin==0.1.2a3'
 ```
 
-TAKT は、明示的な harness home と `reasoning_effort` を持つ新しい `0.1.2a3` SDK API を要求します。古い `0.1.1` release は bridge 起動前に拒否されます。SDK と runtime wheel は常に同じ release に揃えてください。
+TAKT は、`deepseek-harness-sdk==0.1.2a3` と `deepseek-harness-runtime-bin==0.1.2a3` の対応する release ペアだけをサポートします。それ以外の SDK/runtime version は bridge 起動前に拒否されます。SDK と runtime wheel は常にこの release に揃えてください。SDK は明示的な harness home も要求します。
 
 確認済みの公式 runtime wheel は Linux x64/arm64 と macOS arm64 に対応します。Windows と macOS x64 は未対応で fail fast し、TAKT は別 provider へ暗黙 fallback しません。認証情報は意図的に環境変数だけで渡します: `DEEPSEEK_API_KEY` と、任意の `DEEPSEEK_BASE_URL` を設定してください。API key は workflow/config や command argument に書き込みません。
 

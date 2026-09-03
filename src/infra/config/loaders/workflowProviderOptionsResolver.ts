@@ -253,6 +253,7 @@ function resolveWorkflowProviderOptionsFromDir(
       pythonPathTrust: 'untrusted',
       pathTrust: 'untrusted',
       cordisTrust: 'untrusted',
+      deepseekReasoningEffortTrust: 'runtime-profile-only',
       pathPrefix: 'provider_options',
     });
   }
@@ -289,6 +290,7 @@ function resolveWorkflowProviderOptionsFromDir(
     pythonPathTrust: 'untrusted',
     pathTrust: 'untrusted',
     cordisTrust: 'untrusted',
+    deepseekReasoningEffortTrust: 'runtime-profile-only',
     pathPrefix: 'provider_options',
   });
   return mergeProviderOptions(referencedOptions, inlineOptions);

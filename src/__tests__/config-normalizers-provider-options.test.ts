@@ -485,21 +485,6 @@ describe('buildRawTaktProvidersOrThrow', () => {
     });
   });
 
-  it('should reject DeepSeek reasoning effort in legacy takt_providers selector options', () => {
-    expect(() => buildRawTaktProvidersOrThrow({
-      selector: {
-        provider: 'deepseek-harness',
-        providerOptions: {
-          deepseekHarness: {
-            pythonPath: '/usr/bin/python3',
-            maxTokens: 4096,
-            reasoningEffort: 'high',
-          },
-        },
-      },
-    })).toThrow();
-  });
-
   it.each(['HIGH', 'medium'] as const)(
     'should reject invalid normalized DeepSeek reasoningEffort=%s through the strict selector schema',
     (reasoningEffort) => {

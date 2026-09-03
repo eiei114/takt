@@ -84,7 +84,6 @@ describe('WorkflowEngine provider_options resolution', () => {
       projectCwd: tmpDir,
       provider: 'claude',
       providerOptionsSource: 'project',
-      providerOptionsOriginResolver: () => 'local',
       providerOptions: {
         codex: { networkAccess: true },
         claude: { sandbox: { allowUnsandboxedCommands: false } },
@@ -126,7 +125,6 @@ describe('WorkflowEngine provider_options resolution', () => {
     engine = new WorkflowEngine(config, tmpDir, 'test task', {
       projectCwd: tmpDir,
       provider: 'claude',
-      providerOptionsOriginResolver: () => 'local',
       providerOptions: {
         codex: { networkAccess: true },
       },
@@ -160,7 +158,6 @@ describe('WorkflowEngine provider_options resolution', () => {
     engine = new WorkflowEngine(config, tmpDir, 'test task', {
       projectCwd: tmpDir,
       provider: 'claude',
-      providerOptionsOriginResolver: () => 'local',
       providerOptions: {
         claude: { allowedTools: ['Read', 'Edit', 'Bash'] },
       },
@@ -224,7 +221,6 @@ describe('WorkflowEngine provider_options resolution', () => {
     engine = new WorkflowEngine(config, tmpDir, 'test task', {
       projectCwd: tmpDir,
       provider: 'codex',
-      providerOptionsOriginResolver: () => 'local',
       providerOptions: {
         claude: { allowedTools: ['Read', 'Edit', 'Bash'] },
       },
@@ -257,7 +253,6 @@ describe('WorkflowEngine provider_options resolution', () => {
     engine = new WorkflowEngine(config, tmpDir, 'test task', {
       projectCwd: tmpDir,
       provider: 'claude',
-      providerOptionsOriginResolver: () => 'local',
       providerOptions: {
         claude: { allowedTools: ['Read', 'Edit'] },
       },
@@ -296,7 +291,6 @@ describe('WorkflowEngine provider_options resolution', () => {
       projectCwd: tmpDir,
       provider: 'opencode',
       model: 'opencode/zai-coding-plan/glm-5.1',
-      providerOptionsOriginResolver: () => 'local',
       providerOptions: {
         claude: { allowedTools: ['Read', 'Edit'] },
         opencode: { allowedTools: ['read', 'grep', 'bash'] },
@@ -389,7 +383,6 @@ describe('WorkflowEngine provider_options resolution', () => {
       projectCwd: tmpDir,
       provider: 'opencode',
       model: 'opencode/zai-coding-plan/glm-5.1',
-      providerOptionsOriginResolver: () => 'local',
       providerOptions: {
         opencode: {
           allowedTools: [
@@ -432,7 +425,6 @@ describe('WorkflowEngine provider_options resolution', () => {
     engine = new WorkflowEngine(config, tmpDir, 'test task', {
       projectCwd: tmpDir,
       provider: 'mock',
-      providerOptionsOriginResolver: () => 'local',
       providerOptions: {
         claude: { allowedTools: ['Read', 'Edit'] },
       },
@@ -477,7 +469,6 @@ describe('WorkflowEngine provider_options resolution', () => {
       projectCwd: tmpDir,
       provider: 'claude',
       model: 'sonnet',
-      providerOptionsOriginResolver: () => 'local',
       providerOptions: {
         claude: { allowedTools: ['Read', 'Edit', 'Bash'] },
       },
@@ -525,7 +516,6 @@ describe('WorkflowEngine provider_options resolution', () => {
       projectCwd: tmpDir,
       provider: 'claude-terminal',
       model: 'sonnet',
-      providerOptionsOriginResolver: () => 'local',
       providerOptions: {
         claude: {
           effort: 'high',

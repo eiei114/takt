@@ -333,55 +333,6 @@ steps:
     expect(result.stepPreviews[0]?.allowedTools).toEqual(['Read']);
   });
 
-  it('should apply provider option environment overrides over runtime profile tools in previews', () => {
-    const originalProviderOptions = process.env.TAKT_PROVIDER_OPTIONS;
-    writeProjectRuntime(tempDir, `version: 1
-provider:
-  defaults:
-    profile: default
-  profiles:
-    default:
-      provider: claude
-      model: sonnet
-      options:
-        allowed_tools:
-          - Read
-          - Glob
-`);
-    process.env.TAKT_PROVIDER_OPTIONS = JSON.stringify({
-      claude: { allowed_tools: ['Bash'] },
-    });
-    invalidateGlobalConfigCache();
-    invalidateAllResolvedConfigCache();
-    try {
-      const workflowYaml = `name: preview-runtime-profile-options
-initial_step: plan
-max_steps: 1
-
-steps:
-  - name: plan
-    persona: planner
-    instruction: "Plan the task"
-    edit: true
-`;
-      const workflowPath = join(tempDir, 'preview-runtime-profile-options.yaml');
-      writeFileSync(workflowPath, workflowYaml);
-
-      const result = getWorkflowSummary(workflowPath, tempDir, 1);
-
-      expect(result.stepPreviews[0]?.allowedTools).toEqual(['Bash']);
-      expect(result.firstStep?.allowedTools).toEqual(['Bash']);
-    } finally {
-      if (originalProviderOptions === undefined) {
-        delete process.env.TAKT_PROVIDER_OPTIONS;
-      } else {
-        process.env.TAKT_PROVIDER_OPTIONS = originalProviderOptions;
-      }
-      invalidateGlobalConfigCache();
-      invalidateAllResolvedConfigCache();
-    }
-  });
-
   it('should resolve preview tools for edit false steps without output contracts using readonly filtering', () => {
     writeProjectRuntime(tempDir, `version: 1
 provider:

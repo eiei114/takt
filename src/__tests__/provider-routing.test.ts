@@ -21,7 +21,7 @@ import {
   saveProjectConfig,
 } from '../infra/config/index.js';
 import { loadProjectConfigTraceState } from '../infra/config/project/projectConfig.js';
-import { loadGlobalConfig, saveGlobalConfig } from '../infra/config/global/globalConfigCore.js';
+import { loadGlobalConfig } from '../infra/config/global/globalConfigCore.js';
 import { loadWorkflowFromFile } from '../infra/config/loaders/workflowLoader.js';
 
 function createStep(overrides: Record<string, unknown> = {}): WorkflowStep {
@@ -71,7 +71,6 @@ function createBuilder(
     providerSource: 'project',
     model: 'project-model',
     modelSource: 'project',
-    providerOptionsOriginResolver: () => 'local',
     ...engineOverrides,
   } as unknown as WorkflowEngineOptions;
 
@@ -1001,7 +1000,6 @@ describe('provider_routing config loading', () => {
   let tempDir: string;
   let previousTaktConfigDir: string | undefined;
   let previousProviderRoutingEnv: string | undefined;
-  let previousPersonaProvidersEnv: string | undefined;
 
   beforeEach(() => {
     previousTaktConfigDir = process.env.TAKT_CONFIG_DIR;
@@ -1012,8 +1010,6 @@ describe('provider_routing config loading', () => {
     writeFileSync(join(globalConfigDir, 'config.yaml'), 'language: en\n');
     process.env.TAKT_CONFIG_DIR = globalConfigDir;
     delete process.env.TAKT_PROVIDER_ROUTING;
-    previousPersonaProvidersEnv = process.env.TAKT_PERSONA_PROVIDERS;
-    delete process.env.TAKT_PERSONA_PROVIDERS;
     invalidateGlobalConfigCache();
     invalidateAllResolvedConfigCache();
   });
@@ -1028,11 +1024,6 @@ describe('provider_routing config loading', () => {
       delete process.env.TAKT_PROVIDER_ROUTING;
     } else {
       process.env.TAKT_PROVIDER_ROUTING = previousProviderRoutingEnv;
-    }
-    if (previousPersonaProvidersEnv === undefined) {
-      delete process.env.TAKT_PERSONA_PROVIDERS;
-    } else {
-      process.env.TAKT_PERSONA_PROVIDERS = previousPersonaProvidersEnv;
     }
     invalidateGlobalConfigCache();
     invalidateAllResolvedConfigCache();
@@ -1070,205 +1061,6 @@ describe('provider_routing config loading', () => {
         implement: { provider: 'opencode', model: 'opencode/qwen3-coder-next' },
       },
     });
-  });
-
-  it.each(['auto_routing', 'takt_providers'] as const)(
-    'Given project config %s contains DeepSeek reasoning_effort, When loading config, Then the legacy option is rejected',
-    (source) => {
-      const projectConfigDir = getProjectConfigDir(tempDir);
-      mkdirSync(projectConfigDir, { recursive: true });
-      const sourceConfig = source === 'auto_routing'
-        ? [
-            'auto_routing:',
-            '  strategy: balanced',
-            '  router:',
-            '    provider: codex',
-            '    model: gpt-5',
-            '  candidates:',
-            '    - name: deepseek-route',
-            '      provider: deepseek-harness',
-            '      model: "route/model:variant"',
-            '      routing_tier: high',
-            '      provider_options:',
-            '        deepseek_harness:',
-            '          reasoning_effort: high',
-            '  default_pool: general',
-            '  candidate_pools:',
-            '    general:',
-            '      candidates: [deepseek-route]',
-            '      fallback: deepseek-route',
-          ]
-        : [
-            'takt_providers:',
-            '  selector:',
-            '    provider: deepseek-harness',
-            '    model: "route/model:variant"',
-            '    provider_options:',
-            '      deepseek_harness:',
-            '        reasoning_effort: high',
-          ];
-      writeFileSync(join(projectConfigDir, 'config.yaml'), sourceConfig.join('\n'));
-
-      expect(() => loadProjectConfig(tempDir)).toThrow();
-    },
-  );
-
-  it.each(['personas', 'tags', 'steps'] as const)(
-    'Given project config provider_routing.%s contains DeepSeek reasoning_effort, When loading config, Then the legacy option is rejected',
-    (bucket) => {
-      const projectConfigDir = getProjectConfigDir(tempDir);
-      mkdirSync(projectConfigDir, { recursive: true });
-      writeFileSync(join(projectConfigDir, 'config.yaml'), [
-        'provider_routing:',
-        `  ${bucket}:`,
-        '    deepseek-route:',
-        '      provider: deepseek-harness',
-        '      model: "route/model:variant"',
-        '      provider_options:',
-        '        deepseek_harness:',
-        '          reasoning_effort: high',
-      ].join('\n'));
-
-      expect(() => loadProjectConfig(tempDir)).toThrow();
-    },
-  );
-
-  it('Given project config persona_providers contains DeepSeek reasoning_effort, When loading config, Then the legacy option is rejected', () => {
-    const projectConfigDir = getProjectConfigDir(tempDir);
-    mkdirSync(projectConfigDir, { recursive: true });
-    writeFileSync(join(projectConfigDir, 'config.yaml'), [
-      'persona_providers:',
-      '  deepseek-route:',
-      '    provider: deepseek-harness',
-      '    model: "route/model:variant"',
-      '    provider_options:',
-      '      deepseek_harness:',
-      '        reasoning_effort: high',
-    ].join('\n'));
-
-    expect(() => loadProjectConfig(tempDir)).toThrow();
-  });
-
-  it.each([
-    ['TAKT_PROVIDER_ROUTING', {
-      personas: {
-        deepseekRoute: {
-          provider: 'deepseek-harness',
-          model: 'route/model:variant',
-          provider_options: {
-            deepseek_harness: { reasoning_effort: 'high' },
-          },
-        },
-      },
-    }],
-    ['TAKT_PERSONA_PROVIDERS', {
-      deepseekRoute: {
-        provider: 'deepseek-harness',
-        model: 'route/model:variant',
-        provider_options: {
-          deepseek_harness: { reasoning_effort: 'high' },
-        },
-      },
-    }],
-  ] as const)('Given %s contains DeepSeek reasoning_effort, When loading project config, Then the legacy option is rejected', (envName, value) => {
-    process.env[envName] = JSON.stringify(value);
-    invalidateAllResolvedConfigCache();
-
-    expect(() => loadProjectConfig(tempDir)).toThrow();
-  });
-
-  it.each(['provider_routing', 'persona_providers'] as const)(
-    'Given global %s contains DeepSeek reasoning_effort, When loading config, Then the legacy option is rejected',
-    (source) => {
-      const sourceConfig = source === 'provider_routing'
-        ? [
-            'provider_routing:',
-            '  personas:',
-            '    deepseek-route:',
-            '      provider: deepseek-harness',
-            '      model: "route/model:variant"',
-            '      provider_options:',
-            '        deepseek_harness:',
-            '          reasoning_effort: high',
-          ]
-        : [
-            'persona_providers:',
-            '  deepseek-route:',
-            '    provider: deepseek-harness',
-            '    model: "route/model:variant"',
-            '    provider_options:',
-            '      deepseek_harness:',
-            '        reasoning_effort: high',
-          ];
-      writeFileSync(join(tempDir, 'global-takt', 'config.yaml'), [
-        'language: en',
-        ...sourceConfig,
-      ].join('\n'));
-      invalidateGlobalConfigCache();
-
-      expect(() => loadGlobalConfig()).toThrow();
-    },
-  );
-
-  it.each(['auto_routing', 'takt_providers'] as const)(
-    'Given global config %s contains DeepSeek reasoning_effort, When loading config, Then the legacy option is rejected',
-    (source) => {
-      const sourceConfig = source === 'auto_routing'
-        ? [
-            'auto_routing:',
-            '  strategy: balanced',
-            '  router:',
-            '    provider: codex',
-            '    model: gpt-5',
-            '  candidates:',
-            '    - name: deepseek-route',
-            '      provider: deepseek-harness',
-            '      model: "route/model:variant"',
-            '      routing_tier: high',
-            '      provider_options:',
-            '        deepseek_harness:',
-            '          reasoning_effort: high',
-            '  default_pool: general',
-            '  candidate_pools:',
-            '    general:',
-            '      candidates: [deepseek-route]',
-            '      fallback: deepseek-route',
-          ]
-        : [
-            'takt_providers:',
-            '  selector:',
-            '    provider: deepseek-harness',
-            '    model: "route/model:variant"',
-            '    provider_options:',
-            '      deepseek_harness:',
-            '        reasoning_effort: high',
-          ];
-      writeFileSync(join(tempDir, 'global-takt', 'config.yaml'), [
-        'language: en',
-        ...sourceConfig,
-      ].join('\n'));
-      invalidateGlobalConfigCache();
-
-      expect(() => loadGlobalConfig()).toThrow();
-    },
-  );
-
-  it('Given TAKT_PROVIDER_ROUTING contains DeepSeek reasoning_effort, When loading global config, Then the legacy option is rejected', () => {
-    process.env.TAKT_PROVIDER_ROUTING = JSON.stringify({
-      personas: {
-        deepseekRoute: {
-          provider: 'deepseek-harness',
-          model: 'route/model:variant',
-          provider_options: {
-            deepseek_harness: { reasoning_effort: 'high' },
-          },
-        },
-      },
-    });
-    invalidateGlobalConfigCache();
-    invalidateAllResolvedConfigCache();
-
-    expect(() => loadGlobalConfig()).toThrow();
   });
 
   it('Given invalid project config provider_routing, When loading config, Then the routing error is not swallowed', () => {
@@ -1318,95 +1110,6 @@ describe('provider_routing config loading', () => {
       },
     });
   });
-
-  it.each(['autoRouting', 'taktProviders'] as const)(
-    'Given project %s contains DeepSeek reasoningEffort, When saving config, Then the legacy option is rejected',
-    (field) => {
-      const config = loadProjectConfig(tempDir);
-      if (field === 'autoRouting') {
-        config.autoRouting = {
-          strategy: 'balanced',
-          router: { provider: 'codex', model: 'gpt-5' },
-          candidates: [{
-            name: 'deepseek-route',
-            provider: 'deepseek-harness',
-            model: 'route/model:variant',
-            routingTier: 'high',
-            providerOptions: { deepseekHarness: { reasoningEffort: 'high' } },
-          }],
-          defaultPool: 'general',
-          candidatePools: {
-            general: { candidates: ['deepseek-route'], fallback: 'deepseek-route' },
-          },
-        };
-      } else {
-        config.taktProviders = {
-          selector: {
-            provider: 'deepseek-harness',
-            model: 'route/model:variant',
-            providerOptions: { deepseekHarness: { reasoningEffort: 'high' } },
-          },
-        };
-      }
-
-      expect(() => saveProjectConfig(tempDir, config)).toThrow();
-    },
-  );
-
-  it.each(['autoRouting', 'taktProviders'] as const)(
-    'Given global %s contains DeepSeek reasoningEffort, When saving config, Then the legacy option is rejected',
-    (field) => {
-      const config = loadGlobalConfig();
-      if (field === 'autoRouting') {
-        config.autoRouting = {
-          strategy: 'balanced',
-          router: { provider: 'codex', model: 'gpt-5' },
-          candidates: [{
-            name: 'deepseek-route',
-            provider: 'deepseek-harness',
-            model: 'route/model:variant',
-            routingTier: 'high',
-            providerOptions: { deepseekHarness: { reasoningEffort: 'high' } },
-          }],
-          defaultPool: 'general',
-          candidatePools: {
-            general: { candidates: ['deepseek-route'], fallback: 'deepseek-route' },
-          },
-        };
-      } else {
-        config.taktProviders = {
-          selector: {
-            provider: 'deepseek-harness',
-            model: 'route/model:variant',
-            providerOptions: { deepseekHarness: { reasoningEffort: 'high' } },
-          },
-        };
-      }
-
-      expect(() => saveGlobalConfig(config)).toThrow();
-    },
-  );
-
-  it.each(['providerRouting', 'personaProviders'] as const)(
-    'Given normalized %s contains DeepSeek reasoning_effort, When saving project config, Then the legacy option is rejected',
-    (field) => {
-      const entry = {
-        provider: 'deepseek-harness',
-        model: 'route/model:variant',
-        providerOptions: {
-          deepseekHarness: { reasoningEffort: 'high' },
-        },
-      };
-      const config = field === 'providerRouting'
-        ? { providerRouting: { personas: { deepseekRoute: entry } } }
-        : { personaProviders: { deepseekRoute: entry } };
-
-      expect(() => saveProjectConfig(
-        tempDir,
-        config as unknown as Parameters<typeof saveProjectConfig>[1],
-      )).toThrow();
-    },
-  );
 
   it('Given project and global provider_routing, When resolving config value, Then project overrides global like personaProviders', () => {
     const globalConfigDir = process.env.TAKT_CONFIG_DIR;

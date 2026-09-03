@@ -922,12 +922,11 @@ describe('WorkflowEngine Integration: Parallel Step Aggregation', () => {
       return { index: 0, method: 'phase3_tag' };
     });
 
-    const engine = new WorkflowEngine(config, tmpDir, 'Repeat static parallel children', {
+    const state = await new WorkflowEngine(config, tmpDir, 'Repeat static parallel children', {
       projectCwd: tmpDir,
       provider: 'mock',
       selectorProvider: MOCK_SELECTOR_PROVIDER,
-    });
-    const state = await engine.run();
+    }).run();
 
     expect(state.status).toBe('completed');
     expect(state.iteration).toBe(2);

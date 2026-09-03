@@ -904,7 +904,7 @@ python3 -m pip install \
   'deepseek-harness-runtime-bin==0.1.2a3'
 ```
 
-TAKT 要求 `0.1.2a3` 或更高版本的新 SDK API。旧版 `0.1.1` 不接受 `reasoning_effort`，会在启动 harness 前被拒绝。新版 SDK 还要求显式的 harness home；TAKT 会将 `session_root` 用作该 home，未设置时默认使用 `<project>/.takt/deepseek-harness`。
+TAKT 只支持匹配的版本对：`deepseek-harness-sdk==0.1.2a3` 和 `deepseek-harness-runtime-bin==0.1.2a3`。其他 SDK/runtime 版本会在启动 harness 前被拒绝。新版 SDK 还要求显式的 harness home；TAKT 会将 `session_root` 用作该 home，未设置时默认使用 `<project>/.takt/deepseek-harness`。
 
 官方 runtime wheel 支持 Linux x64/arm64 和 macOS arm64；Windows 与 macOS x64 会快速失败，TAKT 不会 fallback。认证使用环境变量 `DEEPSEEK_API_KEY`，可选 `DEEPSEEK_BASE_URL`；API key 不会写入 workflow/config 或命令参数。
 

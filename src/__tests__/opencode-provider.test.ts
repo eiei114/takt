@@ -200,7 +200,7 @@ describe('OpenCodeProvider tool naming addendum', () => {
     const parsed = GlobalConfigSchema.parse(globalRaw);
     const effective = resolveEffectiveProviderOptions(
       undefined,
-      (_path) => 'global' as const,
+      undefined,
       normalizeProviderOptions(parsed.provider_options),
       normalizeProviderOptions(stepRaw),
     );

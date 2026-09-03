@@ -366,10 +366,7 @@ function resolvePreviewAllowedTools(
   resolution: PreviewProviderResolution,
 ): string[] {
   const providerInfo = resolvePreviewProviderInfo(step, resolution);
-  const stepProviderOptions = mergeProviderOptions(
-    providerInfo.providerOptions,
-    resolveDirectStepProviderOptions(step),
-  );
+  const directStepProviderOptions = resolveDirectStepProviderOptions(step);
   const profileLayers = resolveProfileScopedProviderOptionsLayers(
     step,
     {
@@ -380,9 +377,20 @@ function resolvePreviewAllowedTools(
     resolution.profileScopedProviderOptions,
   );
   const runtimeProfileProviderOptions = resolution.profileScopedProviderOptions
-    && providerInfo.providerSource === resolution.providerSource
-    ? resolution.providerOptions
+    ? mergeProviderOptions(
+        providerInfo.providerSource === resolution.providerSource
+          ? resolution.providerOptions
+          : undefined,
+        ...profileLayers
+          .filter((layer) => layer.source !== 'capabilities')
+          .map((layer) => layer.options),
+      )
     : undefined;
+  const legacyLayerOptions = mergeProviderOptions(
+    ...profileLayers
+      .filter((layer) => !resolution.profileScopedProviderOptions || layer.source === 'capabilities')
+      .map((layer) => layer.options),
+  );
   const baseProviderOptions = resolution.profileScopedProviderOptions
     ? resolution.configProviderOptions
     : resolution.providerOptions;
@@ -390,11 +398,9 @@ function resolvePreviewAllowedTools(
     resolution.providerOptionsSource,
     resolution.providerOptionsOriginResolver,
     baseProviderOptions,
-    stepProviderOptions,
-    mergeProviderOptions(
-      runtimeProfileProviderOptions,
-      ...profileLayers.map((layer) => layer.options),
-    ),
+    directStepProviderOptions,
+    legacyLayerOptions,
+    runtimeProfileProviderOptions,
   );
   const resolvedProvider = providerInfo.provider;
 

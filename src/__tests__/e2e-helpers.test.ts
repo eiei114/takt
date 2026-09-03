@@ -1,32 +1,10 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import * as fs from 'node:fs';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
-
-const fsState = vi.hoisted(() => ({
-  cleanupShouldFail: false,
-  cleanupError: undefined as Error | undefined,
-  rmCalls: [] as Array<{ path: unknown; options: unknown }>,
-}));
-
-vi.mock('node:fs', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs')>();
-  return {
-    ...actual,
-    rmSync: (...args: Parameters<typeof actual.rmSync>) => {
-      fsState.rmCalls.push({ path: args[0], options: args[1] });
-      if (fsState.cleanupShouldFail) {
-        throw fsState.cleanupError ?? new Error('cleanup failed');
-      }
-      return actual.rmSync(...args);
-    },
-  };
-});
-
 import { cleanupResources } from '../../e2e/helpers/cleanup.js';
 import { injectProviderArgs } from '../../e2e/helpers/takt-runner.js';
 import { cleanupChildProcess, cleanupTestResource, waitForClose } from '../../e2e/helpers/wait.js';
@@ -34,7 +12,7 @@ import {
   createIsolatedEnv,
   updateIsolatedConfig,
 } from '../../e2e/helpers/isolated-env.js';
-import { createLocalRepo, createOfflineTestRepo } from '../../e2e/helpers/test-repo.js';
+import { createOfflineTestRepo } from '../../e2e/helpers/test-repo.js';
 
 describe('cleanupResources', () => {
   it('runs callbacks registered before a later setup failure', () => {
@@ -442,67 +420,6 @@ describe('createOfflineTestRepo', () => {
 
     expect(repo.repoName).toBe('local/takt-testing');
     expect(existsSync(markerPath)).toBe(false);
-  });
-});
-
-describe('createLocalRepo', () => {
-  const repoPaths: string[] = [];
-
-  afterEach(() => {
-    fsState.cleanupShouldFail = false;
-    fsState.cleanupError = undefined;
-    for (const repoPath of repoPaths) {
-      fs.rmSync(repoPath, { recursive: true, force: true });
-    }
-    fsState.rmCalls.length = 0;
-    repoPaths.length = 0;
-  });
-
-  it('removes the repository when cleanup succeeds on the first attempt', () => {
-    const repo = createLocalRepo();
-    repoPaths.push(repo.path);
-
-    repo.cleanup();
-
-    expect(existsSync(repo.path)).toBe(false);
-  });
-
-  it('passes the bounded retry settings to cleanup when removal succeeds', () => {
-    const repo = createLocalRepo();
-    repoPaths.push(repo.path);
-
-    repo.cleanup();
-
-    expect(fsState.rmCalls).toContainEqual({
-      path: repo.path,
-      options: {
-        recursive: true,
-        force: true,
-        maxRetries: 5,
-        retryDelay: 100,
-      },
-    });
-    expect(existsSync(repo.path)).toBe(false);
-  });
-
-  it('propagates a persistent cleanup failure after the bounded retry operation', () => {
-    const repo = createLocalRepo();
-    repoPaths.push(repo.path);
-    const cleanupError = new Error('cleanup failed');
-    fsState.cleanupShouldFail = true;
-    fsState.cleanupError = cleanupError;
-
-    expect(() => repo.cleanup()).toThrow(cleanupError);
-    expect(fsState.rmCalls).toContainEqual({
-      path: repo.path,
-      options: {
-        recursive: true,
-        force: true,
-        maxRetries: 5,
-        retryDelay: 100,
-      },
-    });
-    expect(existsSync(repo.path)).toBe(true);
   });
 });
 

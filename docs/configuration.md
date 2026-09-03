@@ -1256,7 +1256,7 @@ python3 -m pip install \
   'deepseek-harness-runtime-bin==0.1.2a3'
 ```
 
-TAKT requires the new SDK API from `0.1.2a3` or newer. Older `0.1.1` releases do not accept `reasoning_effort` and are rejected before a harness starts. The SDK also requires an explicit harness home; TAKT uses `session_root` as that home and defaults to `<project>/.takt/deepseek-harness` when it is omitted.
+TAKT supports the exact matching release pair `deepseek-harness-sdk==0.1.2a3` and `deepseek-harness-runtime-bin==0.1.2a3`. Other SDK/runtime versions are rejected before a harness starts. The SDK also requires an explicit harness home; TAKT uses `session_root` as that home and defaults to `<project>/.takt/deepseek-harness` when it is omitted.
 
 The verified official runtime wheels support Linux x64/arm64 and macOS arm64. Windows and macOS x64 are unsupported and fail fast; TAKT never falls back to another provider. Authentication is intentionally environment-based: set `DEEPSEEK_API_KEY`, and optionally `DEEPSEEK_BASE_URL`. The API key is not written to workflow/config files or command arguments.
 

@@ -8,6 +8,7 @@ import os
 import re
 import sys
 import threading
+from importlib.metadata import PackageNotFoundError, version as package_version
 from typing import Any
 
 
@@ -25,6 +26,9 @@ _PROTOCOL_STRING_FIELDS = frozenset({
     "finishReason",
 })
 _BRIDGE_PROTOCOL_VERSION = 1
+_SUPPORTED_HARNESS_RELEASE = "0.1.2a3"
+_SDK_DISTRIBUTION = "deepseek-harness-sdk"
+_RUNTIME_DISTRIBUTION = "deepseek-harness-runtime-bin"
 
 
 def _create_protocol_stdout() -> Any:
@@ -103,6 +107,27 @@ def _error_message(error: BaseException) -> str:
     return "DeepSeek Harness SDK operation failed"
 
 
+def _require_supported_harness_release() -> None:
+    try:
+        sdk_version = package_version(_SDK_DISTRIBUTION)
+        runtime_version = package_version(_RUNTIME_DISTRIBUTION)
+    except PackageNotFoundError as error:
+        raise RuntimeError(
+            "DeepSeek Harness requires matching "
+            f"{_SDK_DISTRIBUTION}=={_SUPPORTED_HARNESS_RELEASE} and "
+            f"{_RUNTIME_DISTRIBUTION}=={_SUPPORTED_HARNESS_RELEASE}; "
+            "install both distributions before starting the bridge."
+        ) from error
+
+    if sdk_version != _SUPPORTED_HARNESS_RELEASE or runtime_version != _SUPPORTED_HARNESS_RELEASE:
+        raise RuntimeError(
+            "DeepSeek Harness requires the exact supported release pair "
+            f"{_SDK_DISTRIBUTION}=={_SUPPORTED_HARNESS_RELEASE} and "
+            f"{_RUNTIME_DISTRIBUTION}=={_SUPPORTED_HARNESS_RELEASE}; "
+            f"installed sdk={sdk_version!r}, runtime={runtime_version!r}."
+        )
+
+
 def _start_harness(config: dict[str, Any]) -> Any:
     python_version = (sys.version_info.major, sys.version_info.minor)
     if python_version < (3, 10):
@@ -116,12 +141,13 @@ def _start_harness(config: dict[str, Any]) -> Any:
             "with its matching deepseek-harness-runtime-bin wheel."
         ) from error
 
+    _require_supported_harness_release()
     sdk_fields = getattr(DeepSeekHarnessConfig, "__dataclass_fields__", {})
     required_fields = {"dsh_home", "profile", "patches", "reasoning_effort"}
     missing_fields = sorted(field for field in required_fields if field not in sdk_fields)
     if missing_fields:
         raise RuntimeError(
-            "DeepSeek Harness SDK 0.1.2a3 or newer is required; installed SDK is missing "
+            "DeepSeek Harness SDK 0.1.2a3 is required; the supported SDK API is missing "
             + ", ".join(missing_fields)
             + ". Upgrade both deepseek-harness-sdk and deepseek-harness-runtime-bin together."
         )

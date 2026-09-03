@@ -1,7 +1,6 @@
 import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  assertAllowedDeepSeekReasoningEffort,
   normalizeProviderOptions,
   mergeProviderOptions,
   resolveTrustedDeepSeekHarnessPaths,
@@ -53,34 +52,6 @@ describe('DeepSeek Harness provider options', () => {
     });
   });
 
-  it.each(['env', 'cli'] as const)(
-    'omits an %s-origin DeepSeek reasoning_effort instead of writing the legacy field',
-    (origin) => {
-      const raw = denormalizeProviderOptions(
-        {
-          deepseekHarness: {
-            maxTokens: 4096,
-            reasoningEffort: 'low',
-          },
-        },
-        {
-          deepseekReasoningEffortTrust: 'environment-only',
-          getOrigin: () => origin,
-        },
-      );
-
-      expect(raw).toMatchObject({
-        deepseek_harness: { max_tokens: 4096 },
-      });
-      const rawDeepSeek = raw?.deepseek_harness;
-      expect(rawDeepSeek).toBeDefined();
-      if (rawDeepSeek === null || typeof rawDeepSeek !== 'object' || Array.isArray(rawDeepSeek)) {
-        throw new Error('Expected a DeepSeek provider options record');
-      }
-      expect(Object.prototype.hasOwnProperty.call(rawDeepSeek, 'reasoning_effort')).toBe(false);
-    },
-  );
-
   it.each(['off', 'low', 'high', 'max'] as const)(
     'accepts the exact DeepSeek reasoning_effort value %s',
     (reasoningEffort) => {
@@ -91,39 +62,6 @@ describe('DeepSeek Harness provider options', () => {
       });
     },
   );
-
-  it('allows trusted DeepSeek reasoning_effort values', () => {
-    expect(() => assertAllowedDeepSeekReasoningEffort(
-      'provider_options.deepseek_harness.reasoning_effort',
-      'high',
-      {},
-    )).not.toThrow();
-  });
-
-  it('allows an explicit environment DeepSeek reasoning_effort override', () => {
-    expect(() => assertAllowedDeepSeekReasoningEffort(
-      'provider_options.deepseek_harness.reasoning_effort',
-      'low',
-      {
-        deepseekReasoningEffortTrust: 'environment-only',
-        getOrigin: () => 'env',
-      },
-    )).not.toThrow();
-  });
-
-  it.each([
-    ['file-origin', 'global'],
-    ['runtime routing', 'env'],
-  ] as const)('rejects DeepSeek reasoning_effort from %s under the selected policy', (_source, origin) => {
-    expect(() => assertAllowedDeepSeekReasoningEffort(
-      'provider_options.deepseek_harness.reasoning_effort',
-      'max',
-      {
-        deepseekReasoningEffortTrust: 'runtime-profile-only',
-        getOrigin: () => origin,
-      },
-    )).toThrow('legacy config provider options');
-  });
 
   it.each(['', ' ', ' high ', 'HIGH', 'minimal', 'medium', 'xhigh', 'unknown'] as const)(
     'rejects the invalid DeepSeek reasoning_effort value %j with its value and allowed values',

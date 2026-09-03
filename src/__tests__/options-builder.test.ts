@@ -3,7 +3,7 @@ import { OptionsBuilder } from '../core/workflow/engine/OptionsBuilder.js';
 import { buildFindingManagerStep } from '../core/workflow/findings/manager-step.js';
 import * as capabilityModule from '../infra/providers/provider-capabilities.js';
 import type { WorkflowResumePointEntry, WorkflowStep } from '../core/models/types.js';
-import type { WorkflowEngineOptions } from '../core/workflow/types.js';
+import type { RuntimeStepResolution, WorkflowEngineOptions } from '../core/workflow/types.js';
 
 function createStep(overrides: Partial<WorkflowStep> = {}): WorkflowStep {
   const hasEngineProviderFields = overrides.provider !== undefined
@@ -45,7 +45,6 @@ function createBuilder(
 ): OptionsBuilder {
   const currentWorkflowStack = phaseContextSources.currentWorkflowStack;
   const reportsRootDir = phaseContextSources.reportsRootDir;
-  const providerOptionsSource = engineOverrides.providerOptionsSource;
   const engineOptions: WorkflowEngineOptions = {
     projectCwd: '/project',
     provider: 'codex',
@@ -54,10 +53,6 @@ function createBuilder(
         defaultPermissionMode: 'full',
       },
     },
-    providerOptionsOriginResolver: () => (
-      providerOptionsSource === 'global' ? 'global'
-        : providerOptionsSource === 'env' ? 'env' : 'local'
-    ),
     ...engineOverrides,
   };
 
@@ -338,7 +333,7 @@ describe('OptionsBuilder.buildBaseOptions', () => {
     });
   });
 
-  it('lets step override project provider options with an origin-aware resolver', () => {
+  it('lets step override project provider options when origin resolver is absent', () => {
     const step = createStep({
       providerOptions: {
         codex: { networkAccess: false },
@@ -953,12 +948,15 @@ describe('OptionsBuilder.buildResumeOptions', () => {
         reasoningEffort: 'low' as const,
       },
     };
-    const deepseekStep = createStep({
+    const deepseekStep = createStep();
+    const builder = createBuilder(deepseekStep, {
       provider: 'deepseek-harness',
+      providerSource: 'runtime-v1',
       model: 'deepseek-v4-flash',
+      modelSource: 'runtime-v1',
+      providerOptionsProviderSource: 'runtime-v1',
       providerOptions,
     });
-    const builder = createBuilder(deepseekStep);
 
     const resumeOptions = builder.buildResumeOptions(deepseekStep, 'session-123', { maxTurns: 3 });
     const newSessionOptions = builder.buildNewSessionReportOptions(deepseekStep, {
@@ -1009,6 +1007,28 @@ describe('OptionsBuilder.buildResumeOptions', () => {
     expect(fallbackOptions.sessionId).toBeUndefined();
     expect(fallbackOptions.permissionMode).toBeUndefined();
     expect(fallbackOptions.allowedTools).toBeUndefined();
+  });
+
+  it('keeps DeepSeek options from a runtime auto-routing candidate', () => {
+    const providerOptions = {
+      deepseekHarness: { reasoningEffort: 'high' as const },
+    };
+    const step = createStep();
+    const builder = createBuilder(step, {
+      providerOptionsProviderSource: 'runtime-v1',
+      providerOptions,
+    });
+    const runtime: RuntimeStepResolution = {
+      providerInfo: {
+        provider: 'deepseek-harness',
+        model: 'route/auto',
+        providerSource: 'auto.rules',
+        modelSource: 'auto.rules',
+        providerOptions,
+      },
+    };
+
+    expect(builder.resolveStepProviderModel(step, runtime).providerOptions).toEqual(providerOptions);
   });
 
   it('preserves an explicit permission requirement for DeepSeek report phases', () => {

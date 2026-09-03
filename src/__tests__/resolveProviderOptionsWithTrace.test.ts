@@ -87,22 +87,6 @@ describe('resolveProviderOptionsWithTrace', () => {
     });
   });
 
-  it('global provider_options の file-origin DeepSeek reasoning_effort を拒否する', () => {
-    writeFileSync(
-      globalConfigPath,
-      [
-        'language: en',
-        'provider_options:',
-        '  deepseek_harness:',
-        '    reasoning_effort: low',
-      ].join('\n'),
-      'utf-8',
-    );
-    invalidateGlobalConfigCache();
-
-    expect(() => resolveProviderOptionsWithTrace(projectDir)).toThrow();
-  });
-
   it('DeepSeek reasoning_effort の environment override を source=env として返す', () => {
     const configDir = getProjectConfigDir(projectDir);
     mkdirSync(configDir, { recursive: true });

@@ -57,6 +57,13 @@ export interface RunPaths {
   readonly reportsDir: string;
 }
 
+/**
+ * Limit content to a maximum-length prefix and append an ellipsis when needed.
+ *
+ * @param content - Content to truncate
+ * @param maxLength - Maximum length of the prefix before an ellipsis is appended
+ * @returns The original content when within the limit, or a prefix of at most maxLength characters followed by an ellipsis
+ */
 function truncateContent(content: string, maxLength: number): string {
   if (content.length <= maxLength) {
     return content;
@@ -64,6 +71,12 @@ function truncateContent(content: string, maxLength: number): string {
   return content.slice(0, maxLength) + '…';
 }
 
+/**
+ * Convert session history entries into prompt-facing step log entries.
+ *
+ * @param sessionLog - Session log whose history should be converted
+ * @returns Step log entries with content represented by a MAX_CONTENT_LENGTH-character prefix and an ellipsis when truncated
+ */
 function buildStepLogs(sessionLog: SessionLog): StepLogEntry[] {
   return sessionLog.history.map((entry) => ({
     step: entry.step,
@@ -75,6 +88,12 @@ function buildStepLogs(sessionLog: SessionLog): StepLogEntry[] {
   }));
 }
 
+/**
+ * Format one workflow stack frame for display in a step scope.
+ *
+ * @param entry - Workflow stack frame to format
+ * @returns A workflow and step label, with a workflow-call marker when applicable
+ */
 function formatStepScopeEntry(
   entry: NonNullable<StepLogEntry['stack']>[number],
 ): string {
@@ -82,6 +101,12 @@ function formatStepScopeEntry(
   return `${entry.workflow}/${entry.step}${kindSuffix}`;
 }
 
+/**
+ * Format the most specific available workflow scope for a step log entry.
+ *
+ * @param log - Step log entry whose scope should be formatted
+ * @returns The full stack scope, workflow/step scope, or step name
+ */
 function formatStepScope(log: StepLogEntry): string {
   if (log.stack && log.stack.length > 0) {
     return log.stack.map((entry) => formatStepScopeEntry(entry)).join(' -> ');
@@ -94,6 +119,12 @@ function formatStepScope(log: StepLogEntry): string {
   return log.step;
 }
 
+/**
+ * Replace C0 control characters and DEL in an artifact label with a safe placeholder.
+ *
+ * @param label - Artifact label to sanitize
+ * @returns The label with C0 control characters and DEL replaced by `?`
+ */
 function sanitizeArtifactLabel(label: string): string {
   return Array.from(label, (char) => {
     const code = char.charCodeAt(0);
@@ -101,6 +132,12 @@ function sanitizeArtifactLabel(label: string): string {
   }).join('');
 }
 
+/**
+ * Format a report entry as an artifact block for prompt output.
+ *
+ * @param report - Report entry to format
+ * @returns The report filename and content separated as a text block
+ */
 function formatReportArtifact(report: ReportEntry): string {
   return [
     `Filename: ${report.filename}`,
@@ -271,6 +308,12 @@ function collectReportFiles(rootDir: string, currentDir: string): ReportEntry[] 
   return reports;
 }
 
+/**
+ * Determine whether a directory entry is a regular Markdown report file.
+ *
+ * @param entry - Directory entry to inspect
+ * @returns `true` when the entry is a regular file whose name ends with `.md`; otherwise `false`
+ */
 function isMarkdownReport(entry: Dirent): boolean {
   return entry.isFile() && entry.name.endsWith('.md');
 }

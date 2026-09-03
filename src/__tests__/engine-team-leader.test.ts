@@ -3030,7 +3030,6 @@ describe('WorkflowEngine Integration: TeamLeaderRunner', () => {
             guards: { callTimeoutMs: PROVIDER_CALL_TIMEOUT_MIN_MS },
           },
         },
-        providerOptionsOriginResolver: () => 'local',
         companionEnabled: true,
         companionProviders: { reviewer: { provider: 'mock' } },
         companionDiffReader,
@@ -3173,7 +3172,6 @@ describe('WorkflowEngine Integration: TeamLeaderRunner', () => {
             guards: { callTimeoutMs: PROVIDER_CALL_TIMEOUT_MIN_MS },
           },
         },
-        providerOptionsOriginResolver: () => 'local',
         companionEnabled: true,
         companionProviders: { reviewer: { provider: 'mock' } },
         companionDiffReader,
@@ -6287,7 +6285,6 @@ describe('WorkflowEngine Integration: TeamLeaderRunner', () => {
           },
         },
       },
-      providerOptionsOriginResolver: () => 'local',
       personaProviders: {
         coder: {
           provider: 'opencode',
@@ -6430,7 +6427,6 @@ describe('WorkflowEngine Integration: TeamLeaderRunner', () => {
           },
         },
       },
-      providerOptionsOriginResolver: () => 'local',
     });
 
     mockRunAgentWithPrompt(
