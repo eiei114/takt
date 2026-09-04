@@ -112,13 +112,15 @@ TAKT 需要 Node.js `>=22.22.0`。
 - `opencode` — `@opencode-ai/sdk`
 - `pi` — `@earendil-works/pi-coding-agent`
 
-`deepseek-harness` 通过私有 JSON-RPC bridge 使用官方 Python SDK。请在 Python 3.10+ 中安装匹配的 SDK/runtime 包：
+`deepseek-harness` 通过私有 JSON-RPC bridge 使用官方 Python SDK。请用 Python 3.10+ 显式创建其固定版本 managed 环境：
 
 ```bash
-python3 -m pip install deepseek-harness-sdk deepseek-harness-runtime-bin
+takt deepseek-harness install
 ```
 
-官方 runtime 当前支持 Linux x64/arm64 和 macOS arm64。Windows 和 macOS x64 会快速失败；TAKT 不会静默切换到其他 provider。请设置 `DEEPSEEK_API_KEY`，也可以设置 `DEEPSEEK_BASE_URL`。Python SDK 与 `deepseek-harness-runtime-bin` 必须来自匹配的版本。这是 developer-preview 兼容性边界；使用新的 SDK/runtime 组合前，请按照配置指南执行 opt-in live smoke。
+TAKT 会在 `~/.takt/deepseek-harness/` 下重建一个 VENV，并安装精确版本对 `deepseek-harness-sdk==0.1.1rc1` 与 `deepseek-harness-runtime-bin==0.1.1rc1`。用 `--python <path>` 选择 bootstrap 解释器。重新运行该命令只删除该 VENV；独立的 `DSH_HOME` 目录保留 DeepSeek profiles 和 plugins。正常 provider 启动使用 managed VENV，不执行安装或更新，也不猜测全局 Python。显式的 `python_path` 仅允许来自受信任设置，并在 bridge 启动前校验 Python、固定版本对与 constructor 支持。
+
+官方 runtime 当前支持 Linux x64/arm64 和 macOS arm64。Windows 和 macOS x64 会快速失败；TAKT 不会静默切换到其他 provider。请设置 `DEEPSEEK_API_KEY`，也可以设置 `DEEPSEEK_BASE_URL`。这是 developer-preview 兼容性边界；使用新的 SDK/runtime 组合前，请按照配置指南执行 opt-in live smoke。
 
 以下 provider 需要外部 CLI：
 
@@ -280,6 +282,7 @@ steps:
 | `takt workflow doctor` | 验证 workflow 定义 |
 | `takt workflow inspect` | 检查 workflow 的配置与解析来源 |
 | `takt repertoire add` | 从 GitHub 安装 repertoire package |
+| `takt deepseek-harness install` | 创建或重建固定版本 DeepSeek Harness managed Python 环境 |
 
 全部命令和选项请参阅 [CLI Reference](./cli-reference.zh-CN.md)。
 

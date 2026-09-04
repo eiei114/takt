@@ -32,7 +32,16 @@ import {
   createSensitiveTextStreamRedactor,
 } from '../../shared/utils/sensitiveText.js';
 import type { DeepSeekHarnessProviderOptions } from '../../core/models/workflow-types.js';
-import { DEEPSEEK_HARNESS_DEFAULT_MODEL } from './constants.js';
+import { getGlobalConfigDir } from '../config/paths.js';
+import {
+  DEEPSEEK_HARNESS_DEFAULT_MODEL,
+  DEEPSEEK_HARNESS_HOME_ENV_NAME,
+} from './constants.js';
+import {
+  getDeepSeekHarnessConstructorArguments,
+  resolveDeepSeekHarnessManagedPaths,
+  validateDeepSeekHarnessInstallation,
+} from './managed-venv.js';
 import { parseDeepSeekHarnessModelReference } from './model-reference.js';
 import type { DeepSeekHarnessCallOptions } from './types.js';
 const DEEPSEEK_HARNESS_STARTUP_TIMEOUT_MS = 30_000;
@@ -147,6 +156,7 @@ interface ResolvedBridgeConfiguration {
 
 interface ProcessEnvironmentResolution {
   env: NodeJS.ProcessEnv;
+  dshHomePath: string;
   knownSecrets: Record<string, string>;
   nestedObservabilityFingerprint: string;
 }
@@ -428,6 +438,7 @@ function getProcessNestedObservabilityFingerprint(
 function resolveProcessEnvironment(
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
   childProcessEnv: Readonly<Record<string, string>> | undefined,
+  dshHome: string,
 ): ProcessEnvironmentResolution {
   const env: NodeJS.ProcessEnv = {};
   for (const name of DEEPSEEK_HARNESS_RUNTIME_ENV_NAMES) {
@@ -451,8 +462,10 @@ function resolveProcessEnvironment(
   if (providerOptions?.runtimeMode !== undefined) {
     env.DSH_RUNTIME_MODE = providerOptions.runtimeMode;
   }
+  env[DEEPSEEK_HARNESS_HOME_ENV_NAME] = dshHome;
   return {
     env,
+    dshHomePath: dshHome,
     knownSecrets: resolveKnownSecrets(providerOptions, childProcessEnv),
     nestedObservabilityFingerprint: getProcessNestedObservabilityFingerprint(childProcessEnv),
   };
@@ -492,6 +505,7 @@ function processKey(
   return JSON.stringify({
     configuration,
     providerOptions: stableValue(nonSecretProviderOptions),
+    dshHomePath: environment.dshHomePath,
     secretFingerprint,
     nestedObservabilityFingerprint: environment.nestedObservabilityFingerprint,
   });
@@ -848,7 +862,7 @@ class DeepSeekHarnessProcess {
       return;
     }
     if (this.startPromise === undefined) {
-      this.startPromise = this.startInternal();
+      this.startPromise = this.startInternal(abortSignal);
     }
     try {
       await waitForAbortable(this.startPromise, abortSignal);
@@ -861,11 +875,16 @@ class DeepSeekHarnessProcess {
     }
   }
 
-  private async startInternal(): Promise<void> {
+  private async startInternal(abortSignal?: AbortSignal): Promise<void> {
     assertSupportedPlatform();
     if (this.closed) {
       throw new DeepSeekHarnessTransportError('DeepSeek Harness bridge is closed');
     }
+    await validateDeepSeekHarnessInstallation(this.pythonPath, {
+      constructorArguments: getDeepSeekHarnessConstructorArguments(this.configuration),
+      environment: this.pythonEnvironment,
+      abortSignal,
+    });
     let managed: ManagedProcess;
     try {
       managed = spawnManagedProcess(
@@ -1456,7 +1475,12 @@ function getOrCreateProcess(options: DeepSeekHarnessCallOptions): DeepSeekHarnes
   assertSupportedPlatform();
   const providerOptions = options.providerOptions;
   const configuration = resolveBridgeConfiguration(options, providerOptions);
-  const environment = resolveProcessEnvironment(providerOptions, options.childProcessEnv);
+  const managedPaths = resolveDeepSeekHarnessManagedPaths(getGlobalConfigDir());
+  const environment = resolveProcessEnvironment(
+    providerOptions,
+    options.childProcessEnv,
+    managedPaths.dshHomePath,
+  );
   assertOpaqueSessionId(options.sessionId, environment.knownSecrets);
   const baseKey = processKey(configuration, providerOptions, environment);
   const key = options.sessionId === undefined
@@ -1472,7 +1496,9 @@ function getOrCreateProcess(options: DeepSeekHarnessCallOptions): DeepSeekHarnes
     }
   }
   const configuredPythonPath = providerOptions?.pythonPath;
-  const pythonPath = configuredPythonPath === undefined ? 'python3' : configuredPythonPath.trim();
+  const pythonPath = configuredPythonPath === undefined
+    ? managedPaths.pythonPath
+    : configuredPythonPath.trim();
   if (pythonPath.length === 0) {
     throw new Error('DeepSeek Harness pythonPath must not be empty');
   }

@@ -294,7 +294,7 @@ ignore_exceed: false          # Applies to takt run and takt watch like --ignore
 #     no_skills: true
 #   deepseek_harness:
 #     # python_path and cordis are trusted-global/env-only; project config
-#     # uses the default python3 and cannot select a Cordis executable config.
+#     # uses the managed VENV and cannot select a Cordis executable config.
 #     base_url: http://127.0.0.1:8787/v1
 #     session_root: .takt/deepseek-sessions
 #     max_tokens: 4096
@@ -1248,11 +1248,29 @@ Workflow and project config can use `base_url` for local proxies only. Non-loopb
 
 #### DeepSeek Harness (`deepseek-harness`)
 
-`deepseek-harness` starts the official `deepseek-harness-sdk` in a Python 3.10+ child process and communicates with it over a line-oriented JSON-RPC bridge. Install the SDK and its matching `deepseek-harness-runtime-bin` wheel separately:
+`deepseek-harness` starts the official `deepseek-harness-sdk` in a Python 3.10+ child process and communicates with it over a line-oriented JSON-RPC bridge. TAKT manages one fixed-version environment below the configured global TAKT directory (default `~/.takt/deepseek-harness/`). Create or recreate it explicitly:
 
 ```bash
-python3 -m pip install deepseek-harness-sdk deepseek-harness-runtime-bin
+takt deepseek-harness install
 ```
+
+The command creates a fresh VENV and installs the exact paired requirements
+`deepseek-harness-sdk==0.1.1rc1` and
+`deepseek-harness-runtime-bin==0.1.1rc1`. Use `--python <path>` when a specific
+Python 3.10+ interpreter should bootstrap the VENV. Re-running the command
+removes only the existing VENV before installing the pinned pair; it does not
+keep an older version or roll back automatically. TAKT never installs or
+updates this environment during normal provider startup.
+
+`DSH_HOME` is kept separately at the configured global TAKT directory's
+`deepseek-harness/dsh-home` (default `~/.takt/deepseek-harness/dsh-home`), so VENV
+recreation does not remove DeepSeek profiles or plugins stored there. Normal
+provider startup uses the managed VENV and never guesses a global Python
+interpreter. If `provider_options.deepseek_harness.python_path` is explicitly
+set, TAKT uses that executable instead, but validates Python, both installed
+package versions, and the SDK constructor before starting the bridge. Missing
+packages, a version mismatch, or unsupported constructor arguments fail with an
+actionable error.
 
 The verified official runtime wheels support Linux x64/arm64 and macOS arm64. Windows and macOS x64 are unsupported and fail fast; TAKT never falls back to another provider. Authentication is intentionally environment-based: set `DEEPSEEK_API_KEY`, and optionally `DEEPSEEK_BASE_URL`. The API key is not written to workflow/config files or command arguments.
 
@@ -1296,7 +1314,7 @@ validation point. Unknown routes or model IDs are not validated by TAKT and are
 passed unchanged as separate provider/model fields to the bridge/SDK; an SDK
 rejection identifies the supplied reference and the bridge/SDK failure point.
 
-For credential safety, `python_path` is accepted only from trusted global configuration or `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH`; workflow and project-local provider options must use the default `python3` executable. `cordis` is also accepted only from trusted global configuration or `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS`, because it selects executable tool composition. The example above intentionally omits both fields. The same restrictions apply to project `runtime.yaml` profiles; global runtime profiles may select trusted values. Project runtime profiles may use only loopback `base_url` values.
+For credential safety, `python_path` is accepted only from trusted global configuration or `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH`; workflow and project-local provider options cannot replace the managed default. `cordis` is also accepted only from trusted global configuration or `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS`, because it selects executable tool composition. The example above intentionally omits both fields. The same restrictions apply to project `runtime.yaml` profiles; global runtime profiles may select trusted values. Project runtime profiles may use only loopback `base_url` values.
 
 `session_root` and `cordis` are resolved relative to the configured working directory. Sessions are reused when a workflow supplies `session_key`; one-shot calls close the bridge immediately. `request_timeout_ms` terminates the complete Python bridge request, and aborting a TAKT call terminates the bridge process tree. Stream events are converted from official `session.event` notifications into TAKT text, thinking, tool-use, tool-result, error, and result events. System prompts, TAKT `allowed_tools`, MCP server maps, image attachments, structured output, permission modes, and `maxTurns` are not part of the official SDK call and are ignored with a warning; configure system/tool composition through Cordis instead.
 

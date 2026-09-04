@@ -114,13 +114,15 @@ These providers run via SDK (no CLI required, Node.js only):
 - `opencode` — `@opencode-ai/sdk`
 - `pi` — `@earendil-works/pi-coding-agent`
 
-The `deepseek-harness` provider uses the official Python SDK through a private JSON-RPC bridge. Install the matching SDK/runtime packages with Python 3.10+:
+The `deepseek-harness` provider uses the official Python SDK through a private JSON-RPC bridge. Create its fixed-version managed environment explicitly with Python 3.10+:
 
 ```bash
-python3 -m pip install deepseek-harness-sdk deepseek-harness-runtime-bin
+takt deepseek-harness install
 ```
 
-The official runtime currently supports Linux x64/arm64 and macOS arm64 only. Windows and macOS x64 fail fast; TAKT does not silently fall back to another provider. Set `DEEPSEEK_API_KEY` and optionally `DEEPSEEK_BASE_URL` in the environment. The Python SDK and bundled `deepseek-harness-runtime-bin` must come from matching releases. This provider is a developer-preview compatibility surface: upstream API/event vocabulary may change between matching releases, so use the opt-in live smoke procedure in the configuration guide before relying on a new SDK/runtime pair.
+TAKT recreates one VENV below `~/.takt/deepseek-harness/` and installs the exact pair `deepseek-harness-sdk==0.1.1rc1` and `deepseek-harness-runtime-bin==0.1.1rc1`. Use `--python <path>` to choose the bootstrap interpreter. Re-running the command deletes only that VENV; the separate `DSH_HOME` directory keeps DeepSeek profiles and plugins. Normal provider startup uses the managed VENV, performs no installation or update, and does not guess a global Python. An explicit `python_path` is allowed only from trusted settings and is validated for Python, the pinned package pair, and constructor support before the bridge starts.
+
+The official runtime currently supports Linux x64/arm64 and macOS arm64 only. Windows and macOS x64 fail fast; TAKT does not silently fall back to another provider. Set `DEEPSEEK_API_KEY` and optionally `DEEPSEEK_BASE_URL` in the environment. This provider is a developer-preview compatibility surface: upstream API/event vocabulary may change between matching releases, so use the opt-in live smoke procedure in the configuration guide before relying on a new SDK/runtime pair.
 
 These providers require an external CLI:
 
@@ -284,6 +286,7 @@ See the [Builtin Catalog](./docs/builtin-catalog.md) for all workflows and perso
 | `takt workflow doctor` | Validate workflow definitions |
 | `takt workflow inspect` | Inspect a workflow's configuration and resolution sources |
 | `takt repertoire add` | Install a repertoire package from GitHub |
+| `takt deepseek-harness install` | Create or recreate the pinned DeepSeek Harness managed Python environment |
 
 See the [CLI Reference](./docs/cli-reference.md) for all commands and options.
 
