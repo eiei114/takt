@@ -7,12 +7,12 @@ phase 粒度の usage events と集計方法は [Observability Guide](./observab
 
 ## グローバル設定
 
-`~/.takt/config.yaml` で TAKT のデフォルト設定を行います。このファイルは初回実行時に自動作成されます。すべてのフィールドは省略可能です。
+`<global TAKT directory>/config.yaml` で TAKT のデフォルト設定を行います。global TAKT directory は `TAKT_CONFIG_DIR` 設定時はその値、未設定時は `~/.takt/` です。このファイルは初回実行時に自動作成されます。すべてのフィールドは省略可能です。
 
 TAKT は、存在するグローバル設定ディレクトリとプロジェクト設定ディレクトリを実体パスで比較し、まだ存在しないディレクトリは正規化した絶対論理パスで比較します。この解決後にグローバル設定ディレクトリと現在のプロジェクトの `.takt/` が一致する場合、TAKT はどちらの設定ディレクトリも初期化する前にエラー終了します。ホームディレクトリで実行する場合やシンボリックリンク経由で衝突する場合は、`TAKT_CONFIG_DIR` をプロジェクトの `.takt/` とは異なるディレクトリに設定してから再実行してください。`--help` と `--version` はこのチェックの対象外です。
 
 ```yaml
-# ~/.takt/config.yaml
+# <global TAKT directory>/config.yaml（未設定時の既定: ~/.takt/config.yaml）
 language: en                  # UI 言語: 'en' または 'ja'
 logging:
   level: info                 # ログレベル: debug, info, warn, error
@@ -1187,17 +1187,18 @@ workflow と project config での `base_url` は local proxy 用に限定され
 
 #### DeepSeek Harness (`deepseek-harness`)
 
-`deepseek-harness` は公式の `deepseek-harness-sdk` を Python 3.10+ の子プロセスで起動し、非公開の行指向 JSON-RPC bridge で通信します。TAKT は設定された global TAKT directory（デフォルトは `~/.takt`）配下に固定版の managed VENV を1つ管理します。明示的に作成・再作成してください。
+`deepseek-harness` は公式の `deepseek-harness-sdk` を Python 3.10+ の子プロセスで起動し、非公開の行指向 JSON-RPC bridge で通信します。global TAKT directory は `TAKT_CONFIG_DIR` 設定時はその値、未設定時は `~/.takt/` です。TAKT は managed root `<global TAKT directory>/deepseek-harness/` を管理し、VENV はその配下の `<global TAKT directory>/deepseek-harness/venv/`（既定は `~/.takt/deepseek-harness/venv/`）、`DSH_HOME` は別の `<global TAKT directory>/deepseek-harness/dsh-home/`（既定は `~/.takt/deepseek-harness/dsh-home/`）に置きます。明示的に作成・再作成してください。
 
 ```bash
 takt deepseek-harness install
 ```
 
-このコマンドは新しい VENV を作成し、`deepseek-harness-sdk==0.1.1rc1` と
+このコマンドは既存 VENV を削除する前に bootstrap Python を検証します。検証に失敗した場合は既存 VENV を保持します。その後、新しい VENV を作成し、`deepseek-harness-sdk==0.1.1rc1` と
 `deepseek-harness-runtime-bin==0.1.1rc1` の対応ペアを exact version で
 インストールします。VENV の作成に使う Python 3.10+ を指定する場合は
 `--python <path>` を使います。再実行時は既存 VENV だけを削除してから固定版を
-インストールし、旧版の保持や自動 rollback は行いません。通常の provider 起動時に
+インストールし、旧版の保持や自動 rollback は行いません。同じ managed root への
+並行 install は、VENV の削除から最終検証まで直列化されます。通常の provider 起動時に
 この環境をインストール・更新することはありません。
 
 `DSH_HOME` は VENV と分離した global TAKT directory 配下の

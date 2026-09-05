@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { chmod, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProviderEventLogger } from '../core/logging/providerEventLogger.js';
 import {
   callDeepSeekHarness,
@@ -145,7 +145,12 @@ process.stdin.on('data', (chunk) => {
 async function createHangingProbeFixture(root: string): Promise<string> {
   const executable = path.join(root, 'hanging-probe.cjs');
   await writeFile(executable, `#!/usr/bin/env node
+const fs = require('node:fs');
+const path = require('node:path');
 if (process.argv[2] === '-c') {
+  setInterval(() => {}, 1_000);
+} else if (process.argv[2] === '-u') {
+  fs.writeFileSync(path.join(process.cwd(), 'bridge-started.marker'), 'started\\n');
   setInterval(() => {}, 1_000);
 } else {
   process.exit(2);
@@ -186,6 +191,7 @@ describe.skipIf(!supportedPlatform)('DeepSeek Harness managed VENV selection', (
   });
 
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await closeDeepSeekHarnessProcesses();
     await rm(root, { recursive: true, force: true });
   });
@@ -193,7 +199,7 @@ describe.skipIf(!supportedPlatform)('DeepSeek Harness managed VENV selection', (
   it('uses the managed executable and stable DSH_HOME for separate worktree directories', async () => {
     const fixturePath = await createNodePythonFixture(root);
     const configDir = path.relative(process.cwd(), configRoot);
-    process.env.TAKT_CONFIG_DIR = configDir;
+    vi.stubEnv('TAKT_CONFIG_DIR', configDir);
     const managedPaths = resolveDeepSeekHarnessManagedPaths(configDir);
     await mkdir(path.dirname(managedPaths.pythonPath), { recursive: true });
     await symlink(fixturePath, managedPaths.pythonPath);
@@ -230,12 +236,12 @@ describe.skipIf(!supportedPlatform)('DeepSeek Harness managed VENV selection', (
 
     expect(response.status).toBe('error');
     expect(Date.now() - startedAt).toBeLessThan(5_000);
-    await expect(readFile(path.join(worktreeRoot, 'bridge-start-configs.jsonl'), 'utf8'))
+    await expect(readFile(path.join(worktreeRoot, 'bridge-started.marker'), 'utf8'))
       .rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('fails when the managed VENV is absent instead of guessing a global Python', async () => {
-    process.env.TAKT_CONFIG_DIR = configRoot;
+    vi.stubEnv('TAKT_CONFIG_DIR', configRoot);
 
     const response = await callDeepSeekHarness('worker', 'hello', { cwd: worktreeRoot });
 

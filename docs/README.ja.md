@@ -79,7 +79,7 @@ takt run
 takt list
 ```
 
-初回実行時は `~/.takt/config.yaml` で provider を設定するか、[設定](#設定) にある API キー用の環境変数を使います。`claude-sdk`、`codex`、`opencode`、`pi` などの SDK 経由 provider は Node.js と認証情報で動きます。`deepseek-harness` は `takt deepseek-harness install` で Python 3.10+ の固定版 managed VENV を作成してください。CLI 経由 provider を使う場合は対応する外部 CLI が必要です。
+初回実行時は `<global TAKT directory>/config.yaml`（`TAKT_CONFIG_DIR` 設定時はその値、未設定時は `~/.takt/config.yaml`）で provider を設定するか、[設定](#設定) にある API キー用の環境変数を使います。`claude-sdk`、`codex`、`opencode`、`pi` などの SDK 経由 provider は Node.js と認証情報で動きます。`deepseek-harness` は `takt deepseek-harness install` で Python 3.10+ の固定版 managed VENV を作成してください。CLI 経由 provider を使う場合は対応する外部 CLI が必要です。
 
 ### 動画チュートリアル
 
@@ -120,11 +120,12 @@ TAKT の実行には Node.js `>=22.22.0` が必要です。
 takt deepseek-harness install
 ```
 
-TAKT の global TAKT directory は、`TAKT_CONFIG_DIR` を設定した場合はそのディレクトリ、未設定時は既定で `~/.takt/` です。managed root は `<global TAKT directory>/deepseek-harness/` で、その配下に VENV を作成します（既定の配置先は `~/.takt/deepseek-harness/`）。
+TAKT の global TAKT directory は、`TAKT_CONFIG_DIR` を設定した場合はそのディレクトリ、未設定時は既定で `~/.takt/` です。managed root は `<global TAKT directory>/deepseek-harness/`、VENV はその配下の `<global TAKT directory>/deepseek-harness/venv/`（既定は `~/.takt/deepseek-harness/venv/`）、`DSH_HOME` は VENV とは別の `<global TAKT directory>/deepseek-harness/dsh-home/`（既定は `~/.takt/deepseek-harness/dsh-home/`）です。
 `deepseek-harness-sdk==0.1.1rc1` と
 `deepseek-harness-runtime-bin==0.1.1rc1` の exact version ペアをインストールします。
-bootstrap 用の Python を選ぶ場合は `--python <path>` を指定します。再実行時は VENV
-だけを削除して再作成し、`DSH_HOME`（`<global TAKT directory>/deepseek-harness/dsh-home`、既定は `~/.takt/deepseek-harness/dsh-home`）にある profile と plugin は保持します。
+bootstrap 用の Python を選ぶ場合は `--python <path>` を指定します。既存 VENV を削除する前に bootstrap Python を検証するため、検証失敗時は既存 VENV を保持します。再実行時は VENV
+だけを削除して再作成し、`DSH_HOME` にある profile と plugin は保持します。同じ managed root
+への並行 install は最終検証まで直列化されます。
 通常起動時にインストールや更新は行わず、global Python を推測して使用することも
 ありません。明示的な `python_path` は trusted settings からのみ指定でき、bridge 起動前
 に Python、固定版ペア、constructor の対応を検証します。
@@ -310,7 +311,7 @@ exec は前回の設定から開始するか、初回実行時はデフォルト
 
 ## 設定
 
-最小限の `~/.takt/config.yaml` は次の通りです。
+最小限の `<global TAKT directory>/config.yaml`（未設定時の既定は `~/.takt/config.yaml`）は次の通りです。
 
 ```yaml
 provider: claude    # claude, claude-sdk, claude-terminal, codex, opencode, deepseek-harness, cursor, copilot, kiro, pi, or mock
@@ -393,7 +394,7 @@ takt --pipeline --task "バグを修正して" --auto-pr
 ## プロジェクト構造
 
 ```
-~/.takt/                    # グローバル設定
+<global TAKT directory>/     # グローバル設定（既定: ~/.takt/）
 ├── config.yaml             # プロバイダー、モデル、言語など
 ├── workflows/              # ユーザー定義の workflow
 ├── facets/                 # ユーザー定義のファセット（personas, policies, knowledge など）

@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { installManagedDeepSeekHarness } from '../../infra/deepseek-harness/index.js';
 
@@ -10,6 +10,14 @@ if (configDir === undefined || pythonPath === undefined || workerId === undefine
 
 mkdirSync(controlDir, { recursive: true });
 writeFileSync(join(controlDir, `ready-${workerId}`), 'ready', 'utf8');
+
+const startBarrier = process.env.DSH_TEST_START_BARRIER;
+if (startBarrier !== undefined) {
+  const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
+  while (!existsSync(startBarrier)) {
+    Atomics.wait(waitBuffer, 0, 0, 10);
+  }
+}
 
 try {
   const installation = await installManagedDeepSeekHarness({ configDir, pythonPath });

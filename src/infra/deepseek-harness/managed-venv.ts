@@ -1,23 +1,26 @@
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, open, readFile, rm, stat, unlink } from 'node:fs/promises';
+import { mkdir, open, readFile, readdir, rename, rm, stat, unlink } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { join, resolve } from 'node:path';
 import { getGlobalConfigDir } from '../config/paths.js';
 import { sanitizeTerminalText } from '../../shared/utils/text.js';
-import { sanitizeSensitiveTextWithKnownValues } from '../../shared/utils/sensitiveText.js';
 import {
   DEEPSEEK_HARNESS_HOME_ENV_NAME,
   DEEPSEEK_HARNESS_PINNED_VERSION,
   DEEPSEEK_HARNESS_RUNTIME_PACKAGE,
   DEEPSEEK_HARNESS_SDK_PACKAGE,
 } from './constants.js';
+import { sanitizeDeepSeekHarnessKnownSecrets } from './sensitive-diagnostics.js';
 
 const execFileAsync = promisify(execFile);
 const DEEPSEEK_HARNESS_ENVIRONMENT_DIR = 'deepseek-harness';
 const DEEPSEEK_HARNESS_VENV_DIR = 'venv';
 const DEEPSEEK_HARNESS_HOME_DIR = 'dsh-home';
 const DEEPSEEK_HARNESS_INSTALL_LOCK_FILE = '.install.lock';
+const DEEPSEEK_HARNESS_INSTALL_LOCK_OWNER_FILE = 'owner';
+const DEEPSEEK_HARNESS_INSTALL_LOCK_RECOVERY_DIR = '.recovery';
+const DEEPSEEK_HARNESS_INSTALL_LOCK_TRANSFERRED_OWNER_FILE = 'transferred-owner';
 const DEEPSEEK_HARNESS_PROBE_TIMEOUT_MS = 30_000;
 const DEEPSEEK_HARNESS_COMMAND_TIMEOUT_MS = 15 * 60 * 1_000;
 const DEEPSEEK_HARNESS_MAX_NODE_TIMER_MS = 2_147_483_647;
@@ -193,19 +196,6 @@ function resolveDeepSeekEnvironmentSecrets(
   return secrets;
 }
 
-function sanitizeKnownSecrets(
-  text: string,
-  knownSecrets: Readonly<Record<string, string>>,
-): string {
-  let sanitized = sanitizeSensitiveTextWithKnownValues(text, knownSecrets);
-  for (const value of Object.values(knownSecrets)
-    .filter((candidate) => candidate.length > 0)
-    .sort((left, right) => right.length - left.length)) {
-    sanitized = sanitized.split(value).join('[REDACTED]');
-  }
-  return sanitized;
-}
-
 function commandErrorMessage(
   error: unknown,
   knownSecrets: Readonly<Record<string, string>>,
@@ -217,7 +207,7 @@ function commandErrorMessage(
         return stderr.length > 0 ? stderr : error.message;
       })()
     : String(error);
-  return sanitizeTerminalText(sanitizeKnownSecrets(message, knownSecrets));
+  return sanitizeTerminalText(sanitizeDeepSeekHarnessKnownSecrets(message, knownSecrets));
 }
 
 async function runPythonCommand(
@@ -260,17 +250,37 @@ interface ManagedInstallLock {
   readonly state: ManagedInstallLockState;
 }
 
+interface ManagedInstallLockRecovery {
+  readonly path: string;
+  readonly state: ManagedInstallLockState;
+}
+
 function isFileSystemError(error: unknown, code: string): boolean {
   return error instanceof Error && (error as NodeJS.ErrnoException).code === code;
 }
 
-async function readManagedInstallLock(
-  lockPath: string,
+function managedInstallLockOwnerPath(lockPath: string): string {
+  return join(lockPath, DEEPSEEK_HARNESS_INSTALL_LOCK_OWNER_FILE);
+}
+
+function managedInstallLockRecoveryPath(lockPath: string): string {
+  return join(lockPath, DEEPSEEK_HARNESS_INSTALL_LOCK_RECOVERY_DIR);
+}
+
+function managedInstallLockRecoveryOwnerPath(lockPath: string): string {
+  return join(
+    managedInstallLockRecoveryPath(lockPath),
+    DEEPSEEK_HARNESS_INSTALL_LOCK_OWNER_FILE,
+  );
+}
+
+async function readManagedInstallLockFile(
+  filePath: string,
 ): Promise<ManagedInstallLockState | undefined> {
   try {
     const [lockStat, content] = await Promise.all([
-      stat(lockPath),
-      readFile(lockPath, 'utf8'),
+      stat(filePath),
+      readFile(filePath, 'utf8'),
     ]);
     return {
       stat: {
@@ -286,6 +296,12 @@ async function readManagedInstallLock(
     }
     throw error;
   }
+}
+
+async function readManagedInstallLock(
+  lockPath: string,
+): Promise<ManagedInstallLockState | undefined> {
+  return readManagedInstallLockFile(managedInstallLockOwnerPath(lockPath));
 }
 
 function sameManagedInstallLockState(
@@ -331,27 +347,333 @@ function managedInstallLockIsStale(state: ManagedInstallLockState): boolean {
   return Date.now() - state.stat.mtimeMs > DEEPSEEK_HARNESS_LOCK_STALE_MS;
 }
 
-async function removeManagedInstallLockIfUnchanged(
-  lockPath: string,
-  expected: ManagedInstallLockState,
-): Promise<boolean> {
-  const current = await readManagedInstallLock(lockPath);
-  if (current === undefined || !sameManagedInstallLockState(expected, current)) {
-    return false;
-  }
-  const beforeDelete = await readManagedInstallLock(lockPath);
-  if (beforeDelete === undefined || !sameManagedInstallLockState(expected, beforeDelete)) {
-    return false;
-  }
+function managedInstallLockQuarantinePath(targetPath: string): string {
+  return `${targetPath}.quarantine-${randomUUID()}`;
+}
+
+function managedInstallLockCandidatePath(targetPath: string): string {
+  return `${targetPath}.candidate-${randomUUID()}`;
+}
+
+function managedInstallLockRecoveryCandidatePath(lockPath: string): string {
+  return `${lockPath}.recovery-candidate-${randomUUID()}`;
+}
+
+async function moveManagedInstallPathToQuarantine(
+  targetPath: string,
+): Promise<string | undefined> {
+  const quarantinePath = managedInstallLockQuarantinePath(targetPath);
   try {
-    await unlink(lockPath);
-    return true;
+    await rename(targetPath, quarantinePath);
+    return quarantinePath;
+  } catch (error) {
+    if (isFileSystemError(error, 'ENOENT')) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function restoreManagedInstallPathFromQuarantine(
+  quarantinePath: string,
+  targetPath: string,
+): Promise<void> {
+  await rename(quarantinePath, targetPath);
+}
+
+async function removeStaleManagedInstallLockRecovery(
+  lockPath: string,
+): Promise<boolean> {
+  const recoveryPath = managedInstallLockRecoveryPath(lockPath);
+  let recoveryStat: Awaited<ReturnType<typeof stat>>;
+  try {
+    recoveryStat = await stat(recoveryPath);
   } catch (error) {
     if (isFileSystemError(error, 'ENOENT')) {
       return false;
     }
     throw error;
   }
+  const recoveryOwner = await readManagedInstallLockFile(
+    managedInstallLockRecoveryOwnerPath(lockPath),
+  );
+  const stale = recoveryOwner === undefined
+    ? Date.now() - recoveryStat.mtimeMs > DEEPSEEK_HARNESS_LOCK_STALE_MS
+    : managedInstallLockIsStale(recoveryOwner);
+  if (!stale) {
+    return false;
+  }
+
+  const quarantinePath = await moveManagedInstallPathToQuarantine(recoveryPath);
+  if (quarantinePath === undefined) {
+    return false;
+  }
+
+  const quarantinedStat = await stat(quarantinePath);
+  if (quarantinedStat.dev !== recoveryStat.dev || quarantinedStat.ino !== recoveryStat.ino) {
+    await restoreManagedInstallPathFromQuarantine(quarantinePath, recoveryPath);
+    return false;
+  }
+  const quarantinedOwner = await readManagedInstallLockFile(
+    join(quarantinePath, DEEPSEEK_HARNESS_INSTALL_LOCK_OWNER_FILE),
+  );
+  if (recoveryOwner !== undefined) {
+    if (quarantinedOwner === undefined || !sameManagedInstallLockState(recoveryOwner, quarantinedOwner)) {
+      await restoreManagedInstallPathFromQuarantine(quarantinePath, recoveryPath);
+      return false;
+    }
+  } else if (quarantinedOwner !== undefined) {
+    await restoreManagedInstallPathFromQuarantine(quarantinePath, recoveryPath);
+    return false;
+  }
+  await rm(quarantinePath, { recursive: true, force: true });
+  return true;
+}
+
+async function removeManagedInstallLockRecoveryIfOwned(
+  recovery: ManagedInstallLockRecovery,
+): Promise<boolean> {
+  const ownerPath = join(recovery.path, DEEPSEEK_HARNESS_INSTALL_LOCK_OWNER_FILE);
+  const current = await readManagedInstallLockFile(ownerPath);
+  if (current === undefined || !sameManagedInstallLockState(recovery.state, current)) {
+    return false;
+  }
+  const quarantinePath = await moveManagedInstallPathToQuarantine(recovery.path);
+  if (quarantinePath === undefined) {
+    return false;
+  }
+  const transferredOwner = await readManagedInstallLockFile(
+    join(quarantinePath, DEEPSEEK_HARNESS_INSTALL_LOCK_OWNER_FILE),
+  );
+  if (transferredOwner === undefined || !sameManagedInstallLockState(recovery.state, transferredOwner)) {
+    await restoreManagedInstallPathFromQuarantine(quarantinePath, recovery.path);
+    return false;
+  }
+  await rm(quarantinePath, { recursive: true, force: true });
+  return true;
+}
+
+async function acquireManagedInstallLockRecovery(
+  lockPath: string,
+): Promise<ManagedInstallLockRecovery | undefined> {
+  const recoveryPath = managedInstallLockRecoveryPath(lockPath);
+  const candidatePath = managedInstallLockRecoveryCandidatePath(lockPath);
+  const content = JSON.stringify({ pid: process.pid, token: randomUUID() });
+  let candidateCreated = false;
+  try {
+    await mkdir(candidatePath, { mode: 0o700 });
+    candidateCreated = true;
+    const handle = await open(
+      join(candidatePath, DEEPSEEK_HARNESS_INSTALL_LOCK_OWNER_FILE),
+      'wx',
+      0o600,
+    );
+    let state: ManagedInstallLockState;
+    try {
+      await handle.writeFile(content, 'utf8');
+      await handle.sync();
+      const recoveryOwnerStat = await handle.stat();
+      state = {
+        stat: {
+          dev: recoveryOwnerStat.dev,
+          ino: recoveryOwnerStat.ino,
+          mtimeMs: recoveryOwnerStat.mtimeMs,
+        },
+        content,
+      };
+    } finally {
+      await handle.close();
+    }
+    try {
+      await rename(candidatePath, recoveryPath);
+    } catch (error) {
+      if (
+        isFileSystemError(error, 'EEXIST')
+        || isFileSystemError(error, 'ENOTEMPTY')
+        || isFileSystemError(error, 'ENOENT')
+      ) {
+        await rm(candidatePath, { recursive: true, force: true });
+        await removeStaleManagedInstallLockRecovery(lockPath);
+        return undefined;
+      }
+      throw error;
+    }
+    candidateCreated = false;
+    return {
+      path: recoveryPath,
+      state,
+    };
+  } catch (error) {
+    if (candidateCreated) {
+      await rm(candidatePath, { recursive: true, force: true });
+    }
+    throw error;
+  }
+}
+
+async function releaseManagedInstallLockRecovery(
+  recovery: ManagedInstallLockRecovery,
+): Promise<void> {
+  if (!await removeManagedInstallLockRecoveryIfOwned(recovery)) {
+    throw new Error(`DeepSeek Harness managed environment lock recovery ownership changed: ${recovery.path}`);
+  }
+}
+
+async function removeManagedInstallLockIfEmpty(lockPath: string): Promise<boolean> {
+  const quarantinePath = await moveManagedInstallPathToQuarantine(lockPath);
+  if (quarantinePath === undefined) {
+    return true;
+  }
+  if ((await readdir(quarantinePath)).length > 0) {
+    await restoreManagedInstallPathFromQuarantine(quarantinePath, lockPath);
+    return false;
+  }
+  await rm(quarantinePath, { recursive: true, force: true });
+  return true;
+}
+
+async function removeManagedInstallLockIfOwned(
+  lockPath: string,
+  expected: ManagedInstallLockState,
+): Promise<boolean> {
+  const beforeRecovery = await readManagedInstallLock(lockPath);
+  if (beforeRecovery === undefined || !sameManagedInstallLockState(expected, beforeRecovery)) {
+    return false;
+  }
+  const recovery = await acquireManagedInstallLockRecovery(lockPath);
+  if (recovery === undefined) {
+    return false;
+  }
+
+  let lockTransferred = false;
+  try {
+    const current = await readManagedInstallLock(lockPath);
+    if (current === undefined || !sameManagedInstallLockState(expected, current)) {
+      return false;
+    }
+
+    const ownerPath = managedInstallLockOwnerPath(lockPath);
+    const transferredOwnerPath = join(
+      recovery.path,
+      DEEPSEEK_HARNESS_INSTALL_LOCK_TRANSFERRED_OWNER_FILE,
+    );
+    try {
+      await rename(ownerPath, transferredOwnerPath);
+    } catch (error) {
+      if (isFileSystemError(error, 'ENOENT')) {
+        return false;
+      }
+      throw error;
+    }
+    const transferredOwner = await readManagedInstallLockFile(transferredOwnerPath);
+    if (transferredOwner === undefined) {
+      throw new Error(`DeepSeek Harness managed environment lock owner disappeared: ${transferredOwnerPath}`);
+    }
+    if (!sameManagedInstallLockState(expected, transferredOwner)) {
+      await rename(transferredOwnerPath, ownerPath);
+      return false;
+    }
+    await unlink(transferredOwnerPath);
+
+    const quarantinePath = await moveManagedInstallPathToQuarantine(lockPath);
+    if (quarantinePath === undefined) {
+      lockTransferred = true;
+      return true;
+    }
+    const entries = await readdir(quarantinePath);
+    const recoveryOwner = await readManagedInstallLockFile(
+      join(
+        quarantinePath,
+        DEEPSEEK_HARNESS_INSTALL_LOCK_RECOVERY_DIR,
+        DEEPSEEK_HARNESS_INSTALL_LOCK_OWNER_FILE,
+      ),
+    );
+    if (
+      entries.length !== 1
+      || entries[0] !== DEEPSEEK_HARNESS_INSTALL_LOCK_RECOVERY_DIR
+      || recoveryOwner === undefined
+      || !sameManagedInstallLockState(recovery.state, recoveryOwner)
+    ) {
+      await restoreManagedInstallPathFromQuarantine(quarantinePath, lockPath);
+      return false;
+    }
+    lockTransferred = true;
+    await rm(quarantinePath, { recursive: true, force: true });
+    return true;
+  } finally {
+    if (!lockTransferred) {
+      await releaseManagedInstallLockRecovery(recovery);
+    }
+  }
+}
+
+async function createManagedInstallLock(
+  lockPath: string,
+  content: string,
+): Promise<ManagedInstallLock | undefined> {
+  const candidatePath = managedInstallLockCandidatePath(lockPath);
+  let candidateCreated = false;
+  try {
+    await mkdir(candidatePath, { mode: 0o700 });
+    candidateCreated = true;
+    const ownerPath = managedInstallLockOwnerPath(candidatePath);
+    const handle = await open(ownerPath, 'wx', 0o600);
+    let state: ManagedInstallLockState;
+    try {
+      await handle.writeFile(content, 'utf8');
+      await handle.sync();
+      const ownerStat = await handle.stat();
+      state = {
+        stat: {
+          dev: ownerStat.dev,
+          ino: ownerStat.ino,
+          mtimeMs: ownerStat.mtimeMs,
+        },
+        content,
+      };
+    } finally {
+      await handle.close();
+    }
+    try {
+      await rename(candidatePath, lockPath);
+    } catch (error) {
+      if (isFileSystemError(error, 'EEXIST') || isFileSystemError(error, 'ENOTEMPTY')) {
+        await rm(candidatePath, { recursive: true, force: true });
+        return undefined;
+      }
+      throw error;
+    }
+    candidateCreated = false;
+    return {
+      path: lockPath,
+      state,
+    };
+  } catch (error) {
+    if (candidateCreated) {
+      await rm(candidatePath, { recursive: true, force: true });
+    }
+    if (isFileSystemError(error, 'EEXIST')) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+async function removeEmptyManagedInstallLock(lockPath: string): Promise<boolean> {
+  await removeStaleManagedInstallLockRecovery(lockPath);
+  let lockStat;
+  try {
+    lockStat = await stat(lockPath);
+  } catch (error) {
+    if (isFileSystemError(error, 'ENOENT')) {
+      return true;
+    }
+    throw error;
+  }
+  if (Date.now() - lockStat.mtimeMs <= DEEPSEEK_HARNESS_LOCK_STALE_MS) {
+    return false;
+  }
+  return removeManagedInstallLockIfEmpty(lockPath);
 }
 
 async function acquireManagedInstallLock(rootPath: string): Promise<ManagedInstallLock> {
@@ -361,47 +683,16 @@ async function acquireManagedInstallLock(rootPath: string): Promise<ManagedInsta
 
   while (true) {
     const content = JSON.stringify({ pid: process.pid, token: randomUUID() });
-    let created = false;
-    try {
-      const handle = await open(lockPath, 'wx', 0o600);
-      created = true;
-      try {
-        await handle.writeFile(content, 'utf8');
-        await handle.sync();
-        const lockStat = await handle.stat();
-        return {
-          path: lockPath,
-          state: {
-            stat: {
-              dev: lockStat.dev,
-              ino: lockStat.ino,
-              mtimeMs: lockStat.mtimeMs,
-            },
-            content,
-          },
-        };
-      } finally {
-        await handle.close();
-      }
-    } catch (error) {
-      if (created) {
-        const current = await readManagedInstallLock(lockPath);
-        if (current?.content === content) {
-          await unlink(lockPath).catch((unlinkError: unknown) => {
-            if (!isFileSystemError(unlinkError, 'ENOENT')) {
-              throw unlinkError;
-            }
-          });
-        }
-      }
-      if (!isFileSystemError(error, 'EEXIST')) {
-        throw error;
-      }
+    const lock = await createManagedInstallLock(lockPath, content);
+    if (lock !== undefined) {
+      return lock;
     }
 
     const current = await readManagedInstallLock(lockPath);
     if (current !== undefined && managedInstallLockIsStale(current)) {
-      await removeManagedInstallLockIfUnchanged(lockPath, current);
+      await removeManagedInstallLockIfOwned(lockPath, current);
+    } else if (current === undefined) {
+      await removeEmptyManagedInstallLock(lockPath);
     }
     if (Date.now() >= deadline) {
       throw new Error(`Timed out waiting for DeepSeek Harness managed environment lock: ${lockPath}`);
@@ -417,7 +708,7 @@ async function releaseManagedInstallLock(lock: ManagedInstallLock): Promise<void
   if (current === undefined || !sameManagedInstallLockState(lock.state, current)) {
     throw new Error(`DeepSeek Harness managed environment lock ownership changed: ${lock.path}`);
   }
-  if (!await removeManagedInstallLockIfUnchanged(lock.path, lock.state)) {
+  if (!await removeManagedInstallLockIfOwned(lock.path, lock.state)) {
     throw new Error(`DeepSeek Harness managed environment lock ownership changed: ${lock.path}`);
   }
 }

@@ -9,7 +9,7 @@
 在 `<global TAKT directory>/config.yaml` 中配置 TAKT 默认值。设置 `TAKT_CONFIG_DIR` 时，全局 TAKT 目录就是该目录；未设置时默认为 `~/.takt/`。首次运行时会自动创建该文件，所有字段均可省略。
 
 ```yaml
-# ~/.takt/config.yaml
+# <global TAKT directory>/config.yaml（默认：~/.takt/config.yaml）
 language: en                  # UI 语言：'en' 或 'ja'
 logging:
   level: info                 # 日志级别：debug、info、warn、error
@@ -896,13 +896,13 @@ provider_options:
 
 #### DeepSeek Harness（`deepseek-harness`）
 
-`deepseek-harness` 在 Python 3.10+ 子进程中启动官方 `deepseek-harness-sdk`，通过逐行 JSON-RPC bridge 通信。TAKT 在 `<global TAKT directory>/deepseek-harness/` 下管理一个固定版本环境。设置 `TAKT_CONFIG_DIR` 时，全局 TAKT 目录就是该目录；未设置时默认为 `~/.takt/`，因此 managed root 的默认值为 `~/.takt/deepseek-harness/`。请显式创建或重建：
+`deepseek-harness` 在 Python 3.10+ 子进程中启动官方 `deepseek-harness-sdk`，通过逐行 JSON-RPC bridge 通信。设置 `TAKT_CONFIG_DIR` 时，全局 TAKT 目录就是该目录；未设置时默认为 `~/.takt/`。TAKT 管理的 managed root 是 `<global TAKT directory>/deepseek-harness/`，VENV 是其下的 `<global TAKT directory>/deepseek-harness/venv/`（默认 `~/.takt/deepseek-harness/venv/`），`DSH_HOME` 则是独立的 `<global TAKT directory>/deepseek-harness/dsh-home/`（默认 `~/.takt/deepseek-harness/dsh-home/`）。请显式创建或重建：
 
 ```bash
 takt deepseek-harness install
 ```
 
-该命令创建全新 VENV，并安装精确版本对 `deepseek-harness-sdk==0.1.1rc1` 与 `deepseek-harness-runtime-bin==0.1.1rc1`。需要指定 bootstrap 用的 Python 3.10+ 解释器时使用 `--python <path>`。重新运行仅删除已有 VENV 后安装固定版本对，不保留旧版本也不自动回滚。TAKT 在正常 provider 启动期间不会安装或更新该环境。
+该命令会先验证 bootstrap Python，再删除已有 VENV；验证失败时会保留已有 VENV。随后创建全新 VENV，并安装精确版本对 `deepseek-harness-sdk==0.1.1rc1` 与 `deepseek-harness-runtime-bin==0.1.1rc1`。需要指定 bootstrap 用的 Python 3.10+ 解释器时使用 `--python <path>`。重新运行仅删除已有 VENV 后安装固定版本对，不保留旧版本也不自动回滚。同一 managed root 的并行安装会从删除 VENV 到最终验证完成保持串行。TAKT 在正常 provider 启动期间不会安装或更新该环境。
 
 `DSH_HOME` 独立保存在 `<global TAKT directory>/deepseek-harness/dsh-home`（默认 `~/.takt/deepseek-harness/dsh-home`），因此重建 VENV 不会删除其中保存的 DeepSeek profiles 或 plugins。正常启动使用 managed VENV，从不猜测全局 Python 解释器。若显式设置了 `provider_options.deepseek_harness.python_path`，TAKT 改用该可执行文件，但会在 bridge 启动前校验 Python、已安装包版本与 SDK constructor。缺包、版本不一致或不支持的 constructor 参数会以可操作错误失败。
 

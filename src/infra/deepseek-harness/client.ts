@@ -27,7 +27,6 @@ import {
   type ManagedProcess,
 } from '../../shared/utils/index.js';
 import {
-  sanitizeSensitiveTextWithKnownValues,
   sanitizeSensitiveValueWithKnownValues,
   createSensitiveTextStreamRedactor,
 } from '../../shared/utils/sensitiveText.js';
@@ -43,6 +42,7 @@ import {
   validateDeepSeekHarnessInstallation,
 } from './managed-venv.js';
 import { parseDeepSeekHarnessModelReference } from './model-reference.js';
+import { sanitizeDeepSeekHarnessKnownSecrets } from './sensitive-diagnostics.js';
 import type { DeepSeekHarnessCallOptions } from './types.js';
 const DEEPSEEK_HARNESS_STARTUP_TIMEOUT_MS = 30_000;
 const DEEPSEEK_HARNESS_CALL_TIMEOUT_MS = 3_600_000;
@@ -269,7 +269,7 @@ function assertOpaqueProtocolIdentifier(
   knownSecrets: Record<string, string>,
   description: string,
 ): void {
-  if (sanitizeKnownSecrets(identifier, knownSecrets) !== identifier) {
+  if (sanitizeDeepSeekHarnessKnownSecrets(identifier, knownSecrets) !== identifier) {
     throw new Error(`DeepSeek Harness ${description} must not contain configured secret values`);
   }
 }
@@ -511,19 +511,9 @@ function processKey(
   });
 }
 
-function sanitizeKnownSecrets(text: string, knownSecrets: Record<string, string>): string {
-  let sanitized = sanitizeSensitiveTextWithKnownValues(text, knownSecrets);
-  for (const value of Object.values(knownSecrets)
-    .filter((candidate) => candidate.length > 0)
-    .sort((left, right) => right.length - left.length)) {
-    sanitized = sanitized.split(value).join('[REDACTED]');
-  }
-  return sanitized;
-}
-
 function safeMessage(value: unknown, knownSecrets: Record<string, string>): string {
   const sanitized = sanitizeTerminalText(
-    sanitizeKnownSecrets(getErrorMessage(value), knownSecrets),
+    sanitizeDeepSeekHarnessKnownSecrets(getErrorMessage(value), knownSecrets),
   );
   if (Buffer.byteLength(sanitized, 'utf8') <= DEEPSEEK_HARNESS_MAX_ERROR_BYTES) {
     return sanitized;
@@ -1113,7 +1103,7 @@ class DeepSeekHarnessProcess {
 
   private diagnostics(reason: string): string {
     this.appendStderr(this.stderrRedactor.flush(this.knownSecrets));
-    const tail = sanitizeKnownSecrets(this.stderr.trim(), this.knownSecrets).trim();
+    const tail = sanitizeDeepSeekHarnessKnownSecrets(this.stderr.trim(), this.knownSecrets).trim();
     return tail.length === 0 ? `DeepSeek Harness ${reason}` : `DeepSeek Harness ${reason}\nstderr tail:\n${tail}`;
   }
 
@@ -1619,7 +1609,7 @@ function createSuccessResponse(
       `DeepSeek Harness returned unsupported turn completion reason "${result.finishReason}"`,
     );
   }
-  const finalResponse = sanitizeKnownSecrets(result.finalResponse, knownSecrets);
+  const finalResponse = sanitizeDeepSeekHarnessKnownSecrets(result.finalResponse, knownSecrets);
   assertSafeSessionId(result.sessionId);
   assertOpaqueSessionId(result.sessionId, knownSecrets);
   if (finalResponse.length === 0) {

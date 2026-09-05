@@ -1,14 +1,15 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   installManagedDeepSeekHarness,
   resolveDeepSeekHarnessManagedPaths,
   validateDeepSeekHarnessInstallation,
 } from '../infra/deepseek-harness/index.js';
+import type { ValidateDeepSeekHarnessInstallationOptions } from '../infra/deepseek-harness/index.js';
 import { getDeepSeekHarnessConstructorArguments } from '../infra/deepseek-harness/managed-venv.js';
 
 const PINNED_VERSION = '0.1.1rc1';
@@ -18,6 +19,19 @@ async function createTemporaryRoot(): Promise<string> {
   const root = await mkdtemp(path.join(os.tmpdir(), 'takt-deepseek-managed-'));
   temporaryRoots.push(root);
   return root;
+}
+
+async function createExitedProcessId(): Promise<number> {
+  const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
+  const pid = child.pid;
+  if (pid === undefined) {
+    throw new Error('Expected stale lock owner process to have a PID');
+  }
+  await new Promise<void>((resolvePromise, reject) => {
+    child.once('error', reject);
+    child.once('exit', () => resolvePromise());
+  });
+  return pid;
 }
 
 async function createProbeExecutable(
@@ -89,9 +103,12 @@ type ManagedInstallFixtureOptions = {
   readonly includeGeneralEnvironmentValue?: boolean;
   readonly includeVersionEnvironmentValue?: boolean;
   readonly controlledWorkerId?: string;
+  readonly bootstrapOwnerFile?: string;
   readonly bootstrapReleaseFile?: string;
+  readonly venvReleaseFile?: string;
   readonly pipReleaseFile?: string;
   readonly validationReleaseFile?: string;
+  readonly venvMarkerFile?: string;
   readonly pipMarkerFile?: string;
   readonly validationMarkerFile?: string;
 };
@@ -128,6 +145,36 @@ function appendEvent(event) {
 function waitFor(file) {
   while (!fs.existsSync(file)) {
     Atomics.wait(waitBuffer, 0, 0, 10);
+  }
+}
+
+function ownsBootstrapBarrier() {
+  if (config.bootstrapOwnerFile === undefined) {
+    return false;
+  }
+  try {
+    return fs.readFileSync(config.bootstrapOwnerFile, 'utf8') === workerId;
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
+function claimBootstrapBarrier() {
+  if (config.bootstrapOwnerFile === undefined) {
+    return false;
+  }
+  try {
+    fs.writeFileSync(config.bootstrapOwnerFile, workerId, { flag: 'wx' });
+    appendEvent('bootstrap-owner:' + workerId);
+    return true;
+  } catch (error) {
+    if (error.code === 'EEXIST') {
+      return false;
+    }
+    throw error;
   }
 }
 
@@ -173,7 +220,11 @@ function failureDiagnostic() {
 if (args[0] === '-c') {
   if (role === 'bootstrap') {
     appendEvent('probe:' + workerId);
-    if (config.controlledWorkerId === workerId && config.bootstrapReleaseFile !== undefined) {
+    const ownsBarrier = claimBootstrapBarrier();
+    if (
+      (config.controlledWorkerId === workerId || ownsBarrier)
+      && config.bootstrapReleaseFile !== undefined
+    ) {
       waitFor(config.bootstrapReleaseFile);
     }
     process.stdout.write(JSON.stringify(
@@ -184,7 +235,10 @@ if (args[0] === '-c') {
 
   acquireMarker(config.validationMarkerFile, 'validation');
   appendEvent('validate:' + workerId);
-  if (config.controlledWorkerId === workerId && config.validationReleaseFile !== undefined) {
+  if (
+    (config.controlledWorkerId === workerId || ownsBootstrapBarrier())
+    && config.validationReleaseFile !== undefined
+  ) {
     waitFor(config.validationReleaseFile);
   }
   releaseMarker(config.validationMarkerFile);
@@ -200,9 +254,17 @@ if (args[0] === '-m' && args[1] === 'venv') {
   if (typeof target !== 'string' || managedSource === undefined) {
     fail('managed VENV target is missing');
   }
-  fs.mkdirSync(path.join(target, 'bin'), { recursive: true });
-  fs.writeFileSync(path.join(target, 'bin', 'python'), managedSource, { mode: 0o755 });
-  appendEvent('venv:' + workerId);
+  acquireMarker(config.venvMarkerFile, 'venv');
+  try {
+    fs.mkdirSync(path.join(target, 'bin'), { recursive: true });
+    fs.writeFileSync(path.join(target, 'bin', 'python'), managedSource, { mode: 0o755 });
+    appendEvent('venv:' + workerId);
+    if (ownsBootstrapBarrier() && config.venvReleaseFile !== undefined) {
+      waitFor(config.venvReleaseFile);
+    }
+  } finally {
+    releaseMarker(config.venvMarkerFile);
+  }
   process.exit(0);
 }
 
@@ -220,7 +282,10 @@ if (args[0] === '-m' && args[1] === 'pip') {
     process.stderr.write(failureDiagnostic() + '\\n');
     process.exit(1);
   }
-  if (config.controlledWorkerId === workerId && config.pipReleaseFile !== undefined) {
+  if (
+    (config.controlledWorkerId === workerId || ownsBootstrapBarrier())
+    && config.pipReleaseFile !== undefined
+  ) {
     waitFor(config.pipReleaseFile);
   }
   releaseMarker(config.pipMarkerFile);
@@ -236,6 +301,94 @@ fail('unexpected bootstrap Python invocation');
   return executablePath;
 }
 
+async function createManagedInstallRacePreload(root: string): Promise<string> {
+  const preloadPath = path.join(root, 'managed-install-race-preload.cjs');
+  await writeFile(preloadPath, `
+const fs = require('node:fs');
+const path = require('node:path');
+const { syncBuiltinESMExports } = require('node:module');
+const originalMkdir = fs.promises.mkdir;
+const originalOpen = fs.promises.open;
+const originalRename = fs.promises.rename;
+const originalUnlink = fs.promises.unlink;
+const originalRm = fs.promises.rm;
+let delayed = false;
+
+function shouldDelay(candidate) {
+  if (delayed) {
+    return false;
+  }
+  const basename = path.basename(String(candidate));
+  if (process.env.DSH_TEST_RACE_MODE === 'recovery-cleanup') {
+    return basename.startsWith('.recovery.quarantine-');
+  }
+  if (process.env.DSH_TEST_RACE_MODE === 'owner-publication') {
+    return false;
+  }
+  return basename === '.install.lock'
+    || basename.startsWith('.install.lock.candidate-')
+    || basename.startsWith('.install.lock.recovery-candidate-');
+}
+
+function shouldDelayOwnerPublication(candidate) {
+  return process.env.DSH_TEST_RACE_MODE === 'owner-publication'
+    && path.basename(String(candidate)) === 'owner'
+    && path.basename(path.dirname(String(candidate))).startsWith('.install.lock.candidate-');
+}
+
+function waitForRelease() {
+  const entered = process.env.DSH_TEST_RACE_ENTER;
+  const release = process.env.DSH_TEST_RACE_RELEASE;
+  if (entered === undefined || release === undefined) {
+    return;
+  }
+  fs.writeFileSync(entered, process.env.DSH_TEST_WORKER_ID || 'unknown', 'utf8');
+  const waitBuffer = new Int32Array(new SharedArrayBuffer(4));
+  while (!fs.existsSync(release)) {
+    Atomics.wait(waitBuffer, 0, 0, 10);
+  }
+}
+
+fs.promises.mkdir = async function mkdir(directory, ...args) {
+  if (shouldDelay(directory)) {
+    delayed = true;
+    waitForRelease();
+  }
+  return originalMkdir.call(this, directory, ...args);
+};
+  fs.promises.open = async function open(filePath, ...args) {
+  if (shouldDelayOwnerPublication(filePath)) {
+    delayed = true;
+    waitForRelease();
+  }
+  return originalOpen.call(this, filePath, ...args);
+};
+fs.promises.rename = async function rename(source, destination) {
+  if (shouldDelay(source) || shouldDelay(destination)) {
+    delayed = true;
+    waitForRelease();
+  }
+  return originalRename.call(this, source, destination);
+};
+fs.promises.unlink = async function unlink(filePath, ...args) {
+  if (shouldDelay(filePath)) {
+    delayed = true;
+    waitForRelease();
+  }
+  return originalUnlink.call(this, filePath, ...args);
+};
+fs.promises.rm = async function rm(filePath, ...args) {
+  if (shouldDelay(filePath)) {
+    delayed = true;
+    waitForRelease();
+  }
+  return originalRm.call(this, filePath, ...args);
+};
+syncBuiltinESMExports();
+`, 'utf8');
+  return preloadPath;
+}
+
 const installWorkerFixturePath = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   'fixtures',
@@ -248,12 +401,28 @@ type InstallWorkerHandle = {
   readonly completion: Promise<string>;
 };
 
+type InstallWorkerOptions = {
+  readonly startBarrierFile?: string;
+  readonly racePreloadPath?: string;
+  readonly raceMode?: 'lock' | 'recovery-cleanup' | 'owner-publication';
+  readonly raceEnterFile?: string;
+  readonly raceReleaseFile?: string;
+};
+
 function startInstallWorker(
   configDir: string,
   pythonPath: string,
   workerId: string,
   controlDir: string,
+  options: InstallWorkerOptions = {},
 ): InstallWorkerHandle {
+  const stdio = ['ignore', 'pipe', 'pipe'] as const;
+  const nodeOptions = options.racePreloadPath === undefined
+    ? process.env.NODE_OPTIONS
+    : [
+        process.env.NODE_OPTIONS,
+        `--require=${options.racePreloadPath}`,
+      ].filter((value): value is string => value !== undefined).join(' ');
   const child = spawn(process.execPath, [
     viteNodePath,
     installWorkerFixturePath,
@@ -266,8 +435,21 @@ function startInstallWorker(
       ...process.env,
       DSH_TEST_CONTROL_DIR: controlDir,
       DSH_TEST_WORKER_ID: workerId,
+      ...(options.startBarrierFile === undefined
+        ? {}
+        : { DSH_TEST_START_BARRIER: options.startBarrierFile }),
+      ...(nodeOptions === undefined ? {} : { NODE_OPTIONS: nodeOptions }),
+      ...(options.raceMode === undefined
+        ? {}
+        : { DSH_TEST_RACE_MODE: options.raceMode }),
+      ...(options.raceEnterFile === undefined
+        ? {}
+        : { DSH_TEST_RACE_ENTER: options.raceEnterFile }),
+      ...(options.raceReleaseFile === undefined
+        ? {}
+        : { DSH_TEST_RACE_RELEASE: options.raceReleaseFile }),
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: [...stdio],
   });
   let stdout = '';
   let stderr = '';
@@ -363,12 +545,6 @@ async function expectNoWorkerActivity(
   }
 }
 
-type ValidateOptionsWithProbeTimeout = NonNullable<
-  Parameters<typeof validateDeepSeekHarnessInstallation>[1]
-> & {
-  readonly probeTimeoutMs: number;
-};
-
 describe('DeepSeek Harness constructor arguments', () => {
   it('returns only the required constructor arguments by default', () => {
     expect(getDeepSeekHarnessConstructorArguments({})).toEqual([
@@ -417,6 +593,7 @@ describe('DeepSeek Harness constructor arguments', () => {
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -443,10 +620,10 @@ describe.skipIf(process.platform === 'win32')('DeepSeek Harness managed VENV', (
     const root = await createTemporaryRoot();
     const pythonPath = await createHangingProbeExecutable(root);
     const startedAt = Date.now();
-    const options: ValidateOptionsWithProbeTimeout = { probeTimeoutMs: 100 };
+    const options: ValidateDeepSeekHarnessInstallationOptions = { probeTimeoutMs: 100 };
 
     await expect(validateDeepSeekHarnessInstallation(pythonPath, options)).rejects.toThrow();
-    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 
   it.each([
@@ -506,6 +683,8 @@ describe.skipIf(process.platform === 'win32')('DeepSeek Harness managed VENV', (
       pythonPath: bootstrapPython,
     })).rejects.toThrow();
     expect(await readFile(path.join(paths.venvPath, 'partial-marker'), 'utf8')).toBe('partial VENV');
+    await expect(readFile(path.join(paths.rootPath, '.install.lock'), 'utf8'))
+      .rejects.toMatchObject({ code: 'ENOENT' });
 
     const installation = await installManagedDeepSeekHarness({
       configDir,
@@ -600,20 +779,15 @@ describe.skipIf(process.platform === 'win32')('DeepSeek Harness managed VENV', (
       failVenv: true,
     }, bootstrapPython);
 
-    const previousPath = process.env.PATH;
-    process.env.PATH = previousPath === undefined
-      ? bootstrapDir
-      : `${bootstrapDir}${path.delimiter}${previousPath}`;
-    try {
-      await expect(installManagedDeepSeekHarness({ configDir })).rejects.toThrow();
-      expect(await readFile(existingMarker, 'utf8')).toBe('existing environment');
-    } finally {
-      if (previousPath === undefined) {
-        delete process.env.PATH;
-      } else {
-        process.env.PATH = previousPath;
-      }
-    }
+    const currentPath = process.env.PATH;
+    vi.stubEnv(
+      'PATH',
+      currentPath === undefined
+        ? bootstrapDir
+        : `${bootstrapDir}${path.delimiter}${currentPath}`,
+    );
+    await expect(installManagedDeepSeekHarness({ configDir })).rejects.toThrow();
+    expect(await readFile(existingMarker, 'utf8')).toBe('existing environment');
   });
 
   it('redacts only DeepSeek secret environment values from installation errors', async () => {
@@ -622,82 +796,414 @@ describe.skipIf(process.platform === 'win32')('DeepSeek Harness managed VENV', (
     const baseUrl = 'https://deepseek-managed-secret.example/v1';
     const generalValue = 'ordinary-installation-environment-value';
     const versionValue = PINNED_VERSION;
-    const previousValues = {
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      baseUrl: process.env.DEEPSEEK_BASE_URL,
-      general: process.env.TAKT_TEST_GENERAL_VALUE,
-      version: process.env.TAKT_TEST_VERSION_VALUE,
-    };
-    process.env.DEEPSEEK_API_KEY = apiKey;
-    process.env.DEEPSEEK_BASE_URL = baseUrl;
-    process.env.TAKT_TEST_GENERAL_VALUE = generalValue;
-    process.env.TAKT_TEST_VERSION_VALUE = versionValue;
+    vi.stubEnv('DEEPSEEK_API_KEY', apiKey);
+    vi.stubEnv('DEEPSEEK_BASE_URL', baseUrl);
+    vi.stubEnv('TAKT_TEST_GENERAL_VALUE', generalValue);
+    vi.stubEnv('TAKT_TEST_VERSION_VALUE', versionValue);
+
+    const bootstrapPython = await createManagedInstallExecutable(configDir, {
+      failFirstPip: true,
+      failureMessage: `${apiKey} ${baseUrl}`,
+      includeGeneralEnvironmentValue: true,
+      includeVersionEnvironmentValue: true,
+    });
+
+    let failure: unknown;
     try {
-      const bootstrapPython = await createManagedInstallExecutable(configDir, {
-        failFirstPip: true,
-        failureMessage: `${apiKey} ${baseUrl}`,
-        includeGeneralEnvironmentValue: true,
-        includeVersionEnvironmentValue: true,
+      await installManagedDeepSeekHarness({
+        configDir,
+        pythonPath: bootstrapPython,
       });
-
-      let failure: unknown;
-      try {
-        await installManagedDeepSeekHarness({
-          configDir,
-          pythonPath: bootstrapPython,
-        });
-      } catch (error) {
-        failure = error;
-      }
-      if (!(failure instanceof Error)) {
-        throw new Error('Expected managed DeepSeek Harness installation to fail');
-      }
-
-      expect(failure.message).not.toContain(apiKey);
-      expect(failure.message).not.toContain(baseUrl);
-      expect(failure.message).toContain('[REDACTED]');
-      expect(failure.message).toContain(generalValue);
-      expect(failure.message).toContain(versionValue);
-    } finally {
-      if (previousValues.apiKey === undefined) {
-        delete process.env.DEEPSEEK_API_KEY;
-      } else {
-        process.env.DEEPSEEK_API_KEY = previousValues.apiKey;
-      }
-      if (previousValues.baseUrl === undefined) {
-        delete process.env.DEEPSEEK_BASE_URL;
-      } else {
-        process.env.DEEPSEEK_BASE_URL = previousValues.baseUrl;
-      }
-      if (previousValues.general === undefined) {
-        delete process.env.TAKT_TEST_GENERAL_VALUE;
-      } else {
-        process.env.TAKT_TEST_GENERAL_VALUE = previousValues.general;
-      }
-      if (previousValues.version === undefined) {
-        delete process.env.TAKT_TEST_VERSION_VALUE;
-      } else {
-        process.env.TAKT_TEST_VERSION_VALUE = previousValues.version;
-      }
+    } catch (error) {
+      failure = error;
     }
+    if (!(failure instanceof Error)) {
+      throw new Error('Expected managed DeepSeek Harness installation to fail');
+    }
+
+    expect(failure.message).not.toContain(apiKey);
+    expect(failure.message).not.toContain(baseUrl);
+    expect(failure.message).toContain('[REDACTED]');
+    expect(failure.message).toContain(generalValue);
+    expect(failure.message).toContain(versionValue);
   });
 
-  it('serializes concurrent installs through final validation for one managed root', async () => {
+  it('preserves short secret substrings outside token boundaries in installation errors', async () => {
     const configDir = await createTemporaryRoot();
+    vi.stubEnv('DEEPSEEK_API_KEY', 'abc');
+    const bootstrapPython = await createManagedInstallExecutable(configDir, {
+      failFirstPip: true,
+      failureMessage: 'xabcx abc',
+    });
+
+    let failure: unknown;
+    try {
+      await installManagedDeepSeekHarness({
+        configDir,
+        pythonPath: bootstrapPython,
+      });
+    } catch (error) {
+      failure = error;
+    }
+    if (!(failure instanceof Error)) {
+      throw new Error('Expected managed DeepSeek Harness installation to fail');
+    }
+
+    expect(failure.message).toContain('xabcx');
+    expect(failure.message).toContain('[REDACTED]');
+  });
+
+  it('atomically reclaims one stale lock owner across concurrent installs', async () => {
+    const configDir = await createTemporaryRoot();
+    const paths = resolveDeepSeekHarnessManagedPaths(configDir);
+    const controlDir = path.join(configDir, 'control');
+    await mkdir(controlDir, { recursive: true });
+    await mkdir(paths.rootPath, { recursive: true });
+    const eventLogPath = path.join(controlDir, 'events.log');
+    const startBarrierFile = path.join(controlDir, 'start');
+    const bootstrapOwnerFile = path.join(controlDir, 'bootstrap-owner');
+    const bootstrapReleaseFile = path.join(controlDir, 'release-bootstrap');
+    const venvReleaseFile = path.join(controlDir, 'release-venv');
+    const pipReleaseFile = path.join(controlDir, 'release-pip');
+    const validationReleaseFile = path.join(controlDir, 'release-validation');
+    const venvMarkerFile = path.join(controlDir, 'venv-active');
+    const pipMarkerFile = path.join(controlDir, 'pip-active');
+    const validationMarkerFile = path.join(controlDir, 'validation-active');
+    const staleOwnerPid = await createExitedProcessId();
+    const staleLockPath = path.join(paths.rootPath, '.install.lock');
+    await mkdir(staleLockPath, { recursive: true });
+    await writeFile(
+      path.join(staleLockPath, 'owner'),
+      JSON.stringify({ pid: staleOwnerPid, token: 'stale-lock' }),
+      'utf8',
+    );
+    const bootstrapPython = await createManagedInstallExecutable(configDir, {
+      eventLogPath,
+      bootstrapOwnerFile,
+      bootstrapReleaseFile,
+      venvReleaseFile,
+      pipReleaseFile,
+      validationReleaseFile,
+      venvMarkerFile,
+      pipMarkerFile,
+      validationMarkerFile,
+    });
+    const raceEnterFile = path.join(controlDir, 'race-entered');
+    const raceReleaseFile = path.join(controlDir, 'race-release');
+    const racePreloadPath = await createManagedInstallRacePreload(configDir);
+    const workerIds = ['one', 'two', 'three', 'four'] as const;
+    const delayedWorkerId = 'two';
+    const competingWorkerIds = ['one', 'three', 'four'] as const;
+    const workers: InstallWorkerHandle[] = [startInstallWorker(
+      configDir,
+      bootstrapPython,
+      delayedWorkerId,
+      controlDir,
+      {
+        racePreloadPath,
+        raceEnterFile,
+        raceReleaseFile,
+      },
+    )];
+    try {
+      await waitForFile(raceEnterFile);
+      workers.push(...competingWorkerIds.map((workerId) => startInstallWorker(
+        configDir,
+        bootstrapPython,
+        workerId,
+        controlDir,
+        { startBarrierFile },
+      )));
+      await Promise.all(competingWorkerIds.map((workerId) => waitForFile(
+        path.join(controlDir, `ready-${workerId}`),
+      )));
+      await writeFile(startBarrierFile, 'start', 'utf8');
+
+      const ownerEvent = await waitForAnyEvent(
+        eventLogPath,
+        competingWorkerIds.map((workerId) => `bootstrap-owner:${workerId}`),
+      );
+      const ownerId = ownerEvent.slice('bootstrap-owner:'.length);
+      const contendingWorkerIds = workerIds.filter((workerId) => workerId !== ownerId);
+      await writeFile(raceReleaseFile, 'release', 'utf8');
+      await Promise.all(contendingWorkerIds.map((workerId) => expectNoWorkerActivity(
+        eventLogPath,
+        workerId,
+        1_000,
+      )));
+      await writeFile(bootstrapReleaseFile, 'release', 'utf8');
+
+      await waitForEvent(eventLogPath, `venv:${ownerId}`);
+      await Promise.all(contendingWorkerIds.map((workerId) => expectNoWorkerActivity(
+        eventLogPath,
+        workerId,
+      )));
+      await writeFile(venvReleaseFile, 'release', 'utf8');
+
+      await waitForEvent(eventLogPath, `pip:${ownerId}`);
+      await Promise.all(contendingWorkerIds.map((workerId) => expectNoWorkerActivity(
+        eventLogPath,
+        workerId,
+      )));
+      await writeFile(pipReleaseFile, 'release', 'utf8');
+
+      await waitForEvent(eventLogPath, `validate:${ownerId}`);
+      await Promise.all(contendingWorkerIds.map((workerId) => expectNoWorkerActivity(
+        eventLogPath,
+        workerId,
+      )));
+      await writeFile(validationReleaseFile, 'release', 'utf8');
+
+      const outputs = await Promise.all(workers.map((worker) => worker.completion));
+      const installations = outputs.map((output) => JSON.parse(output.trim()) as Record<string, unknown>);
+      expect(installations).toHaveLength(workerIds.length);
+      for (const installation of installations) {
+        expect(installation).toMatchObject({
+          pythonVersion: '3.10',
+          sdkVersion: PINNED_VERSION,
+          runtimeVersion: PINNED_VERSION,
+        });
+      }
+      const events = await readEventLog(eventLogPath);
+      expect(events.filter((event) => event.startsWith('probe:'))).toHaveLength(workerIds.length);
+      expect(events.filter((event) => event.startsWith('venv:'))).toHaveLength(workerIds.length);
+      expect(events.filter((event) => event.startsWith('pip:'))).toHaveLength(workerIds.length);
+      expect(events.filter((event) => event.startsWith('validate:'))).toHaveLength(workerIds.length);
+      expect(events.some((event) => event.startsWith('conflict:'))).toBe(false);
+      expect((await readdir(paths.rootPath)).filter((entry) => entry.startsWith('.install.lock'))).toEqual([]);
+    } finally {
+      await Promise.all([
+        writeFile(bootstrapReleaseFile, 'release', 'utf8'),
+        writeFile(venvReleaseFile, 'release', 'utf8'),
+        writeFile(pipReleaseFile, 'release', 'utf8'),
+        writeFile(validationReleaseFile, 'release', 'utf8'),
+      ]);
+      for (const worker of workers) {
+        if (worker.child.exitCode === null && worker.child.signalCode === null) {
+          worker.child.kill('SIGKILL');
+        }
+      }
+      await Promise.allSettled(workers.map((worker) => worker.completion));
+    }
+  }, 30_000);
+
+  it('does not delete a replacement recovery owner while reclaiming a stale recovery', async () => {
+    const configDir = await createTemporaryRoot();
+    const paths = resolveDeepSeekHarnessManagedPaths(configDir);
+    const controlDir = path.join(configDir, 'control');
+    await mkdir(controlDir, { recursive: true });
+    await mkdir(paths.rootPath, { recursive: true });
+    const eventLogPath = path.join(controlDir, 'events.log');
+    const bootstrapOwnerFile = path.join(controlDir, 'bootstrap-owner');
+    const bootstrapReleaseFile = path.join(controlDir, 'release-bootstrap');
+    const venvReleaseFile = path.join(controlDir, 'release-venv');
+    const pipReleaseFile = path.join(controlDir, 'release-pip');
+    const validationReleaseFile = path.join(controlDir, 'release-validation');
+    const venvMarkerFile = path.join(controlDir, 'venv-active');
+    const pipMarkerFile = path.join(controlDir, 'pip-active');
+    const validationMarkerFile = path.join(controlDir, 'validation-active');
+    const staleOwnerPid = await createExitedProcessId();
+    const staleLockPath = path.join(paths.rootPath, '.install.lock');
+    const staleRecoveryPath = path.join(staleLockPath, '.recovery');
+    await mkdir(staleRecoveryPath, { recursive: true });
+    await writeFile(
+      path.join(staleLockPath, 'owner'),
+      JSON.stringify({ pid: staleOwnerPid, token: 'stale-lock' }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(staleRecoveryPath, 'owner'),
+      JSON.stringify({ pid: staleOwnerPid, token: 'stale-recovery' }),
+      'utf8',
+    );
+    const bootstrapPython = await createManagedInstallExecutable(configDir, {
+      eventLogPath,
+      bootstrapOwnerFile,
+      bootstrapReleaseFile,
+      venvReleaseFile,
+      pipReleaseFile,
+      validationReleaseFile,
+      venvMarkerFile,
+      pipMarkerFile,
+      validationMarkerFile,
+    });
+    const raceEnterFile = path.join(controlDir, 'recovery-cleanup-entered');
+    const raceReleaseFile = path.join(controlDir, 'recovery-cleanup-release');
+    const racePreloadPath = await createManagedInstallRacePreload(configDir);
+    const first = startInstallWorker(
+      configDir,
+      bootstrapPython,
+      'one',
+      controlDir,
+      {
+        racePreloadPath,
+        raceMode: 'recovery-cleanup',
+        raceEnterFile,
+        raceReleaseFile,
+      },
+    );
+    const workers = [first];
+    let second: InstallWorkerHandle | undefined;
+    try {
+      await waitForFile(raceEnterFile);
+      second = startInstallWorker(configDir, bootstrapPython, 'two', controlDir);
+      workers.push(second);
+      await waitForEvent(eventLogPath, 'bootstrap-owner:two');
+
+      const activeEntries = await readdir(staleLockPath);
+      expect(activeEntries.filter((entry) => entry === 'owner' || entry === '.recovery'))
+        .toEqual(['owner']);
+      await expectNoWorkerActivity(eventLogPath, 'one', 1_000);
+
+      await writeFile(raceReleaseFile, 'release', 'utf8');
+      await expectNoWorkerActivity(eventLogPath, 'one');
+      await writeFile(bootstrapReleaseFile, 'release', 'utf8');
+      await waitForEvent(eventLogPath, 'venv:two');
+      await expectNoWorkerActivity(eventLogPath, 'one');
+      await writeFile(venvReleaseFile, 'release', 'utf8');
+      await waitForEvent(eventLogPath, 'pip:two');
+      await expectNoWorkerActivity(eventLogPath, 'one');
+      await writeFile(pipReleaseFile, 'release', 'utf8');
+      await waitForEvent(eventLogPath, 'validate:two');
+      await expectNoWorkerActivity(eventLogPath, 'one');
+      await writeFile(validationReleaseFile, 'release', 'utf8');
+
+      const outputs = await Promise.all(workers.map((worker) => worker.completion));
+      expect(outputs).toHaveLength(2);
+      const events = await readEventLog(eventLogPath);
+      expect(events.some((event) => event.startsWith('conflict:'))).toBe(false);
+      expect(events.filter((event) => event.startsWith('venv:'))).toHaveLength(2);
+      expect(events.filter((event) => event.startsWith('pip:'))).toHaveLength(2);
+      expect(events.filter((event) => event.startsWith('validate:'))).toHaveLength(2);
+      expect((await readdir(paths.rootPath)).filter((entry) => entry.startsWith('.install.lock'))).toEqual([]);
+    } finally {
+      await Promise.all([
+        writeFile(raceReleaseFile, 'release', 'utf8'),
+        writeFile(bootstrapReleaseFile, 'release', 'utf8'),
+        writeFile(venvReleaseFile, 'release', 'utf8'),
+        writeFile(pipReleaseFile, 'release', 'utf8'),
+        writeFile(validationReleaseFile, 'release', 'utf8'),
+      ]);
+      for (const worker of workers) {
+        if (worker.child.exitCode === null && worker.child.signalCode === null) {
+          worker.child.kill('SIGKILL');
+        }
+      }
+      await Promise.allSettled(workers.map((worker) => worker.completion));
+    }
+  }, 30_000);
+
+  it('preserves a replacement canonical owner when owner publication is interrupted', async () => {
+    const configDir = await createTemporaryRoot();
+    const paths = resolveDeepSeekHarnessManagedPaths(configDir);
     const controlDir = path.join(configDir, 'control');
     await mkdir(controlDir, { recursive: true });
     const eventLogPath = path.join(controlDir, 'events.log');
+    const bootstrapOwnerFile = path.join(controlDir, 'bootstrap-owner');
     const bootstrapReleaseFile = path.join(controlDir, 'release-bootstrap');
+    const venvReleaseFile = path.join(controlDir, 'release-venv');
     const pipReleaseFile = path.join(controlDir, 'release-pip');
     const validationReleaseFile = path.join(controlDir, 'release-validation');
+    const venvMarkerFile = path.join(controlDir, 'venv-active');
     const pipMarkerFile = path.join(controlDir, 'pip-active');
     const validationMarkerFile = path.join(controlDir, 'validation-active');
     const bootstrapPython = await createManagedInstallExecutable(configDir, {
       eventLogPath,
-      controlledWorkerId: 'one',
+      bootstrapOwnerFile,
       bootstrapReleaseFile,
+      venvReleaseFile,
       pipReleaseFile,
       validationReleaseFile,
+      venvMarkerFile,
+      pipMarkerFile,
+      validationMarkerFile,
+    });
+    const raceEnterFile = path.join(controlDir, 'owner-publication-entered');
+    const raceReleaseFile = path.join(controlDir, 'owner-publication-release');
+    const racePreloadPath = await createManagedInstallRacePreload(configDir);
+    const first = startInstallWorker(
+      configDir,
+      bootstrapPython,
+      'one',
+      controlDir,
+      {
+        racePreloadPath,
+        raceMode: 'owner-publication',
+        raceEnterFile,
+        raceReleaseFile,
+      },
+    );
+    let second: InstallWorkerHandle | undefined;
+    try {
+      await waitForFile(raceEnterFile);
+      second = startInstallWorker(configDir, bootstrapPython, 'two', controlDir);
+      await waitForEvent(eventLogPath, 'bootstrap-owner:two');
+      await expectNoWorkerActivity(eventLogPath, 'one', 1_000);
+      await writeFile(raceReleaseFile, 'release', 'utf8');
+      await expectNoWorkerActivity(eventLogPath, 'one');
+      await writeFile(bootstrapReleaseFile, 'release', 'utf8');
+      await waitForEvent(eventLogPath, 'venv:two');
+      await expectNoWorkerActivity(eventLogPath, 'one');
+      await writeFile(venvReleaseFile, 'release', 'utf8');
+      await waitForEvent(eventLogPath, 'pip:two');
+      await expectNoWorkerActivity(eventLogPath, 'one');
+      await writeFile(pipReleaseFile, 'release', 'utf8');
+      await waitForEvent(eventLogPath, 'validate:two');
+      await expectNoWorkerActivity(eventLogPath, 'one');
+      await writeFile(validationReleaseFile, 'release', 'utf8');
+
+      const results = await Promise.allSettled([first.completion, second.completion]);
+      expect(results[1]?.status).toBe('fulfilled');
+      const events = await readEventLog(eventLogPath);
+      const validationIndex = events.indexOf('validate:two');
+      const firstWorkerVenvIndex = events.indexOf('venv:one');
+      expect(firstWorkerVenvIndex === -1 || firstWorkerVenvIndex > validationIndex).toBe(true);
+      expect(events.some((event) => event.startsWith('conflict:'))).toBe(false);
+      expect((await readdir(paths.rootPath)).filter((entry) => entry.startsWith('.install.lock'))).toEqual([]);
+    } finally {
+      await Promise.all([
+        writeFile(raceReleaseFile, 'release', 'utf8'),
+        writeFile(bootstrapReleaseFile, 'release', 'utf8'),
+        writeFile(venvReleaseFile, 'release', 'utf8'),
+        writeFile(pipReleaseFile, 'release', 'utf8'),
+        writeFile(validationReleaseFile, 'release', 'utf8'),
+      ]);
+      for (const worker of [first, second]) {
+        if (worker !== undefined && worker.child.exitCode === null && worker.child.signalCode === null) {
+          worker.child.kill('SIGKILL');
+        }
+      }
+      await Promise.allSettled([
+        first.completion,
+        ...(second === undefined ? [] : [second.completion]),
+      ]);
+    }
+  }, 30_000);
+
+  it('serializes concurrent installs through final validation for one managed root', async () => {
+    const configDir = await createTemporaryRoot();
+    const paths = resolveDeepSeekHarnessManagedPaths(configDir);
+    const controlDir = path.join(configDir, 'control');
+    await mkdir(controlDir, { recursive: true });
+    const eventLogPath = path.join(controlDir, 'events.log');
+    const bootstrapReleaseFile = path.join(controlDir, 'release-bootstrap');
+    const venvReleaseFile = path.join(controlDir, 'release-venv');
+    const pipReleaseFile = path.join(controlDir, 'release-pip');
+    const validationReleaseFile = path.join(controlDir, 'release-validation');
+    const venvMarkerFile = path.join(controlDir, 'venv-active');
+    const pipMarkerFile = path.join(controlDir, 'pip-active');
+    const validationMarkerFile = path.join(controlDir, 'validation-active');
+    const existingVenvMarker = path.join(paths.venvPath, 'existing-marker');
+    await mkdir(paths.venvPath, { recursive: true });
+    await writeFile(existingVenvMarker, 'existing environment', 'utf8');
+    const bootstrapPython = await createManagedInstallExecutable(configDir, {
+      eventLogPath,
+      controlledWorkerId: 'one',
+      bootstrapReleaseFile,
+      venvReleaseFile,
+      pipReleaseFile,
+      validationReleaseFile,
+      venvMarkerFile,
       pipMarkerFile,
       validationMarkerFile,
     });
@@ -709,6 +1215,11 @@ describe.skipIf(process.platform === 'win32')('DeepSeek Harness managed VENV', (
       await waitForFile(path.join(controlDir, 'ready-two'));
       await expectNoWorkerActivity(eventLogPath, 'two');
       await writeFile(bootstrapReleaseFile, 'release', 'utf8');
+
+      await waitForEvent(eventLogPath, 'venv:one');
+      await expect(readFile(existingVenvMarker, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+      await expectNoWorkerActivity(eventLogPath, 'two');
+      await writeFile(venvReleaseFile, 'release', 'utf8');
 
       await waitForEvent(eventLogPath, 'pip:one');
       await expectNoWorkerActivity(eventLogPath, 'two');
@@ -722,6 +1233,8 @@ describe.skipIf(process.platform === 'win32')('DeepSeek Harness managed VENV', (
         first.completion,
         second.completion,
       ]);
+      await expect(readFile(path.join(resolveDeepSeekHarnessManagedPaths(configDir).rootPath, '.install.lock'), 'utf8'))
+        .rejects.toMatchObject({ code: 'ENOENT' });
       const installations = outputs.map((output) => JSON.parse(output.trim()) as Record<string, unknown>);
       expect(installations).toHaveLength(2);
       for (const installation of installations) {
@@ -735,6 +1248,7 @@ describe.skipIf(process.platform === 'win32')('DeepSeek Harness managed VENV', (
     } finally {
       await Promise.all([
         writeFile(bootstrapReleaseFile, 'release', 'utf8'),
+        writeFile(venvReleaseFile, 'release', 'utf8'),
         writeFile(pipReleaseFile, 'release', 'utf8'),
         writeFile(validationReleaseFile, 'release', 'utf8'),
       ]);
