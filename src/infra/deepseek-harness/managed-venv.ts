@@ -377,8 +377,29 @@ async function moveManagedInstallPathToQuarantine(
 async function restoreManagedInstallPathFromQuarantine(
   quarantinePath: string,
   targetPath: string,
-): Promise<void> {
-  await rename(quarantinePath, targetPath);
+): Promise<boolean> {
+  try {
+    await rename(quarantinePath, targetPath);
+    return true;
+  } catch (error) {
+    if (isFileSystemError(error, 'EEXIST') || isFileSystemError(error, 'ENOTEMPTY')) {
+      await rm(quarantinePath, { recursive: true, force: true });
+      return false;
+    }
+    if (isFileSystemError(error, 'EPERM')) {
+      try {
+        await stat(targetPath);
+      } catch (targetError) {
+        if (isFileSystemError(targetError, 'ENOENT')) {
+          throw error;
+        }
+        throw targetError;
+      }
+      await rm(quarantinePath, { recursive: true, force: true });
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function removeStaleManagedInstallLockRecovery(

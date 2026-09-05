@@ -79,7 +79,7 @@ takt run
 takt list
 ```
 
-首次运行时，请在 `<global TAKT directory>/config.yaml` 中配置 provider（设置 `TAKT_CONFIG_DIR` 时使用该目录，未设置时默认为 `~/.takt/config.yaml`），或使用[配置](#配置)中列出的 API key 环境变量。`claude-sdk`、`codex`、`opencode` 和 `pi` 等 SDK provider 可在 Node.js 中运行；`deepseek-harness` 还需要 Python 3.10+ 和官方 runtime wheel。CLI provider 还需要对应的外部 CLI。
+首次运行时，请在 `<global TAKT directory>/config.yaml` 中配置 provider（设置 `TAKT_CONFIG_DIR` 时使用该目录，未设置时默认为 `~/.takt/config.yaml`），或使用[配置](#配置)中列出的 API key 环境变量。`claude-sdk`、`codex`、`opencode` 和 `pi` 等 SDK provider 可在 Node.js 中运行；`deepseek-harness` 需要 Python 3.10+，并通过 `takt deepseek-harness install` 创建固定版本的 managed VENV。CLI provider 还需要对应的外部 CLI。
 
 ### 视频教程
 

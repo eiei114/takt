@@ -313,6 +313,21 @@ const originalRename = fs.promises.rename;
 const originalUnlink = fs.promises.unlink;
 const originalRm = fs.promises.rm;
 let delayed = false;
+let restoreConflictPrepared = false;
+let restoreConflictInjected = false;
+
+function restoreConflictCode() {
+  return process.env.DSH_TEST_RESTORE_CONFLICT_CODE;
+}
+
+function replacementOwner() {
+  const pid = Number(process.env.DSH_TEST_REPLACEMENT_OWNER_PID);
+  return JSON.stringify({ pid, token: 'replacement-recovery' });
+}
+
+function isRecoveryQuarantinePath(candidate) {
+  return path.basename(String(candidate)).startsWith('.recovery.quarantine-');
+}
 
 function shouldDelay(candidate) {
   if (delayed) {
@@ -368,7 +383,35 @@ fs.promises.rename = async function rename(source, destination) {
     delayed = true;
     waitForRelease();
   }
-  return originalRename.call(this, source, destination);
+  const sourceBase = path.basename(String(source));
+  const destinationBase = path.basename(String(destination));
+  const conflictCode = restoreConflictCode();
+  if (
+    conflictCode !== undefined
+    && !restoreConflictInjected
+    && isRecoveryQuarantinePath(source)
+    && destinationBase === '.recovery'
+  ) {
+    if (process.env.DSH_TEST_RECREATE_RESTORE_TARGET === '1') {
+      fs.mkdirSync(destination, { recursive: true });
+      fs.writeFileSync(path.join(String(destination), 'owner'), replacementOwner(), 'utf8');
+    }
+    restoreConflictInjected = true;
+    const error = new Error('Injected restore conflict: ' + conflictCode);
+    error.code = conflictCode;
+    throw error;
+  }
+  const result = await originalRename.call(this, source, destination);
+  if (
+    restoreConflictCode() !== undefined
+    && !restoreConflictPrepared
+    && sourceBase === '.recovery'
+    && isRecoveryQuarantinePath(destination)
+  ) {
+    fs.writeFileSync(path.join(String(destination), 'owner'), replacementOwner(), 'utf8');
+    restoreConflictPrepared = true;
+  }
+  return result;
 };
 fs.promises.unlink = async function unlink(filePath, ...args) {
   if (shouldDelay(filePath)) {
@@ -407,6 +450,9 @@ type InstallWorkerOptions = {
   readonly raceMode?: 'lock' | 'recovery-cleanup' | 'owner-publication';
   readonly raceEnterFile?: string;
   readonly raceReleaseFile?: string;
+  readonly restoreConflictCode?: 'EEXIST' | 'ENOTEMPTY' | 'EPERM' | 'EACCES';
+  readonly recreateRestoreTarget?: boolean;
+  readonly replacementOwnerPid?: number;
 };
 
 function startInstallWorker(
@@ -448,6 +494,15 @@ function startInstallWorker(
       ...(options.raceReleaseFile === undefined
         ? {}
         : { DSH_TEST_RACE_RELEASE: options.raceReleaseFile }),
+      ...(options.restoreConflictCode === undefined
+        ? {}
+        : { DSH_TEST_RESTORE_CONFLICT_CODE: options.restoreConflictCode }),
+      ...(options.recreateRestoreTarget === true
+        ? { DSH_TEST_RECREATE_RESTORE_TARGET: '1' }
+        : {}),
+      ...(options.replacementOwnerPid === undefined
+        ? {}
+        : { DSH_TEST_REPLACEMENT_OWNER_PID: String(options.replacementOwnerPid) }),
     },
     stdio: [...stdio],
   });
@@ -792,7 +847,7 @@ describe.skipIf(process.platform === 'win32')('DeepSeek Harness managed VENV', (
 
   it('redacts only DeepSeek secret environment values from installation errors', async () => {
     const configDir = await createTemporaryRoot();
-    const apiKey = 'deepseek-managed-api-secret-123456';
+    const apiKey = 'dsh-key8';
     const baseUrl = 'https://deepseek-managed-secret.example/v1';
     const generalValue = 'ordinary-installation-environment-value';
     const versionValue = PINNED_VERSION;
@@ -828,12 +883,13 @@ describe.skipIf(process.platform === 'win32')('DeepSeek Harness managed VENV', (
     expect(failure.message).toContain(versionValue);
   });
 
-  it('preserves short secret substrings outside token boundaries in installation errors', async () => {
+  it('does not replace short DeepSeek secret values in installation errors', async () => {
     const configDir = await createTemporaryRoot();
-    vi.stubEnv('DEEPSEEK_API_KEY', 'abc');
+    const shortSecret = 'abc1234';
+    vi.stubEnv('DEEPSEEK_API_KEY', shortSecret);
     const bootstrapPython = await createManagedInstallExecutable(configDir, {
       failFirstPip: true,
-      failureMessage: 'xabcx abc',
+      failureMessage: `x${shortSecret}x ${shortSecret}`,
     });
 
     let failure: unknown;
@@ -849,8 +905,142 @@ describe.skipIf(process.platform === 'win32')('DeepSeek Harness managed VENV', (
       throw new Error('Expected managed DeepSeek Harness installation to fail');
     }
 
-    expect(failure.message).toContain('xabcx');
-    expect(failure.message).toContain('[REDACTED]');
+    expect(failure.message).toContain(`x${shortSecret}x`);
+    expect(failure.message).toContain(shortSecret);
+    expect(failure.message).not.toContain('[REDACTED]');
+  });
+
+  it.each(['EEXIST', 'ENOTEMPTY', 'EPERM'] as const)(
+    'treats a recreated recovery target with %s as ownership loss',
+    async (conflictCode) => {
+      const configDir = await createTemporaryRoot();
+      const paths = resolveDeepSeekHarnessManagedPaths(configDir);
+      const controlDir = path.join(configDir, 'control');
+      await mkdir(controlDir, { recursive: true });
+      await mkdir(path.join(paths.rootPath, '.install.lock', '.recovery'), { recursive: true });
+      const staleOwnerPid = await createExitedProcessId();
+      await writeFile(
+        path.join(paths.rootPath, '.install.lock', 'owner'),
+        JSON.stringify({ pid: staleOwnerPid, token: 'stale-lock' }),
+        'utf8',
+      );
+      await writeFile(
+        path.join(paths.rootPath, '.install.lock', '.recovery', 'owner'),
+        JSON.stringify({ pid: staleOwnerPid, token: 'stale-recovery' }),
+        'utf8',
+      );
+      const bootstrapPython = await createManagedInstallExecutable(configDir);
+      const racePreloadPath = await createManagedInstallRacePreload(configDir);
+      const worker = startInstallWorker(
+        configDir,
+        bootstrapPython,
+        'restore-conflict',
+        controlDir,
+        {
+          racePreloadPath,
+          restoreConflictCode: conflictCode,
+          recreateRestoreTarget: true,
+          replacementOwnerPid: staleOwnerPid,
+        },
+      );
+
+      try {
+        const installation = JSON.parse((await worker.completion).trim()) as Record<string, unknown>;
+        expect(installation).toMatchObject({
+          pythonVersion: '3.10',
+          sdkVersion: PINNED_VERSION,
+          runtimeVersion: PINNED_VERSION,
+        });
+        expect((await readdir(paths.rootPath)).filter((entry) => entry.startsWith('.install.lock'))).toEqual([]);
+      } finally {
+        if (worker.child.exitCode === null && worker.child.signalCode === null) {
+          worker.child.kill('SIGKILL');
+        }
+        await Promise.allSettled([worker.completion]);
+      }
+    },
+  );
+
+  it('propagates EPERM when the recovery target does not exist', async () => {
+    const configDir = await createTemporaryRoot();
+    const paths = resolveDeepSeekHarnessManagedPaths(configDir);
+    const controlDir = path.join(configDir, 'control');
+    await mkdir(controlDir, { recursive: true });
+    await mkdir(path.join(paths.rootPath, '.install.lock', '.recovery'), { recursive: true });
+    const staleOwnerPid = await createExitedProcessId();
+    await writeFile(
+      path.join(paths.rootPath, '.install.lock', 'owner'),
+      JSON.stringify({ pid: staleOwnerPid, token: 'stale-lock' }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(paths.rootPath, '.install.lock', '.recovery', 'owner'),
+      JSON.stringify({ pid: staleOwnerPid, token: 'stale-recovery' }),
+      'utf8',
+    );
+    const bootstrapPython = await createManagedInstallExecutable(configDir);
+    const racePreloadPath = await createManagedInstallRacePreload(configDir);
+    const worker = startInstallWorker(
+      configDir,
+      bootstrapPython,
+      'restore-eperm',
+      controlDir,
+      {
+        racePreloadPath,
+        restoreConflictCode: 'EPERM',
+        replacementOwnerPid: staleOwnerPid,
+      },
+    );
+
+    try {
+      await expect(worker.completion).rejects.toThrow(/EPERM/u);
+    } finally {
+      if (worker.child.exitCode === null && worker.child.signalCode === null) {
+        worker.child.kill('SIGKILL');
+      }
+      await Promise.allSettled([worker.completion]);
+    }
+  });
+
+  it('propagates non-conflicting rename errors during recovery restore', async () => {
+    const configDir = await createTemporaryRoot();
+    const paths = resolveDeepSeekHarnessManagedPaths(configDir);
+    const controlDir = path.join(configDir, 'control');
+    await mkdir(controlDir, { recursive: true });
+    await mkdir(path.join(paths.rootPath, '.install.lock', '.recovery'), { recursive: true });
+    const staleOwnerPid = await createExitedProcessId();
+    await writeFile(
+      path.join(paths.rootPath, '.install.lock', 'owner'),
+      JSON.stringify({ pid: staleOwnerPid, token: 'stale-lock' }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(paths.rootPath, '.install.lock', '.recovery', 'owner'),
+      JSON.stringify({ pid: staleOwnerPid, token: 'stale-recovery' }),
+      'utf8',
+    );
+    const bootstrapPython = await createManagedInstallExecutable(configDir);
+    const racePreloadPath = await createManagedInstallRacePreload(configDir);
+    const worker = startInstallWorker(
+      configDir,
+      bootstrapPython,
+      'restore-eacces',
+      controlDir,
+      {
+        racePreloadPath,
+        restoreConflictCode: 'EACCES',
+        replacementOwnerPid: staleOwnerPid,
+      },
+    );
+
+    try {
+      await expect(worker.completion).rejects.toThrow(/EACCES/u);
+    } finally {
+      if (worker.child.exitCode === null && worker.child.signalCode === null) {
+        worker.child.kill('SIGKILL');
+      }
+      await Promise.allSettled([worker.completion]);
+    }
   });
 
   it('atomically reclaims one stale lock owner across concurrent installs', async () => {
