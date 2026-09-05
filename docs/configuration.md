@@ -7,7 +7,7 @@ For phase-level usage events and analysis, see the [Observability Guide](./obser
 
 ## Global Configuration
 
-Configure TAKT defaults in `~/.takt/config.yaml`. This file is created automatically on first run. All fields are optional.
+Configure TAKT defaults in `<global TAKT directory>/config.yaml`. The global TAKT directory is `TAKT_CONFIG_DIR` when set, or `~/.takt/` by default. The file is created automatically on first run. All fields are optional.
 
 TAKT compares existing global and project configuration directories by their real paths, and directories that do not yet exist by their normalized absolute logical paths. If the global configuration directory and the current project's `.takt/` match after this resolution, TAKT exits with an error before initializing either directory. If you run from your home directory or the paths collide through a symbolic link, set `TAKT_CONFIG_DIR` to a directory different from the project's `.takt/` and run TAKT again. `--help` and `--version` are exempt from this check.
 
@@ -1248,7 +1248,7 @@ Workflow and project config can use `base_url` for local proxies only. Non-loopb
 
 #### DeepSeek Harness (`deepseek-harness`)
 
-`deepseek-harness` starts the official `deepseek-harness-sdk` in a Python 3.10+ child process and communicates with it over a line-oriented JSON-RPC bridge. TAKT manages one fixed-version environment below the configured global TAKT directory (default `~/.takt/deepseek-harness/`). Create or recreate it explicitly:
+`deepseek-harness` starts the official `deepseek-harness-sdk` in a Python 3.10+ child process and communicates with it over a line-oriented JSON-RPC bridge. TAKT manages one fixed-version environment below `<global TAKT directory>/deepseek-harness/`. The global TAKT directory is `TAKT_CONFIG_DIR` when set, or `~/.takt/` by default; the managed root is therefore `~/.takt/deepseek-harness/` by default. Create or recreate it explicitly:
 
 ```bash
 takt deepseek-harness install
@@ -1262,9 +1262,9 @@ removes only the existing VENV before installing the pinned pair; it does not
 keep an older version or roll back automatically. TAKT never installs or
 updates this environment during normal provider startup.
 
-`DSH_HOME` is kept separately at the configured global TAKT directory's
-`deepseek-harness/dsh-home` (default `~/.takt/deepseek-harness/dsh-home`), so VENV
-recreation does not remove DeepSeek profiles or plugins stored there. Normal
+`DSH_HOME` is kept separately at `<global TAKT directory>/deepseek-harness/dsh-home`
+(default `~/.takt/deepseek-harness/dsh-home`), so VENV recreation does not remove
+DeepSeek profiles or plugins stored there. Normal
 provider startup uses the managed VENV and never guesses a global Python
 interpreter. If `provider_options.deepseek_harness.python_path` is explicitly
 set, TAKT uses that executable instead, but validates Python, both installed

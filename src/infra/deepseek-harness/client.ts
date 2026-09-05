@@ -884,6 +884,10 @@ class DeepSeekHarnessProcess {
       constructorArguments: getDeepSeekHarnessConstructorArguments(this.configuration),
       environment: this.pythonEnvironment,
       abortSignal,
+      probeTimeoutMs: Math.min(
+        this.configuration.requestTimeoutMs,
+        DEEPSEEK_HARNESS_STARTUP_TIMEOUT_MS,
+      ),
     });
     let managed: ManagedProcess;
     try {

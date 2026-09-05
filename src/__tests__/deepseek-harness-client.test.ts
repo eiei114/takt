@@ -142,6 +142,19 @@ process.stdin.on('data', (chunk) => {
   return executable;
 }
 
+async function createHangingProbeFixture(root: string): Promise<string> {
+  const executable = path.join(root, 'hanging-probe.cjs');
+  await writeFile(executable, `#!/usr/bin/env node
+if (process.argv[2] === '-c') {
+  setInterval(() => {}, 1_000);
+} else {
+  process.exit(2);
+}
+`, 'utf8');
+  await chmod(executable, 0o755);
+  return executable;
+}
+
 const supportedPlatform = (
   (process.platform === 'linux' && (process.arch === 'x64' || process.arch === 'arm64'))
   || (process.platform === 'darwin' && process.arch === 'arm64')
@@ -201,6 +214,24 @@ describe.skipIf(!supportedPlatform)('DeepSeek Harness managed VENV selection', (
     expect(firstEnvironment.dshHome).toBe(managedPaths.dshHomePath);
     expect(secondEnvironment.dshHome).toBe(managedPaths.dshHomePath);
     expect(firstEnvironment.dshHome).toBe(secondEnvironment.dshHome);
+  });
+
+  it('uses request_timeout_ms to bound a hanging Python probe before bridge startup', async () => {
+    const fixturePath = await createHangingProbeFixture(root);
+    const startedAt = Date.now();
+
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: worktreeRoot,
+      providerOptions: {
+        pythonPath: fixturePath,
+        requestTimeoutMs: 100,
+      },
+    });
+
+    expect(response.status).toBe('error');
+    expect(Date.now() - startedAt).toBeLessThan(5_000);
+    await expect(readFile(path.join(worktreeRoot, 'bridge-start-configs.jsonl'), 'utf8'))
+      .rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('fails when the managed VENV is absent instead of guessing a global Python', async () => {
@@ -1188,7 +1219,7 @@ class DeepSeekHarness:
       cwd: root,
       providerOptions: {
         pythonPath,
-        requestTimeoutMs: 100,
+        requestTimeoutMs: 2_000,
       },
     });
 

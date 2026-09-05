@@ -118,7 +118,7 @@ TAKT 需要 Node.js `>=22.22.0`。
 takt deepseek-harness install
 ```
 
-TAKT 会在 `~/.takt/deepseek-harness/` 下重建一个 VENV，并安装精确版本对 `deepseek-harness-sdk==0.1.1rc1` 与 `deepseek-harness-runtime-bin==0.1.1rc1`。用 `--python <path>` 选择 bootstrap 解释器。重新运行该命令只删除该 VENV；独立的 `DSH_HOME` 目录保留 DeepSeek profiles 和 plugins。正常 provider 启动使用 managed VENV，不执行安装或更新，也不猜测全局 Python。显式的 `python_path` 仅允许来自受信任设置，并在 bridge 启动前校验 Python、固定版本对与 constructor 支持。
+TAKT 使用配置的全局 TAKT 目录：设置 `TAKT_CONFIG_DIR` 时使用该目录，未设置时默认为 `~/.takt/`。managed root 是 `<global TAKT directory>/deepseek-harness/`，VENV 位于该 root 之下（默认路径为 `~/.takt/deepseek-harness/`）。TAKT 会安装精确版本对 `deepseek-harness-sdk==0.1.1rc1` 与 `deepseek-harness-runtime-bin==0.1.1rc1`。用 `--python <path>` 选择 bootstrap 解释器。重新运行该命令只删除该 VENV；`DSH_HOME` 位于 `<global TAKT directory>/deepseek-harness/dsh-home`（默认 `~/.takt/deepseek-harness/dsh-home`），其中的 DeepSeek profiles 和 plugins 会保留。正常 provider 启动使用 managed VENV，不执行安装或更新，也不猜测全局 Python。显式的 `python_path` 仅允许来自受信任设置，并在 bridge 启动前校验 Python、固定版本对与 constructor 支持。
 
 官方 runtime 当前支持 Linux x64/arm64 和 macOS arm64。Windows 和 macOS x64 会快速失败；TAKT 不会静默切换到其他 provider。请设置 `DEEPSEEK_API_KEY`，也可以设置 `DEEPSEEK_BASE_URL`。这是 developer-preview 兼容性边界；使用新的 SDK/runtime 组合前，请按照配置指南执行 opt-in live smoke。
 

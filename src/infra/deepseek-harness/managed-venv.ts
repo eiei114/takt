@@ -1,9 +1,11 @@
+import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, open, readFile, rm, stat, unlink } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { join, resolve } from 'node:path';
 import { getGlobalConfigDir } from '../config/paths.js';
 import { sanitizeTerminalText } from '../../shared/utils/text.js';
+import { sanitizeSensitiveTextWithKnownValues } from '../../shared/utils/sensitiveText.js';
 import {
   DEEPSEEK_HARNESS_HOME_ENV_NAME,
   DEEPSEEK_HARNESS_PINNED_VERSION,
@@ -15,8 +17,13 @@ const execFileAsync = promisify(execFile);
 const DEEPSEEK_HARNESS_ENVIRONMENT_DIR = 'deepseek-harness';
 const DEEPSEEK_HARNESS_VENV_DIR = 'venv';
 const DEEPSEEK_HARNESS_HOME_DIR = 'dsh-home';
+const DEEPSEEK_HARNESS_INSTALL_LOCK_FILE = '.install.lock';
 const DEEPSEEK_HARNESS_PROBE_TIMEOUT_MS = 30_000;
 const DEEPSEEK_HARNESS_COMMAND_TIMEOUT_MS = 15 * 60 * 1_000;
+const DEEPSEEK_HARNESS_MAX_NODE_TIMER_MS = 2_147_483_647;
+const DEEPSEEK_HARNESS_LOCK_RETRY_DELAY_MS = 25;
+const DEEPSEEK_HARNESS_LOCK_TIMEOUT_MS = DEEPSEEK_HARNESS_COMMAND_TIMEOUT_MS * 3;
+const DEEPSEEK_HARNESS_LOCK_STALE_MS = 30_000;
 const DEEPSEEK_HARNESS_MAX_COMMAND_OUTPUT_BYTES = 128 * 1024;
 const DEEPSEEK_HARNESS_REQUIRED_CONSTRUCTOR_ARGUMENTS = [
   'provider',
@@ -26,6 +33,16 @@ const DEEPSEEK_HARNESS_REQUIRED_CONSTRUCTOR_ARGUMENTS = [
   'request_timeout_seconds',
   'shutdown_timeout_seconds',
 ] as const;
+
+const DEEPSEEK_HARNESS_PYTHON_PROBE_SCRIPT = `
+import json
+import sys
+
+
+print(json.dumps({
+    "pythonVersion": [sys.version_info.major, sys.version_info.minor],
+}, separators=(",", ":")))
+`;
 
 const DEEPSEEK_HARNESS_PROBE_SCRIPT = `
 import importlib.metadata
@@ -120,6 +137,7 @@ export interface ValidateDeepSeekHarnessInstallationOptions {
   readonly constructorArguments?: readonly string[];
   readonly environment?: NodeJS.ProcessEnv;
   readonly abortSignal?: AbortSignal;
+  readonly probeTimeoutMs?: number;
 }
 
 export interface InstallManagedDeepSeekHarnessOptions {
@@ -162,9 +180,35 @@ function resolveBootstrapPythonPath(pythonPath: string | undefined): string {
   return trimmed;
 }
 
+function resolveDeepSeekEnvironmentSecrets(
+  environment: NodeJS.ProcessEnv,
+): Record<string, string> {
+  const secrets: Record<string, string> = {};
+  for (const name of ['DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL'] as const) {
+    const value = environment[name];
+    if (value !== undefined) {
+      secrets[name] = value;
+    }
+  }
+  return secrets;
+}
+
+function sanitizeKnownSecrets(
+  text: string,
+  knownSecrets: Readonly<Record<string, string>>,
+): string {
+  let sanitized = sanitizeSensitiveTextWithKnownValues(text, knownSecrets);
+  for (const value of Object.values(knownSecrets)
+    .filter((candidate) => candidate.length > 0)
+    .sort((left, right) => right.length - left.length)) {
+    sanitized = sanitized.split(value).join('[REDACTED]');
+  }
+  return sanitized;
+}
+
 function commandErrorMessage(
   error: unknown,
-  environment: NodeJS.ProcessEnv,
+  knownSecrets: Readonly<Record<string, string>>,
 ): string {
   const message = error instanceof Error
     ? (() => {
@@ -173,13 +217,7 @@ function commandErrorMessage(
         return stderr.length > 0 ? stderr : error.message;
       })()
     : String(error);
-  let sanitized = sanitizeTerminalText(message);
-  for (const value of Object.values(environment)
-    .filter((candidate): candidate is string => typeof candidate === 'string' && candidate.length > 0)
-    .sort((left, right) => right.length - left.length)) {
-    sanitized = sanitized.split(value).join('[REDACTED]');
-  }
-  return sanitized;
+  return sanitizeTerminalText(sanitizeKnownSecrets(message, knownSecrets));
 }
 
 async function runPythonCommand(
@@ -188,6 +226,7 @@ async function runPythonCommand(
   environment: NodeJS.ProcessEnv,
   timeout: number,
   operation: string,
+  knownSecrets: Readonly<Record<string, string>>,
   abortSignal?: AbortSignal,
 ): Promise<string> {
   try {
@@ -201,10 +240,221 @@ async function runPythonCommand(
     return result.stdout;
   } catch (error) {
     throw new Error(
-      `Unable to ${operation} for DeepSeek Harness with Python "${pythonPath}": ${commandErrorMessage(error, environment)}`,
+      `Unable to ${operation} for DeepSeek Harness with Python "${pythonPath}": ${commandErrorMessage(error, knownSecrets)}`,
       { cause: error },
     );
   }
+}
+
+interface ManagedInstallLockState {
+  readonly stat: {
+    readonly dev: number;
+    readonly ino: number;
+    readonly mtimeMs: number;
+  };
+  readonly content: string;
+}
+
+interface ManagedInstallLock {
+  readonly path: string;
+  readonly state: ManagedInstallLockState;
+}
+
+function isFileSystemError(error: unknown, code: string): boolean {
+  return error instanceof Error && (error as NodeJS.ErrnoException).code === code;
+}
+
+async function readManagedInstallLock(
+  lockPath: string,
+): Promise<ManagedInstallLockState | undefined> {
+  try {
+    const [lockStat, content] = await Promise.all([
+      stat(lockPath),
+      readFile(lockPath, 'utf8'),
+    ]);
+    return {
+      stat: {
+        dev: lockStat.dev,
+        ino: lockStat.ino,
+        mtimeMs: lockStat.mtimeMs,
+      },
+      content,
+    };
+  } catch (error) {
+    if (isFileSystemError(error, 'ENOENT')) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function sameManagedInstallLockState(
+  left: ManagedInstallLockState,
+  right: ManagedInstallLockState,
+): boolean {
+  return left.stat.dev === right.stat.dev
+    && left.stat.ino === right.stat.ino
+    && left.content === right.content;
+}
+
+function managedInstallLockPid(content: string): number | undefined {
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (
+      parsed === null
+      || typeof parsed !== 'object'
+      || !Number.isSafeInteger((parsed as Record<string, unknown>).pid)
+      || ((parsed as Record<string, unknown>).pid as number) <= 0
+    ) {
+      return undefined;
+    }
+    return (parsed as Record<string, unknown>).pid as number;
+  } catch {
+    return undefined;
+  }
+}
+
+function managedInstallLockHolderIsDead(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return isFileSystemError(error, 'ESRCH');
+  }
+}
+
+function managedInstallLockIsStale(state: ManagedInstallLockState): boolean {
+  const pid = managedInstallLockPid(state.content);
+  if (pid !== undefined) {
+    return managedInstallLockHolderIsDead(pid);
+  }
+  return Date.now() - state.stat.mtimeMs > DEEPSEEK_HARNESS_LOCK_STALE_MS;
+}
+
+async function removeManagedInstallLockIfUnchanged(
+  lockPath: string,
+  expected: ManagedInstallLockState,
+): Promise<boolean> {
+  const current = await readManagedInstallLock(lockPath);
+  if (current === undefined || !sameManagedInstallLockState(expected, current)) {
+    return false;
+  }
+  const beforeDelete = await readManagedInstallLock(lockPath);
+  if (beforeDelete === undefined || !sameManagedInstallLockState(expected, beforeDelete)) {
+    return false;
+  }
+  try {
+    await unlink(lockPath);
+    return true;
+  } catch (error) {
+    if (isFileSystemError(error, 'ENOENT')) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function acquireManagedInstallLock(rootPath: string): Promise<ManagedInstallLock> {
+  const lockPath = join(rootPath, DEEPSEEK_HARNESS_INSTALL_LOCK_FILE);
+  const deadline = Date.now() + DEEPSEEK_HARNESS_LOCK_TIMEOUT_MS;
+  await mkdir(rootPath, { recursive: true });
+
+  while (true) {
+    const content = JSON.stringify({ pid: process.pid, token: randomUUID() });
+    let created = false;
+    try {
+      const handle = await open(lockPath, 'wx', 0o600);
+      created = true;
+      try {
+        await handle.writeFile(content, 'utf8');
+        await handle.sync();
+        const lockStat = await handle.stat();
+        return {
+          path: lockPath,
+          state: {
+            stat: {
+              dev: lockStat.dev,
+              ino: lockStat.ino,
+              mtimeMs: lockStat.mtimeMs,
+            },
+            content,
+          },
+        };
+      } finally {
+        await handle.close();
+      }
+    } catch (error) {
+      if (created) {
+        const current = await readManagedInstallLock(lockPath);
+        if (current?.content === content) {
+          await unlink(lockPath).catch((unlinkError: unknown) => {
+            if (!isFileSystemError(unlinkError, 'ENOENT')) {
+              throw unlinkError;
+            }
+          });
+        }
+      }
+      if (!isFileSystemError(error, 'EEXIST')) {
+        throw error;
+      }
+    }
+
+    const current = await readManagedInstallLock(lockPath);
+    if (current !== undefined && managedInstallLockIsStale(current)) {
+      await removeManagedInstallLockIfUnchanged(lockPath, current);
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(`Timed out waiting for DeepSeek Harness managed environment lock: ${lockPath}`);
+    }
+    await new Promise<void>((resolvePromise) => {
+      setTimeout(resolvePromise, DEEPSEEK_HARNESS_LOCK_RETRY_DELAY_MS);
+    });
+  }
+}
+
+async function releaseManagedInstallLock(lock: ManagedInstallLock): Promise<void> {
+  const current = await readManagedInstallLock(lock.path);
+  if (current === undefined || !sameManagedInstallLockState(lock.state, current)) {
+    throw new Error(`DeepSeek Harness managed environment lock ownership changed: ${lock.path}`);
+  }
+  if (!await removeManagedInstallLockIfUnchanged(lock.path, lock.state)) {
+    throw new Error(`DeepSeek Harness managed environment lock ownership changed: ${lock.path}`);
+  }
+}
+
+async function withManagedInstallLock<Result>(
+  rootPath: string,
+  action: () => Promise<Result>,
+): Promise<Result> {
+  const lock = await acquireManagedInstallLock(rootPath);
+  let result!: Result;
+  let actionError: unknown;
+  try {
+    result = await action();
+  } catch (error) {
+    actionError = error;
+  }
+
+  let releaseError: unknown;
+  try {
+    await releaseManagedInstallLock(lock);
+  } catch (error) {
+    releaseError = error;
+  }
+
+  if (actionError !== undefined && releaseError !== undefined) {
+    throw new AggregateError(
+      [actionError, releaseError],
+      `DeepSeek Harness managed environment action and lock release both failed: ${lock.path}`,
+    );
+  }
+  if (actionError !== undefined) {
+    throw actionError;
+  }
+  if (releaseError !== undefined) {
+    throw releaseError;
+  }
+  return result;
 }
 
 function parseProbeResult(stdout: string, pythonPath: string): DeepSeekHarnessProbeResult {
@@ -280,22 +530,67 @@ function createProbeEnvironment(environment: NodeJS.ProcessEnv | undefined): Nod
   return environment === undefined ? { ...process.env } : { ...environment };
 }
 
-export async function validateDeepSeekHarnessInstallation(
+function resolveProbeTimeout(timeoutMs: number | undefined): number {
+  const resolvedTimeoutMs = timeoutMs ?? DEEPSEEK_HARNESS_PROBE_TIMEOUT_MS;
+  if (
+    !Number.isSafeInteger(resolvedTimeoutMs)
+    || resolvedTimeoutMs <= 0
+    || resolvedTimeoutMs > DEEPSEEK_HARNESS_MAX_NODE_TIMER_MS
+  ) {
+    throw new Error(
+      `DeepSeek Harness probeTimeoutMs must be a positive safe integer no greater than ${DEEPSEEK_HARNESS_MAX_NODE_TIMER_MS}`,
+    );
+  }
+  return resolvedTimeoutMs;
+}
+
+function assertSupportedPythonVersion(
+  parsedPythonVersion: PythonVersion,
   pythonPath: string,
-  options?: ValidateDeepSeekHarnessInstallationOptions,
+): void {
+  if (parsedPythonVersion.major < 3 || (parsedPythonVersion.major === 3 && parsedPythonVersion.minor < 10)) {
+    throw new Error(
+      `DeepSeek Harness requires Python 3.10 or newer; Python ${parsedPythonVersion.text} was found at "${pythonPath}"`,
+    );
+  }
+}
+
+async function validateBootstrapPython(
+  pythonPath: string,
+  environment: NodeJS.ProcessEnv,
+  knownSecrets: Readonly<Record<string, string>>,
+): Promise<void> {
+  const probe = await runPythonCommand(
+    pythonPath,
+    ['-c', DEEPSEEK_HARNESS_PYTHON_PROBE_SCRIPT],
+    environment,
+    DEEPSEEK_HARNESS_PROBE_TIMEOUT_MS,
+    'validate the bootstrap Python',
+    knownSecrets,
+  );
+  const result = parseProbeResult(probe, pythonPath);
+  assertSupportedPythonVersion(parsePythonVersion(result.pythonVersion, pythonPath), pythonPath);
+}
+
+async function validateDeepSeekHarnessInstallationInternal(
+  pythonPath: string,
+  options: ValidateDeepSeekHarnessInstallationOptions | undefined,
+  knownSecrets: Readonly<Record<string, string>>,
 ): Promise<DeepSeekHarnessInstallation> {
   const trimmedPythonPath = pythonPath.trim();
   if (trimmedPythonPath.length === 0) {
     throw new Error('DeepSeek Harness Python path must not be empty');
   }
+  const probeTimeoutMs = resolveProbeTimeout(options?.probeTimeoutMs);
   let probe: string;
   try {
     probe = await runPythonCommand(
       trimmedPythonPath,
       ['-c', DEEPSEEK_HARNESS_PROBE_SCRIPT, ...constructorArguments(options?.constructorArguments)],
       createProbeEnvironment(options?.environment),
-      DEEPSEEK_HARNESS_PROBE_TIMEOUT_MS,
+      probeTimeoutMs,
       'inspect the Python environment',
+      knownSecrets,
       options?.abortSignal,
     );
   } catch (error) {
@@ -308,11 +603,7 @@ export async function validateDeepSeekHarnessInstallation(
   }
   const result = parseProbeResult(probe, trimmedPythonPath);
   const parsedPythonVersion = parsePythonVersion(result.pythonVersion, trimmedPythonPath);
-  if (parsedPythonVersion.major < 3 || (parsedPythonVersion.major === 3 && parsedPythonVersion.minor < 10)) {
-    throw new Error(
-      `DeepSeek Harness requires Python 3.10 or newer; Python ${parsedPythonVersion.text} was found at "${trimmedPythonPath}"`,
-    );
-  }
+  assertSupportedPythonVersion(parsedPythonVersion, trimmedPythonPath);
 
   const sdkVersion = parsePackageVersion(result.sdkVersion, DEEPSEEK_HARNESS_SDK_PACKAGE, trimmedPythonPath);
   const runtimeVersion = parsePackageVersion(
@@ -382,6 +673,18 @@ export async function validateDeepSeekHarnessInstallation(
   };
 }
 
+export async function validateDeepSeekHarnessInstallation(
+  pythonPath: string,
+  options?: ValidateDeepSeekHarnessInstallationOptions,
+): Promise<DeepSeekHarnessInstallation> {
+  const probeEnvironment = createProbeEnvironment(options?.environment);
+  return validateDeepSeekHarnessInstallationInternal(
+    pythonPath,
+    options,
+    resolveDeepSeekEnvironmentSecrets(probeEnvironment),
+  );
+}
+
 function createInstallationEnvironment(): NodeJS.ProcessEnv {
   const environment = { ...process.env };
   delete environment.DEEPSEEK_API_KEY;
@@ -395,44 +698,51 @@ export async function installManagedDeepSeekHarness(
 ): Promise<ManagedDeepSeekHarnessInstallation> {
   const paths = resolveDeepSeekHarnessManagedPaths(options.configDir);
   const bootstrapPythonPath = resolveBootstrapPythonPath(options.pythonPath);
+  const knownSecrets = resolveDeepSeekEnvironmentSecrets(process.env);
   const environment = {
     ...createInstallationEnvironment(),
     [DEEPSEEK_HARNESS_HOME_ENV_NAME]: paths.dshHomePath,
   };
 
-  await mkdir(paths.rootPath, { recursive: true });
-  await rm(paths.venvPath, { recursive: true, force: true });
-  await runPythonCommand(
-    bootstrapPythonPath,
-    ['-m', 'venv', paths.venvPath],
-    environment,
-    DEEPSEEK_HARNESS_COMMAND_TIMEOUT_MS,
-    'create the managed virtual environment',
-  );
-  await mkdir(paths.dshHomePath, { recursive: true });
-  await runPythonCommand(
-    paths.pythonPath,
-    [
-      '-m',
-      'pip',
-      'install',
-      '--disable-pip-version-check',
-      '--no-input',
-      `${DEEPSEEK_HARNESS_SDK_PACKAGE}==${DEEPSEEK_HARNESS_PINNED_VERSION}`,
-      `${DEEPSEEK_HARNESS_RUNTIME_PACKAGE}==${DEEPSEEK_HARNESS_PINNED_VERSION}`,
-    ],
-    environment,
-    DEEPSEEK_HARNESS_COMMAND_TIMEOUT_MS,
-    'install the pinned SDK/runtime pair',
-  );
-  const installation = await validateDeepSeekHarnessInstallation(paths.pythonPath, {
-    environment,
+  return withManagedInstallLock(paths.rootPath, async () => {
+    await validateBootstrapPython(bootstrapPythonPath, environment, knownSecrets);
+    await rm(paths.venvPath, { recursive: true, force: true });
+    await runPythonCommand(
+      bootstrapPythonPath,
+      ['-m', 'venv', paths.venvPath],
+      environment,
+      DEEPSEEK_HARNESS_COMMAND_TIMEOUT_MS,
+      'create the managed virtual environment',
+      knownSecrets,
+    );
+    await mkdir(paths.dshHomePath, { recursive: true });
+    await runPythonCommand(
+      paths.pythonPath,
+      [
+        '-m',
+        'pip',
+        'install',
+        '--disable-pip-version-check',
+        '--no-input',
+        `${DEEPSEEK_HARNESS_SDK_PACKAGE}==${DEEPSEEK_HARNESS_PINNED_VERSION}`,
+        `${DEEPSEEK_HARNESS_RUNTIME_PACKAGE}==${DEEPSEEK_HARNESS_PINNED_VERSION}`,
+      ],
+      environment,
+      DEEPSEEK_HARNESS_COMMAND_TIMEOUT_MS,
+      'install the pinned SDK/runtime pair',
+      knownSecrets,
+    );
+    const installation = await validateDeepSeekHarnessInstallationInternal(
+      paths.pythonPath,
+      { environment },
+      knownSecrets,
+    );
+    return {
+      ...installation,
+      venvPath: paths.venvPath,
+      dshHomePath: paths.dshHomePath,
+    };
   });
-  return {
-    ...installation,
-    venvPath: paths.venvPath,
-    dshHomePath: paths.dshHomePath,
-  };
 }
 
 export function getDeepSeekHarnessConstructorArguments(

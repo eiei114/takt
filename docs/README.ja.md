@@ -120,11 +120,11 @@ TAKT の実行には Node.js `>=22.22.0` が必要です。
 takt deepseek-harness install
 ```
 
-TAKT は `~/.takt/deepseek-harness/` 配下に VENV を1つ作成し、
+TAKT の global TAKT directory は、`TAKT_CONFIG_DIR` を設定した場合はそのディレクトリ、未設定時は既定で `~/.takt/` です。managed root は `<global TAKT directory>/deepseek-harness/` で、その配下に VENV を作成します（既定の配置先は `~/.takt/deepseek-harness/`）。
 `deepseek-harness-sdk==0.1.1rc1` と
 `deepseek-harness-runtime-bin==0.1.1rc1` の exact version ペアをインストールします。
 bootstrap 用の Python を選ぶ場合は `--python <path>` を指定します。再実行時は VENV
-だけを削除して再作成し、別の `DSH_HOME` にある profile と plugin は保持します。
+だけを削除して再作成し、`DSH_HOME`（`<global TAKT directory>/deepseek-harness/dsh-home`、既定は `~/.takt/deepseek-harness/dsh-home`）にある profile と plugin は保持します。
 通常起動時にインストールや更新は行わず、global Python を推測して使用することも
 ありません。明示的な `python_path` は trusted settings からのみ指定でき、bridge 起動前
 に Python、固定版ペア、constructor の対応を検証します。
