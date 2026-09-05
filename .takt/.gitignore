@@ -28,8 +28,3 @@ quality-gates/logs/
 !facets/instructions/**
 !facets/output-contracts/
 !facets/output-contracts/**
-
-# Keep project-local TAKT execution presets versionable.
-!exec/
-!exec/presets/
-!exec/presets/**
