@@ -929,23 +929,85 @@ describe.skipIf(process.platform === 'win32')('DeepSeek Harness managed VENV', (
         JSON.stringify({ pid: staleOwnerPid, token: 'stale-recovery' }),
         'utf8',
       );
-      const bootstrapPython = await createManagedInstallExecutable(configDir);
+      const eventLogPath = path.join(controlDir, 'events.log');
+      const bootstrapPython = await createManagedInstallExecutable(configDir, { eventLogPath });
       const racePreloadPath = await createManagedInstallRacePreload(configDir);
-      const worker = startInstallWorker(
-        configDir,
-        bootstrapPython,
-        'restore-conflict',
-        controlDir,
-        {
-          racePreloadPath,
-          restoreConflictCode: conflictCode,
-          recreateRestoreTarget: true,
-          replacementOwnerPid: staleOwnerPid,
-        },
+      const replacementOwnerPath = path.join(
+        paths.rootPath,
+        '.install.lock',
+        '.recovery',
+        'owner',
       );
+      const replacementOwner = spawn(
+        process.execPath,
+        ['-e', 'setInterval(() => {}, 1_000);'],
+        { stdio: 'ignore' },
+      );
+      const replacementOwnerExit = new Promise<void>((resolvePromise, reject) => {
+        replacementOwner.once('error', reject);
+        replacementOwner.once('exit', () => resolvePromise());
+      });
+      let worker: InstallWorkerHandle | undefined;
 
       try {
-        const installation = JSON.parse((await worker.completion).trim()) as Record<string, unknown>;
+        const replacementOwnerPid = replacementOwner.pid;
+        if (replacementOwnerPid === undefined) {
+          throw new Error('Expected replacement recovery owner process to have a PID');
+        }
+        const startedWorker = startInstallWorker(
+          configDir,
+          bootstrapPython,
+          'restore-conflict',
+          controlDir,
+          {
+            racePreloadPath,
+            restoreConflictCode: conflictCode,
+            recreateRestoreTarget: true,
+            replacementOwnerPid,
+          },
+        );
+        worker = startedWorker;
+
+        const expectedReplacementOwnerPid = replacementOwnerPid;
+        let replacementOwnerPublished = false;
+        const ownerDeadline = Date.now() + 10_000;
+        while (Date.now() < ownerDeadline) {
+          try {
+            const owner = JSON.parse(await readFile(replacementOwnerPath, 'utf8')) as Record<string, unknown>;
+            replacementOwnerPublished = owner.pid === expectedReplacementOwnerPid;
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof SyntaxError)) {
+              throw error;
+            }
+          }
+          if (replacementOwnerPublished) {
+            break;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        expect(replacementOwnerPublished).toBe(true);
+
+        const prohibitedPhaseEvents = new Set([
+          'venv:restore-conflict',
+          'pip:restore-conflict',
+          'validate:restore-conflict',
+        ]);
+        const observationDeadline = Date.now() + 500;
+        while (Date.now() < observationDeadline) {
+          const owner = JSON.parse(await readFile(replacementOwnerPath, 'utf8')) as Record<string, unknown>;
+          expect(owner.pid).toBe(expectedReplacementOwnerPid);
+          const phaseEvents = (await readEventLog(eventLogPath))
+            .filter((event) => prohibitedPhaseEvents.has(event));
+          expect(phaseEvents).toEqual([]);
+          await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+
+        if (replacementOwner.exitCode === null && replacementOwner.signalCode === null) {
+          replacementOwner.kill('SIGKILL');
+        }
+        await replacementOwnerExit;
+
+        const installation = JSON.parse((await startedWorker.completion).trim()) as Record<string, unknown>;
         expect(installation).toMatchObject({
           pythonVersion: '3.10',
           sdkVersion: PINNED_VERSION,
@@ -953,10 +1015,16 @@ describe.skipIf(process.platform === 'win32')('DeepSeek Harness managed VENV', (
         });
         expect((await readdir(paths.rootPath)).filter((entry) => entry.startsWith('.install.lock'))).toEqual([]);
       } finally {
-        if (worker.child.exitCode === null && worker.child.signalCode === null) {
-          worker.child.kill('SIGKILL');
+        if (worker !== undefined) {
+          if (worker.child.exitCode === null && worker.child.signalCode === null) {
+            worker.child.kill('SIGKILL');
+          }
+          await Promise.allSettled([worker.completion]);
         }
-        await Promise.allSettled([worker.completion]);
+        if (replacementOwner.exitCode === null && replacementOwner.signalCode === null) {
+          replacementOwner.kill('SIGKILL');
+        }
+        await Promise.allSettled([replacementOwnerExit]);
       }
     },
   );
