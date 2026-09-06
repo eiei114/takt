@@ -445,7 +445,7 @@ TAKT 为 GitHub Actions 提供 [takt-action](https://github.com/nrslib/takt-acti
 takt --pipeline --task "Fix the bug" --auto-pr
 ```
 
-完整设置请参阅 [CI/CD Guide](./ci-cd.md)。
+完整设置请参阅 [CI/CD 指南](./ci-cd.zh-CN.md)。
 
 ## 项目结构
 
@@ -491,9 +491,10 @@ npx create-takt-sdd
 | [Workflow 指南](./workflows.zh-CN.md) | 创建和定制 workflow |
 | [任务管理](./task-management.zh-CN.md) | 任务排队、执行和隔离 |
 | [外部集成](./external-integrations.zh-CN.md) | 不修改核心的社区集成示例 |
+| [CI/CD](./ci-cd.zh-CN.md) | GitHub Actions、pipeline 模式和其他 CI 系统配置 |
 | [中文文档入口](./README.zh-CN.md) | 安装、快速开始和文档导航 |
 
-以下完整文档页面暂不翻译，继续以英文/日文提供：Builtin Catalog、Observability、Design Philosophy、Faceted Prompting、Token Saving、Repertoire Packages、CI/CD、Testing、Contributing、Changelog，以及项目设计和开发内部文档。运行时 UI、prompt 和 `language` 配置也没有新增中文选项；本次变更只增加文档，不修改 runtime 行为。
+以下完整文档页面暂不翻译，继续以英文/日文提供：Builtin Catalog、Observability、Design Philosophy、Faceted Prompting、Token Saving、Repertoire Packages、Testing、Contributing、Changelog，以及项目设计和开发内部文档。运行时 UI、prompt 和 `language` 配置也没有新增中文选项；本次变更只增加文档，不修改 runtime 行为。
 
 ## 赞助者
 

@@ -1,4 +1,4 @@
-[English](./ci-cd.md)
+[English](./ci-cd.md) | [简体中文](./ci-cd.zh-CN.md)
 
 # CI/CD 連携
 

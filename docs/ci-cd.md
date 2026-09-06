@@ -1,4 +1,4 @@
-[日本語](./ci-cd.ja.md)
+[日本語](./ci-cd.ja.md) | [简体中文](./ci-cd.zh-CN.md)
 
 # CI/CD Integration
 

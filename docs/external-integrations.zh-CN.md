@@ -2,7 +2,7 @@
 
 [English](./external-integrations.md) | [日本語](./external-integrations.ja.md) | [简体中文](./external-integrations.zh-CN.md)
 
-本页收录社区构建的第三方集成。官方 GitHub/GitLab 集成请参阅[配置](./configuration.zh-CN.md)和 [CI/CD](./ci-cd.md)。
+本页收录社区构建的第三方集成。官方 GitHub/GitLab 集成请参阅[配置](./configuration.zh-CN.md)和 [CI/CD](./ci-cd.zh-CN.md)。
 
 这些社区维护的示例可以在不修改 TAKT 核心的情况下扩展功能。它们不是 TAKT 官方支持的项目，列入此处也不表示背书；采用前请检查每个项目的许可证、依赖和安全状况。
 
