@@ -882,7 +882,10 @@ describe('DeepSeek Harness platform contract', () => {
       const shimDirectory = await mkdtemp(path.join(os.tmpdir(), 'takt-python-shim-'));
       testRoots.push(shimDirectory);
       const shimPath = path.join(shimDirectory, 'python3');
-      await writeFile(shimPath, '#!/bin/sh\ntrap "" TERM\nsleep 30\n', { mode: 0o755 });
+      // `exec` keeps the waiting process as the direct child, so the probe's
+      // SIGKILL leaves no orphan; `sleep` inherits the ignored SIGTERM across
+      // exec, so the shim still cannot be stopped by the default signal.
+      await writeFile(shimPath, '#!/bin/sh\ntrap "" TERM\nexec sleep 30\n', { mode: 0o755 });
       await chmod(shimPath, 0o755);
 
       const probeSource = [
