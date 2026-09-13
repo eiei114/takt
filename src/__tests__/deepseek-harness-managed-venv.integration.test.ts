@@ -76,6 +76,13 @@ const PYTHON_PROBE_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
   killSignal: 'SIGKILL',
 };
 
+/**
+ * `vi.waitFor` defaults to a 1s timeout, which is too short for a child process
+ * to boot and reach its first marker on a loaded CI runner. Waits that gate on
+ * child-process artifacts use this budget instead.
+ */
+const CHILD_PROCESS_WAIT_OPTIONS = { timeout: 30_000, interval: 50 };
+
 const fakePythonAvailable = supportedPlatform && findPython() !== undefined;
 const testsDirectory = fileURLToPath(new URL('.', import.meta.url));
 const manifestPath = path.join(
@@ -1069,7 +1076,7 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed installer', () =
     try {
       await vi.waitFor(() => {
         expect(readFileSync(syncEventsPath, 'utf8')).toBe('start\n');
-      });
+      }, CHILD_PROCESS_WAIT_OPTIONS);
       expect(existsSync(fixture.environmentDir)).toBe(false);
       expect(await readFile(path.join(fixture.dshHomeDir, 'profile.json'), 'utf8'))
         .toBe('{"profile":"keep"}');
@@ -1521,14 +1528,14 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed installer', () =
       await vi.waitFor(() => {
         expect(existsSync(path.join(fixture.root, 'first-ready'))).toBe(true);
         expect(existsSync(path.join(fixture.root, 'second-ready'))).toBe(true);
-      });
+      }, CHILD_PROCESS_WAIT_OPTIONS);
       await writeFile(startPath, 'start');
       await vi.waitFor(() => {
         expect(existsSync(fixture.uv.versionStartedPath)).toBe(true);
         expect(readUvInvocations(fixture.uv.logPath)
           .filter((invocation) => invocation.args.length === 1 && invocation.args[0] === '--version'))
           .toHaveLength(1);
-      });
+      }, CHILD_PROCESS_WAIT_OPTIONS);
       expect(existsSync(path.join(fixture.environmentDir, 'old-marker'))).toBe(true);
       expect(existsSync(path.join(fixture.managedRoot, 'pyproject.toml'))).toBe(false);
       expect(existsSync(path.join(fixture.managedRoot, 'uv.lock'))).toBe(false);
@@ -1540,7 +1547,7 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed installer', () =
         expect(readFileSync(syncEventsPath, 'utf8')).toBe('start\n');
         expect(readUvInvocations(fixture.uv.logPath)
           .filter((invocation) => invocation.args.includes('sync'))).toHaveLength(1);
-      });
+      }, CHILD_PROCESS_WAIT_OPTIONS);
       await writeFile(fixture.uv.releasePath, 'release');
       const results = await Promise.all([first.result, second.result]);
       expect(results.map((result) => result.code), results.map((result) => result.stderr).join('\n'))
