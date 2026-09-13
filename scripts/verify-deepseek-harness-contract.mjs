@@ -108,16 +108,6 @@ function parsePythonVersion(value) {
 
 function parsePythonRequiresRange(value) {
   const normalized = value.trim().replace(/\s+/gu, '');
-  const minorMatch = /^(\d+)\.(\d+)$/u.exec(normalized);
-  if (minorMatch !== null) {
-    const major = Number(minorMatch[1]);
-    const minor = Number(minorMatch[2]);
-    return {
-      lower: [major, minor, 0],
-      upper: [major, minor + 1, 0],
-    };
-  }
-
   const wildcardMatch = /^==(\d+)\.(\d+)\.\*$/u.exec(normalized);
   if (wildcardMatch !== null) {
     const major = Number(wildcardMatch[1]);

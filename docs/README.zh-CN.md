@@ -114,7 +114,7 @@ TAKT 需要 Node.js `>=22.22.0`。
 
 `deepseek-harness` 使用 TAKT 通过 `uv` 构建的 managed environment，并通过私有 JSON-RPC bridge 运行官方 Python SDK。在支持的平台上，首次使用前请运行一次 `takt deepseek-harness install`。npm install 和 npm lifecycle hook 不会构建环境；install 期间启动 provider 不受支持，因为 provider 不会等待 installer lock。
 
-managed environment 使用 uv-managed CPython 3.12，以及同捆 `pyproject.toml` / `uv.lock` 中固定的 SDK/runtime 版本。支持 Linux x64/arm64 和 macOS arm64；Windows 和 macOS x64 会快速失败，TAKT 不会静默切换到其他 provider，也不需要准备 system Python。若 package index 需要 proxy、证书或认证，请设置 `UV_INDEX_URL` 及 uv 标准的 proxy / certificate 环境变量；TAKT 会将这些设置传给 install，而 `--locked` 会让同捆 lock 保持权威。install preflight 要求 `uv >= 0.11.0`；未安装、无法解析版本或版本过低时，会在删除现有 managed environment 之前停止。
+managed environment 使用 uv-managed CPython 3.12，以及同捆 `pyproject.toml` / `uv.lock` 中固定的 SDK/runtime 版本。支持 glibc `>= 2.28` 的 Linux x64/arm64 和 macOS arm64 `>= 14.0`；Windows、macOS x64、Linux musl、旧版 Linux glibc 和旧版 macOS 会快速失败，TAKT 不会静默切换到其他 provider，也不需要准备 system Python。若 package index 需要 proxy、证书或认证，请设置 `UV_INDEX_URL` 及 uv 标准的 proxy / certificate 环境变量；TAKT 会将这些设置传给 install，而 `--locked` 会让同捆 lock 保持权威。install preflight 要求 `uv >= 0.11.0`；未安装、无法解析版本或版本过低时，会在删除现有 managed environment 之前停止。
 
 如果之前通过 `pip` 配置 package index，请迁移到 uv 标准的 `UV_INDEX_URL`、proxy 和 certificate 环境变量；`uv sync --locked` 将同捆 lock 作为依赖来源。
 

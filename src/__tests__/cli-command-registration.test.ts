@@ -74,6 +74,11 @@ describe('CLI command registration', () => {
     if (installCommand === undefined) {
       throw new Error('DeepSeek Harness install command is not registered');
     }
+    const optionLines = installCommand.helpInformation()
+      .split('\n')
+      .filter((line) => /^\s+-{1,2}/u.test(line));
+    expect(optionLines.some((line) => /--python(?:[=\s]|$)/u.test(line))).toBe(false);
+    expect(optionLines.some((line) => /python_path/iu.test(line))).toBe(false);
   });
 
   it.each(['--python', '--uv-path'])('rejects the non-public DeepSeek Harness install option %s', (option) => {

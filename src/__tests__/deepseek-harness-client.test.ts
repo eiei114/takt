@@ -221,6 +221,16 @@ class DeepSeekHarness:
                 {'type': 'assistant/chunk', 'data': {'chunk': {'type': 'text-delta', 'text': secret[midpoint:]}}},
                 {'type': 'turn/end', 'data': {'reason': {'kind': 'completed'}}},
             ]
+        if input == 'safe-credential-boundary':
+            events = [
+                {'type': 'assistant/chunk', 'data': {'chunk': {'type': 'text-delta', 'text': 'api_key=provider-config'}}},
+                {'type': 'turn/end', 'data': {'reason': {'kind': 'completed'}}},
+            ]
+        if input == 'pending-secret':
+            events = [
+                {'type': 'assistant/chunk', 'data': {'chunk': {'type': 'text-delta', 'text': secret[:-1]}}},
+                {'type': 'turn/end', 'data': {'reason': {'kind': 'completed'}}},
+            ]
         if input == 'malformed-frame':
             events = [
                 {'type': 'assistant/chunk', 'data': {'chunk': {'type': 'text-delta', 'text': float('nan')}}},
@@ -345,26 +355,29 @@ sys.implementation = types.SimpleNamespace(
     const sessionRoot = path.join(root, 'configured-session-root');
     const cordis = path.join(root, 'configured-cordis.yml');
     const baseUrl = 'https://deepseek.example/v1';
-    const response = await callDeepSeekHarness('worker', 'inspect-env', {
-      cwd: root,
-      model: 'openai/gpt-5.4',
-      providerOptions: {
-        baseUrl,
-        sessionRoot,
-        cordis,
-        maxTokens: 4096,
-        requestTimeoutMs: 120_000,
-        shutdownTimeoutMs: 2_000,
-        runtimeMode: 'node',
-      },
-    });
+    const responses: Array<Awaited<ReturnType<typeof callDeepSeekHarness>>> = [];
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      responses.push(await callDeepSeekHarness('worker', 'inspect-env', {
+        cwd: root,
+        model: 'openai/gpt-5.4',
+        providerOptions: {
+          baseUrl,
+          sessionRoot,
+          cordis,
+          maxTokens: 4096,
+          requestTimeoutMs: 120_000,
+          shutdownTimeoutMs: 2_000,
+          runtimeMode: 'node',
+        },
+      }));
+    }
     const [configuration] = (await readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8'))
       .trim()
-      .split('\\n')
+      .split('\n')
       .map((line) => JSON.parse(line) as Record<string, unknown>);
     const bridgeEnvironment = JSON.parse(await readFile(path.join(root, 'bridge-env.json'), 'utf8')) as Record<string, string>;
 
-    expect(response.status).toBe('done');
+    expect(responses.map((response) => response.status)).toEqual(['done', 'done']);
     expect(configuration).toMatchObject({
       provider: 'openai',
       model: 'gpt-5.4',
@@ -376,6 +389,11 @@ sys.implementation = types.SimpleNamespace(
       request_timeout_seconds: 120,
       shutdown_timeout_seconds: 2,
     });
+    expect((await readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>))
+      .toHaveLength(2);
     expect(bridgeEnvironment).toMatchObject({
       DEEPSEEK_BASE_URL: baseUrl,
       DSH_RUNTIME_MODE: 'node',
@@ -608,6 +626,39 @@ sys.implementation = types.SimpleNamespace(
         { type: 'thinking', data: { thinking: '[REDACTED]' } },
         { type: 'text', data: { text: '[REDACTED]' } },
       ]));
+  });
+
+  it('flushes a safe credential-boundary pending response at turn end', async () => {
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const response = await callDeepSeekHarness('worker', 'safe-credential-boundary', {
+      cwd: root,
+      providerOptions: { requestTimeoutMs: 10_000 },
+      onStream: (event) => events.push(event as unknown as { type: string; data: Record<string, unknown> }),
+    });
+
+    expect(response).toMatchObject({ status: 'done', content: 'hello' });
+    expect(events).toContainEqual({ type: 'text', data: { text: 'api_key=[REDACTED]' } });
+    expect(JSON.stringify(events)).not.toContain('provider-config');
+  });
+
+  it('does not flush a known-secret pending response at successful turn end', async () => {
+    const secret = 'pending-secret-value-123';
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const response = await callDeepSeekHarness('worker', 'pending-secret', {
+      cwd: root,
+      childProcessEnv: { DEEPSEEK_API_KEY: secret },
+      providerOptions: { requestTimeoutMs: 10_000 },
+      onStream: (event) => events.push(event as unknown as { type: string; data: Record<string, unknown> }),
+    });
+
+    expect(response).toMatchObject({ status: 'done', content: 'hello' });
+    expect(JSON.stringify(events)).not.toContain(secret);
+    expect(JSON.stringify(events)).not.toContain(secret.slice(0, -1));
+    const nonEmptyStreamText = events
+      .filter((event) => event.type === 'text' || event.type === 'thinking')
+      .map((event) => event.type === 'text' ? event.data.text : event.data.thinking)
+      .filter((text): text is string => typeof text === 'string' && text.length > 0);
+    expect(nonEmptyStreamText).toEqual([]);
   });
 
   it('rejects session identifiers that contain a known secret', async () => {

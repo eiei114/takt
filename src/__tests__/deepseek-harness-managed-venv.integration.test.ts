@@ -36,6 +36,27 @@ const supportedPlatform = (
   (process.platform === 'linux' && (process.arch === 'x64' || process.arch === 'arm64'))
   || (process.platform === 'darwin' && process.arch === 'arm64')
 );
+
+type DeepSeekHarnessPlatformRuntime = {
+  libc?: 'glibc' | 'musl';
+  libcVersion?: string;
+  macOSVersion?: string;
+};
+
+const isSupportedPlatformWithRuntime = isSupportedDeepSeekHarnessPlatform as unknown as (
+  platform: string,
+  arch: string,
+  runtime: DeepSeekHarnessPlatformRuntime,
+) => boolean;
+
+type InstallOptionsWithTestControls = NonNullable<Parameters<typeof installDeepSeekHarness>[0]> & {
+  onLockWait?: () => void;
+};
+
+function installWithTestControls(options: InstallOptionsWithTestControls = {}): ReturnType<typeof installDeepSeekHarness> {
+  return installDeepSeekHarness(options);
+}
+
 const fakePythonAvailable = supportedPlatform && findPython() !== undefined;
 const testsDirectory = fileURLToPath(new URL('.', import.meta.url));
 const manifestPath = path.join(
@@ -369,6 +390,7 @@ async function createFakeUv(
     failOnce?: boolean;
     holdVersion?: boolean;
     holdSync?: boolean;
+    ignoreTermination?: boolean;
     failureMessage?: string;
     removeAfterVersion?: boolean;
   } = {},
@@ -379,16 +401,21 @@ async function createFakeUv(
   failOncePath: string;
   versionStartedPath: string;
   versionReleasePath: string;
+  syncStartedPath: string;
 }> {
   const fakeUvPath = path.join(workspace.root, 'fake-uv.cjs');
   const logPath = path.join(workspace.root, 'fake-uv.jsonl');
   const releasePath = path.join(workspace.root, 'release-sync');
+  const syncStartedPath = path.join(workspace.root, 'sync-started');
   const failOncePath = path.join(workspace.root, 'fail-sync-once');
   const versionStartedPath = path.join(workspace.root, 'version-started');
   const versionReleasePath = path.join(workspace.root, 'release-version');
   await writeFile(fakeUvPath, `#!/usr/bin/env node
 const fs = require('node:fs');
 const path = require('node:path');
+if (process.env.FAKE_UV_IGNORE_SIGTERM === '1') {
+  process.on('SIGTERM', () => {});
+}
 const args = process.argv.slice(2);
 const logPath = process.env.FAKE_UV_LOG;
 const indexUrl = process.env.UV_INDEX_URL;
@@ -496,6 +523,11 @@ if (!args.includes('sync')) {
   process.exit(2);
 }
 if (process.env.FAKE_UV_HOLD_SYNC === '1') {
+  try {
+    fs.writeFileSync(process.env.FAKE_UV_SYNC_STARTED_PATH, String(process.pid), { flag: 'wx' });
+  } catch {
+    // A concurrent install may already have recorded its sync process.
+  }
   fs.appendFileSync(process.env.FAKE_UV_SYNC_EVENTS, 'start\\n');
   while (!fs.existsSync(process.env.FAKE_UV_RELEASE_PATH)) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
@@ -537,10 +569,12 @@ if (process.env.FAKE_UV_HOLD_SYNC === '1') {
   vi.stubEnv('FAKE_UV_FAILURE_MESSAGE', options.failureMessage ?? 'uv sync failed: lockfile is not up to date');
   vi.stubEnv('FAKE_UV_REMOVE_AFTER_VERSION', options.removeAfterVersion === true ? '1' : '0');
   vi.stubEnv('FAKE_UV_HOLD_VERSION', options.holdVersion === true ? '1' : '0');
+  vi.stubEnv('FAKE_UV_IGNORE_SIGTERM', options.ignoreTermination === true ? '1' : '0');
   vi.stubEnv('FAKE_UV_VERSION_STARTED_PATH', versionStartedPath);
   vi.stubEnv('FAKE_UV_VERSION_RELEASE_PATH', versionReleasePath);
   vi.stubEnv('FAKE_UV_HOLD_SYNC', options.holdSync === true ? '1' : '0');
   vi.stubEnv('FAKE_UV_RELEASE_PATH', releasePath);
+  vi.stubEnv('FAKE_UV_SYNC_STARTED_PATH', syncStartedPath);
   vi.stubEnv('FAKE_UV_SYNC_EVENTS', path.join(workspace.root, 'sync-events.log'));
   return {
     path: fakeUvPath,
@@ -549,6 +583,7 @@ if (process.env.FAKE_UV_HOLD_SYNC === '1') {
     failOncePath,
     versionStartedPath,
     versionReleasePath,
+    syncStartedPath,
   };
 }
 
@@ -561,6 +596,15 @@ function readUvInvocations(logPath: string): FakeUvInvocation[] {
     .split('\n')
     .filter((line) => line.length > 0)
     .map((line) => JSON.parse(line) as FakeUvInvocation);
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+  }
 }
 
 async function snapshotPath(pathValue: string): Promise<string> {
@@ -704,6 +748,7 @@ async function prepareInstallFixture(
     failOnce?: boolean;
     holdVersion?: boolean;
     holdSync?: boolean;
+    ignoreTermination?: boolean;
     failureMessage?: string;
     removeAfterVersion?: boolean;
   } = {},
@@ -748,6 +793,49 @@ describe('DeepSeek Harness platform contract', () => {
     ['freebsd', 'x64', false],
   ] as const)('classifies %s/%s as supported=%s', (platform, arch, expected) => {
     expect(isSupportedDeepSeekHarnessPlatform(platform, arch)).toBe(expected);
+  });
+
+  it.each([
+    ['linux', 'x64', { libc: 'glibc', libcVersion: '2.27' }, false],
+    ['linux', 'x64', { libc: 'glibc', libcVersion: '2.28' }, true],
+    ['linux', 'arm64', { libc: 'glibc', libcVersion: '2.40' }, true],
+    ['linux', 'x64', { libc: 'musl', libcVersion: '1.2.5' }, false],
+    ['darwin', 'arm64', { macOSVersion: '13.6' }, false],
+    ['darwin', 'arm64', { macOSVersion: '14.0' }, true],
+    ['darwin', 'x64', { macOSVersion: '14.0' }, false],
+  ] as const)('matches the shipped runtime wheel boundary for %s/%s', (platform, arch, runtime, expected) => {
+    expect(isSupportedPlatformWithRuntime(platform, arch, runtime)).toBe(expected);
+  });
+
+  it.each([
+    ['2.27', true],
+    ['2.28', false],
+  ] as const)('uses detected Linux runtime metadata in public preflight for glibc %s', (glibcVersion, shouldReject) => {
+    const report = process.report;
+    if (report === undefined) {
+      throw new Error('process.report is required to test Linux runtime detection');
+    }
+    const getReport = vi.spyOn(report, 'getReport').mockReturnValue({
+      header: { glibcVersionRuntime: glibcVersion },
+    } as ReturnType<typeof report.getReport>);
+    try {
+      const preflight = (): void => assertSupportedDeepSeekHarnessPlatform('linux', 'x64');
+      if (shouldReject) {
+        expect(preflight).toThrow(/not supported|no provider fallback/i);
+      } else {
+        expect(preflight).not.toThrow();
+      }
+    } finally {
+      getReport.mockRestore();
+    }
+  });
+
+  it('keeps the supported platform boundaries aligned with runtime wheels in uv.lock', () => {
+    const { lock } = readManifestAndLock();
+
+    expect(lock).toContain('manylinux_2_28_x86_64');
+    expect(lock).toContain('manylinux_2_28_aarch64');
+    expect(lock).toContain('macosx_14_0_arm64');
   });
 
   it('reports the supported platform set before any wheel-resolution diagnostic', () => {
@@ -834,6 +922,53 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed installer', () =
     expect(renderedOutput).toContain(`runtime ${DEEPSEEK_HARNESS_RUNTIME_VERSION}`);
     expect(renderedOutput).toContain(expectedEnvironment);
     expect(renderedOutput).toContain(path.resolve(fixture.dshHomeDir));
+  });
+
+  it('rejects missing Linux runtime metadata before invoking uv sync', async () => {
+    const fixture = await prepareInstallFixture();
+    const originalPlatform = process.platform;
+    const originalArch = process.arch;
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' });
+    Object.defineProperty(process, 'arch', { configurable: true, value: 'x64' });
+    const report = process.report;
+    const getReport = report === undefined
+      ? undefined
+      : vi.spyOn(report, 'getReport').mockReturnValue({ header: {} } as ReturnType<typeof report.getReport>);
+
+    try {
+      await expect(installDeepSeekHarness({ uvPath: fixture.uv.path }))
+        .rejects.toThrow(/not supported|no provider fallback/i);
+      expect(readUvInvocations(fixture.uv.logPath)
+        .filter((invocation) => invocation.args.includes('sync')))
+        .toHaveLength(0);
+    } finally {
+      getReport?.mockRestore();
+      Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform });
+      Object.defineProperty(process, 'arch', { configurable: true, value: originalArch });
+    }
+  });
+
+  it('rejects an unsupported macOS runtime before invoking uv sync', async () => {
+    const fixture = await prepareInstallFixture();
+    const swVersPath = path.join(fixture.root, 'sw_vers');
+    await writeFile(swVersPath, '#!/bin/sh\nprintf \'13.6\\n\'\n', 'utf8');
+    await chmod(swVersPath, 0o755);
+    const originalPlatform = process.platform;
+    const originalArch = process.arch;
+    Object.defineProperty(process, 'platform', { configurable: true, value: 'darwin' });
+    Object.defineProperty(process, 'arch', { configurable: true, value: 'arm64' });
+    vi.stubEnv('PATH', `${fixture.root}:${process.env.PATH ?? ''}`);
+    try {
+      await expect(installDeepSeekHarness({ uvPath: fixture.uv.path }))
+        .rejects.toThrow(/not supported|no provider fallback/i);
+      expect(readUvInvocations(fixture.uv.logPath)
+        .filter((invocation) => invocation.args.includes('sync')))
+        .toHaveLength(0);
+    } finally {
+      vi.unstubAllEnvs();
+      Object.defineProperty(process, 'platform', { configurable: true, value: originalPlatform });
+      Object.defineProperty(process, 'arch', { configurable: true, value: originalArch });
+    }
   });
 
   it('consumes packaged assets instead of stale managed copies before uv sync', async () => {
@@ -1146,6 +1281,17 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed installer', () =
     expect(invocationLog).not.toContain('managed-proxy-secret-456');
   });
 
+  it('accepts probe metadata when sensitive environment values match the contract values', async () => {
+    const fixture = await prepareInstallFixture();
+    vi.stubEnv('DEEPSEEK_API_KEY', 'cpython');
+    vi.stubEnv('DEEPSEEK_API_TOKEN', DEEPSEEK_HARNESS_SDK_VERSION);
+    vi.stubEnv('DEEPSEEK_PASSWORD', DEEPSEEK_HARNESS_RUNTIME_VERSION);
+
+    await installDeepSeekHarness({ uvPath: fixture.uv.path });
+
+    expect(existsSync(path.join(fixture.environmentDir, 'bin', 'python'))).toBe(true);
+  });
+
   it('classifies a network authentication failure separately from a packaged-asset mismatch', async () => {
     const fixture = await prepareInstallFixture({}, {
       failSync: true,
@@ -1194,22 +1340,102 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed installer', () =
       .toHaveLength(2);
   });
 
+  it('times out uv version detection and permits a subsequent install', async () => {
+    const fixture = await prepareInstallFixture({}, { holdVersion: true, ignoreTermination: true });
+    vi.useFakeTimers();
+    const installation = installWithTestControls({ uvPath: fixture.uv.path });
+
+    try {
+      await vi.waitFor(() => expect(existsSync(fixture.uv.versionStartedPath)).toBe(true));
+      await vi.advanceTimersByTimeAsync(60_250);
+      vi.useRealTimers();
+      await expect(installation).rejects.toThrow(/timed out/i);
+      expect(isProcessAlive(Number(readFileSync(fixture.uv.versionStartedPath, 'utf8')))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      await writeFile(fixture.uv.versionReleasePath, 'release');
+      await installation.catch(() => undefined);
+    }
+
+    vi.stubEnv('FAKE_UV_HOLD_VERSION', '0');
+    await installWithTestControls({ uvPath: fixture.uv.path });
+    expect(readUvInvocations(fixture.uv.logPath)
+      .filter((invocation) => invocation.args.length === 1 && invocation.args[0] === '--version'))
+      .toHaveLength(2);
+  });
+
+  it('times out uv sync and permits a subsequent install', async () => {
+    const fixture = await prepareInstallFixture({}, { holdSync: true, ignoreTermination: true });
+    vi.useFakeTimers();
+    const installation = installWithTestControls({ uvPath: fixture.uv.path });
+
+    try {
+      await vi.waitFor(() => {
+        expect(existsSync(path.join(fixture.root, 'sync-events.log'))).toBe(true);
+        expect(readFileSync(path.join(fixture.root, 'sync-events.log'), 'utf8')).toBe('start\n');
+      });
+      await vi.advanceTimersByTimeAsync(60_250);
+      vi.useRealTimers();
+      await expect(installation).rejects.toThrow(/timed out/i);
+      expect(isProcessAlive(Number(readFileSync(fixture.uv.syncStartedPath, 'utf8')))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      await writeFile(fixture.uv.releasePath, 'release');
+      await installation.catch(() => undefined);
+    }
+
+    vi.stubEnv('FAKE_UV_HOLD_SYNC', '0');
+    await installWithTestControls({ uvPath: fixture.uv.path });
+    expect(readUvInvocations(fixture.uv.logPath)
+      .filter((invocation) => invocation.args.includes('sync')))
+      .toHaveLength(2);
+  });
+
   it('holds the managed install lock through concurrent sync and post-sync validation', async () => {
     const fixture = await prepareInstallFixture({ holdProbe: true });
+    vi.useFakeTimers();
     const first = installDeepSeekHarness({ uvPath: fixture.uv.path });
     await vi.waitFor(() => {
       expect(readFileSync(fixture.runtime.probeStartedMarker, 'utf8')).toMatch(/\d+\n/u);
     });
-    const second = installDeepSeekHarness({ uvPath: fixture.uv.path });
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(readUvInvocations(fixture.uv.logPath).filter((invocation) => invocation.args.includes('sync')))
-      .toHaveLength(1);
+    let secondWaiting = false;
+    let lockWaitStartedAt: number | undefined;
+    const second = installWithTestControls({
+      uvPath: fixture.uv.path,
+      onLockWait: () => {
+        secondWaiting = true;
+        lockWaitStartedAt ??= Date.now();
+      },
+    });
+    try {
+      await vi.waitFor(() => expect(secondWaiting).toBe(true));
+      expect(readUvInvocations(fixture.uv.logPath).filter((invocation) => invocation.args.includes('sync')))
+        .toHaveLength(1);
 
-    await writeFile(fixture.runtime.probeReleasePath, 'release');
-    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
-    expect(readFileSync(fixture.runtime.probeStartedMarker, 'utf8')).toMatch(/\d+\n\d+\n/u);
-    expect(readUvInvocations(fixture.uv.logPath).filter((invocation) => invocation.args.includes('sync')))
-      .toHaveLength(2);
+      if (lockWaitStartedAt === undefined) {
+        throw new Error('the second install did not report lock contention');
+      }
+      const waitStartedAt = lockWaitStartedAt;
+      await vi.advanceTimersByTimeAsync(10_001);
+      expect(Date.now() - waitStartedAt).toBeGreaterThan(10_000);
+      expect(readUvInvocations(fixture.uv.logPath).filter((invocation) => invocation.args.includes('sync')))
+        .toHaveLength(1);
+
+      await writeFile(fixture.runtime.probeReleasePath, 'release');
+      await vi.waitFor(() => {
+        expect(readUvInvocations(fixture.uv.logPath).filter((invocation) => invocation.args.includes('sync')))
+          .toHaveLength(2);
+      });
+      vi.useRealTimers();
+      await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+      expect(readFileSync(fixture.runtime.probeStartedMarker, 'utf8')).toMatch(/\d+\n\d+\n/u);
+      expect(readUvInvocations(fixture.uv.logPath).filter((invocation) => invocation.args.includes('sync')))
+        .toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+      await writeFile(fixture.runtime.probeReleasePath, 'release').catch(() => undefined);
+      await Promise.allSettled([first, second]);
+    }
   });
 
   it('serializes concurrent managed installs across processes with the install lock', async () => {
@@ -1254,7 +1480,8 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed installer', () =
       });
       await writeFile(fixture.uv.releasePath, 'release');
       const results = await Promise.all([first.result, second.result]);
-      expect(results.map((result) => result.code)).toEqual([0, 0]);
+      expect(results.map((result) => result.code), results.map((result) => result.stderr).join('\n'))
+        .toEqual([0, 0]);
       expect(readUvInvocations(fixture.uv.logPath)
         .filter((invocation) => invocation.args.includes('sync'))).toHaveLength(2);
       expect(readFileSync(syncEventsPath, 'utf8')).toBe('start\nend\nstart\nend\n');
@@ -1269,6 +1496,24 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed installer', () =
       await Promise.allSettled([first.result, second.result]);
     }
   }, 30_000);
+
+  it('runs the managed-environment probe outside the project working directory', async () => {
+    const fixture = await prepareInstallFixture();
+    await writeFile(
+      path.join(fixture.projectDir, 'deepseek_harness.py'),
+      "raise RuntimeError('project module shadowed managed runtime')\n",
+      'utf8',
+    );
+    const originalCwd = process.cwd();
+    try {
+      process.chdir(fixture.projectDir);
+      await installDeepSeekHarness({ uvPath: fixture.uv.path });
+    } finally {
+      process.chdir(originalCwd);
+    }
+
+    expect(existsSync(path.join(fixture.environmentDir, 'bin', 'python'))).toBe(true);
+  });
 });
 
 describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed provider startup', () => {
@@ -1333,6 +1578,29 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed provider startup
     const invocations = await readFile(fixture.runtime.pythonInvocationLog, 'utf8');
     expect(invocations).toMatch(/-u .*bridge\.py/u);
     expect(existsSync(fixture.uvLogPath)).toBe(false);
+  });
+
+  it('isolates provider startup probing from a project Python module', async () => {
+    const fixture = await prepareProviderFixture();
+    await writeFile(
+      path.join(fixture.projectDir, 'deepseek_harness.py'),
+      "raise RuntimeError('project module shadowed managed runtime')\n",
+      'utf8',
+    );
+    const originalCwd = process.cwd();
+    let response: Awaited<ReturnType<typeof callDeepSeekHarness>> | undefined;
+    try {
+      process.chdir(fixture.projectDir);
+      response = await callDeepSeekHarness('worker', 'hello', {
+        cwd: fixture.projectDir,
+        model: DEEPSEEK_HARNESS_DEFAULT_MODEL_FOR_TEST,
+        childProcessEnv: { PATH: '' },
+      });
+    } finally {
+      process.chdir(originalCwd);
+    }
+
+    expect(response).toMatchObject({ status: 'done', content: 'managed response' });
   });
 
   it.each([

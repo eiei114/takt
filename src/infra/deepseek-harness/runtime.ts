@@ -88,6 +88,7 @@ function createProbeTimeoutError(timeoutMs: number): Error {
 
 async function runProbeCommand(
   pythonPath: string,
+  probeCwd: string,
   abortSignal: AbortSignal | undefined,
   timeoutMs: number | undefined,
 ): Promise<ProbeCommandResult> {
@@ -114,6 +115,7 @@ async function runProbeCommand(
       pythonPath,
       ['-c', PROBE_SCRIPT],
       {
+        cwd: probeCwd,
         env: environment,
         stdio: ['ignore', 'pipe', 'pipe'],
       },
@@ -245,10 +247,11 @@ function parseProbeOutput(stdout: string): DeepSeekHarnessRuntimeInfo {
 
 async function probeDeepSeekHarnessRuntime(
   pythonPath: string,
+  probeCwd: string,
   abortSignal: AbortSignal | undefined,
   timeoutMs: number | undefined,
 ): Promise<DeepSeekHarnessRuntimeInfo> {
-  const result = await runProbeCommand(pythonPath, abortSignal, timeoutMs);
+  const result = await runProbeCommand(pythonPath, probeCwd, abortSignal, timeoutMs);
   if (result.code !== 0) {
     const diagnostic = redactDeepSeekHarnessDiagnostic(result.stderr, process.env);
     throw new Error(
@@ -257,7 +260,7 @@ async function probeDeepSeekHarnessRuntime(
         : `managed interpreter probe failed: ${diagnostic}`,
     );
   }
-  return parseProbeOutput(redactDeepSeekHarnessDiagnostic(result.stdout, process.env));
+  return parseProbeOutput(result.stdout);
 }
 
 function assertDeepSeekHarnessRuntimeContract(
@@ -268,25 +271,27 @@ function assertDeepSeekHarnessRuntimeContract(
     || info.python[1] !== 12) {
     throw new Error(
       `managed interpreter must be CPython ${DEEPSEEK_HARNESS_PYTHON_VERSION}; `
-      + `found ${info.implementation} ${info.python.join('.')}`,
+      + `found ${redactDeepSeekHarnessDiagnostic(info.implementation, process.env)} ${info.python.join('.')}`,
     );
   }
   if (info.sdkVersion !== DEEPSEEK_HARNESS_SDK_VERSION) {
     throw new Error(
-      `managed DeepSeek Harness SDK version ${info.sdkVersion} does not match `
+      `managed DeepSeek Harness SDK version ${redactDeepSeekHarnessDiagnostic(info.sdkVersion, process.env)} does not match `
       + `${DEEPSEEK_HARNESS_SDK_VERSION}`,
     );
   }
   if (info.runtimeVersion !== DEEPSEEK_HARNESS_RUNTIME_VERSION) {
     throw new Error(
-      `managed DeepSeek Harness runtime version ${info.runtimeVersion} does not match `
+      `managed DeepSeek Harness runtime version ${redactDeepSeekHarnessDiagnostic(info.runtimeVersion, process.env)} does not match `
       + `${DEEPSEEK_HARNESS_RUNTIME_VERSION}`,
     );
   }
   if (info.sdkRequiresPython === undefined
     || !pythonVersionSatisfies(info.sdkRequiresPython, info.python)) {
     throw new Error(
-      `DeepSeek Harness SDK Requires-Python ${info.sdkRequiresPython ?? '(missing)'} `
+      `DeepSeek Harness SDK Requires-Python ${info.sdkRequiresPython === undefined
+        ? '(missing)'
+        : redactDeepSeekHarnessDiagnostic(info.sdkRequiresPython, process.env)} `
       + `does not allow CPython ${DEEPSEEK_HARNESS_PYTHON_VERSION}`,
     );
   }
@@ -310,10 +315,11 @@ function assertDeepSeekHarnessRuntimeContract(
 
 export async function validateDeepSeekHarnessRuntime(
   pythonPath: string,
+  probeCwd: string,
   abortSignal?: AbortSignal,
   timeoutMs?: number,
 ): Promise<DeepSeekHarnessRuntimeInfo> {
-  const info = await probeDeepSeekHarnessRuntime(pythonPath, abortSignal, timeoutMs);
+  const info = await probeDeepSeekHarnessRuntime(pythonPath, probeCwd, abortSignal, timeoutMs);
   assertDeepSeekHarnessRuntimeContract(info);
   return info;
 }

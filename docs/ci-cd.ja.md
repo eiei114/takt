@@ -204,7 +204,7 @@ export TAKT_KIRO_API_KEY=...
 
 優先順位: 環境変数は `config.yaml` の設定よりも優先されます。
 
-> **注意**: SDK provider（Claude SDK、Codex、OpenCode、Pi）の認証情報を設定すれば、対応する CLI のインストールは不要です。TAKT が API を直接呼び出します。`deepseek-harness` は `takt deepseek-harness install` で作成する uv-managed environment と、Linux x64/arm64 または macOS arm64 が必要です。Windows と macOS x64 は未対応で、system Python は不要です。Cursor、Copilot、Kiro は CLI のインストールが必要です。
+> **注意**: SDK provider（Claude SDK、Codex、OpenCode、Pi）の認証情報を設定すれば、対応する CLI のインストールは不要です。TAKT が API を直接呼び出します。`deepseek-harness` は `takt deepseek-harness install` で作成する uv-managed environment と、glibc >= 2.28 の Linux x64/arm64 または macOS arm64 >= 14.0 に対応する同梱 runtime wheel が必要です。Linux musl、古い Linux glibc、古い macOS、Windows、macOS x64 は未対応で、system Python は不要です。Cursor、Copilot、Kiro は CLI のインストールが必要です。
 
 ## コストに関する注意
 

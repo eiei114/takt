@@ -116,7 +116,7 @@ TAKT の実行には Node.js `>=22.22.0` が必要です。
 
 `deepseek-harness` は TAKT が `uv` で用意する managed environment を、非公開 JSON-RPC bridge 経由で使用します。対応 platform では初回利用前に `takt deepseek-harness install` を一度実行してください。npm install と npm lifecycle hook は環境を構築せず、install 中に provider を起動する場合は installer lock を待たないため未対応です。
 
-managed environment は uv-managed CPython 3.12 と、同梱の `pyproject.toml` / `uv.lock` に固定された SDK/runtime を使用します。対応 platform は Linux x64/arm64 と macOS arm64 です。Windows と macOS x64 は fail fast し、別 provider へ暗黙 fallback しません。system Python の準備は不要です。package index への接続に proxy、証明書、認証などが必要な場合は `UV_INDEX_URL` や uv 標準の proxy / certificate 環境変数を設定してください。TAKT はそれらを install に渡しますが、`--locked` により同梱 lock を正本として扱います。install の preflight は `uv >= 0.11.0` を要求し、uv が未導入、版を解析できない、または古い場合は既存 managed environment を削除せず停止します。
+managed environment は uv-managed CPython 3.12 と、同梱の `pyproject.toml` / `uv.lock` に固定された SDK/runtime を使用します。対応 platform は glibc `>= 2.28` の Linux x64/arm64 と macOS arm64 `>= 14.0` です。Windows、macOS x64、Linux musl、古い Linux glibc、古い macOS は fail fast し、別 provider へ暗黙 fallback しません。system Python の準備は不要です。package index への接続に proxy、証明書、認証などが必要な場合は `UV_INDEX_URL` や uv 標準の proxy / certificate 環境変数を設定してください。TAKT はそれらを install に渡しますが、`--locked` により同梱 lock を正本として扱います。install の preflight は `uv >= 0.11.0` を要求し、uv が未導入、版を解析できない、または古い場合は既存 managed environment を削除せず停止します。
 
 以前 `pip` で package index を設定していた場合は、uv 標準の `UV_INDEX_URL`、proxy、certificate 環境変数へ移行してください。`uv sync --locked` は同梱 lock を依存関係の正本として使います。
 

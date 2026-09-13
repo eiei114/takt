@@ -37,7 +37,7 @@
 
 install 会复制同捆的 `pyproject.toml` 和 `uv.lock`，然后只执行一次 `uv sync --locked` project sync。它不接受 `--python` 或 `--uv-path`，provider 的 `python_path` 选项也不受支持；interpreter 由 managed environment 固定。选择 `deepseek-harness` provider 前请先运行一次 `takt deepseek-harness install`。npm install 和 npm lifecycle hook 不会构建或修复环境；install 期间启动 provider 可能失败，因为 provider 不会等待 installer lock。
 
-managed environment 支持 Linux x64/arm64 和 macOS arm64。Windows 和 macOS x64 会快速失败，也不需要准备 system Python。受限 package index 需要 proxy、证书或认证时，请使用 uv 标准的 `UV_INDEX_URL`、proxy 和 certificate 环境变量。如果之前通过 `pip` 配置 package index，请迁移到这些 uv 设置；`uv sync --locked` 会让同捆 lock 保持权威。install preflight 要求 `uv >= 0.11.0`；uv 未安装、版本无法解析或版本过低时，会在删除现有 managed environment 之前停止。
+managed environment 支持 glibc `>= 2.28` 的 Linux x64/arm64 和 macOS arm64 `>= 14.0`。Windows、macOS x64、Linux musl、旧版 Linux glibc 和旧版 macOS 会快速失败，也不需要准备 system Python。受限 package index 需要 proxy、证书或认证时，请使用 uv 标准的 `UV_INDEX_URL`、proxy 和 certificate 环境变量。如果之前通过 `pip` 配置 package index，请迁移到这些 uv 设置；`uv sync --locked` 会让同捆 lock 保持权威。install preflight 要求 `uv >= 0.11.0`；uv 未安装、版本无法解析或版本过低时，会在删除现有 managed environment 之前停止。
 
 ## 交互模式
 

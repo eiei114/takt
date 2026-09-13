@@ -18,6 +18,9 @@ const MANAGED_DIRECTORY_NAME = 'deepseek-harness';
 const ENVIRONMENT_DIRECTORY_NAME = 'venv';
 const DSH_HOME_DIRECTORY_NAME = 'dsh-home';
 const INSTALL_LOCK_NAME = 'install.lock';
+const UV_COMMAND_TIMEOUT_MS = 60_000;
+const UV_COMMAND_TERMINATION_GRACE_MS = 250;
+const INSTALL_LOCK_TIMEOUT_MS = 5 * 60_000;
 const manifestSourcePath = fileURLToPath(new URL('./pyproject.toml', import.meta.url));
 const lockSourcePath = fileURLToPath(new URL('./uv.lock', import.meta.url));
 
@@ -31,6 +34,8 @@ export interface DeepSeekHarnessManagedPaths {
 export interface DeepSeekHarnessInstallOptions {
   /** Internal test seam. The CLI intentionally does not expose this option. */
   uvPath?: string;
+  /** Internal test seam. The CLI intentionally does not expose this option. */
+  onLockWait?: () => void;
   /** Internal test seam for exercising packaged-asset preflight failures. */
   assetPaths?: {
     manifestPath: string;
@@ -40,6 +45,7 @@ export interface DeepSeekHarnessInstallOptions {
 
 interface CommandResult {
   code: number | null;
+  timedOut: boolean;
   stdout: string;
   stderr: string;
 }
@@ -81,7 +87,7 @@ function parseVersion(value: string): readonly [number, number, number] | undefi
 function runCommand(
   command: string,
   args: readonly string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv },
+  options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number },
 ): Promise<CommandResult> {
   return new Promise((resolveResult, rejectResult) => {
     const child = spawn(command, [...args], {
@@ -92,6 +98,30 @@ function runCommand(
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let timedOut = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let terminationTimeout: ReturnType<typeof setTimeout> | undefined;
+    child.once('spawn', () => {
+      timeout = setTimeout(() => {
+        if (!settled) {
+          timedOut = true;
+          child.kill();
+          terminationTimeout = setTimeout(() => {
+            if (!settled) {
+              child.kill('SIGKILL');
+            }
+          }, UV_COMMAND_TERMINATION_GRACE_MS);
+        }
+      }, options.timeoutMs);
+    });
+    const clearCommandTimeout = (): void => {
+      if (timeout !== undefined) {
+        clearTimeout(timeout);
+      }
+      if (terminationTimeout !== undefined) {
+        clearTimeout(terminationTimeout);
+      }
+    };
     child.stdout?.on('data', (chunk: Buffer | string) => {
       stdout += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
     });
@@ -102,6 +132,7 @@ function runCommand(
       if (settled) {
         return;
       }
+      clearCommandTimeout();
       settled = true;
       rejectResult(error);
     });
@@ -109,8 +140,9 @@ function runCommand(
       if (settled) {
         return;
       }
+      clearCommandTimeout();
       settled = true;
-      resolveResult({ code, stdout, stderr });
+      resolveResult({ code: timedOut ? null : code, timedOut, stdout, stderr });
     });
   });
 }
@@ -122,12 +154,19 @@ async function resolveUvVersion(
 ): Promise<string> {
   let result: CommandResult;
   try {
-    result = await runCommand(uvPath, ['--version'], { cwd: paths.managedRoot, env: environment });
+    result = await runCommand(uvPath, ['--version'], {
+      cwd: paths.managedRoot,
+      env: environment,
+      timeoutMs: UV_COMMAND_TIMEOUT_MS,
+    });
   } catch (error) {
     throw new Error(
       'DeepSeek Harness install requires uv on PATH; install uv and retry.',
       { cause: error },
     );
+  }
+  if (result.timedOut) {
+    throw new Error(`DeepSeek Harness uv version detection timed out after ${UV_COMMAND_TIMEOUT_MS}ms.`);
   }
   const version = parseVersion(result.stdout);
   if (result.code !== 0 || version === undefined) {
@@ -184,7 +223,7 @@ async function syncManagedProject(
         '--project',
         paths.managedRoot,
       ],
-      { cwd: paths.managedRoot, env: environment },
+      { cwd: paths.managedRoot, env: environment, timeoutMs: UV_COMMAND_TIMEOUT_MS },
     );
   } catch (error) {
     const diagnostic = redactDeepSeekHarnessDiagnostic(
@@ -197,6 +236,9 @@ async function syncManagedProject(
         : `DeepSeek Harness uv sync could not start: ${diagnostic}`,
       { cause: error },
     );
+  }
+  if (result.timedOut) {
+    throw new Error(`DeepSeek Harness uv sync timed out after ${UV_COMMAND_TIMEOUT_MS}ms.`);
   }
   if (result.code === 0) {
     return;
@@ -246,7 +288,12 @@ async function installManagedEnvironment(
   await copyFile(assetPaths.lockPath, join(paths.managedRoot, 'uv.lock'));
   await rm(paths.environmentDir, { recursive: true, force: true });
   await syncManagedProject(uvPath, paths, environment);
-  const runtime = await validateDeepSeekHarnessRuntime(paths.pythonPath);
+  const runtime = await validateDeepSeekHarnessRuntime(
+    paths.pythonPath,
+    paths.managedRoot,
+    undefined,
+    UV_COMMAND_TIMEOUT_MS,
+  );
   console.log(
     `DeepSeek Harness managed environment installed: ${uvVersion}; `
     + `Python ${runtime.python.join('.')}; `
@@ -270,5 +317,9 @@ export async function installDeepSeekHarness(
   await runPrivateFileExclusiveAsync(
     join(paths.managedRoot, INSTALL_LOCK_NAME),
     () => installManagedEnvironment(uvPath, paths, assetPaths),
+    {
+      timeoutMs: INSTALL_LOCK_TIMEOUT_MS,
+      onWait: options.onLockWait,
+    },
   );
 }

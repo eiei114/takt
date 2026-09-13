@@ -738,13 +738,15 @@ function flushHarnessResponseRedactor(
   discardPending = false,
 ): void {
   const context = state.responseRedactionContext;
-  if (context.pendingText.length > 0 && !discardPending) {
+  const hadPending = context.pendingText.length > 0;
+  const hasKnownSecretPending = hadPending
+    && longestKnownSecretPrefixSuffix(context.pendingText, knownSecrets).length > 0;
+  if (hasKnownSecretPending && !discardPending) {
     return;
   }
-  const hadPending = context.pendingText.length > 0;
   const text = context.redactor.flush(knownSecrets);
   context.pendingText = '';
-  if (hadPending || text.length === 0) {
+  if (hasKnownSecretPending || (discardPending && hadPending) || text.length === 0) {
     return;
   }
   const field = state.lastStreamField ?? 'text';
@@ -1086,6 +1088,7 @@ class DeepSeekHarnessProcess {
     try {
       await validateDeepSeekHarnessRuntime(
         this.pythonPath,
+        this.managedEnvironmentDir,
         abortSignal,
         this.configuration.requestTimeoutMs < DEEPSEEK_HARNESS_STARTUP_TIMEOUT_MS
           ? this.configuration.requestTimeoutMs

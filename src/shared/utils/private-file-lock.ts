@@ -14,6 +14,11 @@ const LOCK_RETRY_DELAY_MS = 10;
 const LOCK_TIMEOUT_MS = 10_000;
 const lockWaitBuffer = new Int32Array(new SharedArrayBuffer(4));
 
+export interface PrivateFileExclusiveAsyncOptions {
+  timeoutMs?: number;
+  onWait?: () => void;
+}
+
 interface LockHolder {
   pid: number;
   token: string;
@@ -144,13 +149,15 @@ function acquirePrivateFileLock(lockPath: string): AcquiredPrivateFileLock {
 export async function runPrivateFileExclusiveAsync<Result>(
   lockPath: string,
   action: () => Result | PromiseLike<Result>,
+  options: PrivateFileExclusiveAsyncOptions = {},
 ): Promise<Result> {
   ensurePrivateDirectory(dirname(lockPath));
-  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+  const deadline = Date.now() + (options.timeoutMs ?? LOCK_TIMEOUT_MS);
   while (true) {
     const acquired = tryAcquirePrivateFileLock(lockPath);
     if (acquired !== undefined) return runWithAcquiredLockAsync(lockPath, acquired, action);
     assertLockDeadline(lockPath, deadline);
+    options.onWait?.();
     await new Promise<void>((resolve) => setTimeout(resolve, LOCK_RETRY_DELAY_MS));
   }
 }

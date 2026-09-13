@@ -468,7 +468,7 @@ kiro_api_key: ...              # Kiro CLI
 
 ### 安全
 
-DeepSeek API key 只传给 Python bridge 环境，不会出现在命令参数或 workflow 生成的配置中。Windows 和 macOS x64 不支持 DeepSeek Harness。Cursor 已有 `cursor-agent login` session 时可以不设置 API key；Copilot 和 Kiro 仍需各自的 CLI。
+DeepSeek API key 只传给 Python bridge 环境，不会出现在命令参数或 workflow 生成的配置中。DeepSeek Harness 随附的 runtime wheel 仅支持 glibc >= 2.28 的 Linux x64/arm64 和 macOS arm64 >= 14.0；Linux musl、较旧的 Linux glibc、较旧的 macOS、Windows 和 macOS x64 均不支持。Cursor 已有 `cursor-agent login` session 时可以不设置 API key；Copilot 和 Kiro 仍需各自的 CLI。
 
 ### CLI 路径覆盖
 
@@ -897,11 +897,13 @@ provider_options:
 
 `deepseek-harness` 使用 TAKT 通过 `uv` 构建的 managed environment，在其中启动官方 `deepseek-harness-sdk`，并通过逐行 JSON-RPC bridge 通信。首次调用 provider 前请运行一次 `takt deepseek-harness install`。npm install 和 npm lifecycle hook 不会构建或修复环境；install 期间启动 provider 不受支持，因为 provider 不会等待 installer lock。
 
-managed environment 使用 uv-managed CPython 3.12，以及同捆 `pyproject.toml` / `uv.lock` 中固定的匹配 SDK/runtime 版本。官方 runtime wheel 支持 Linux x64/arm64 和 macOS arm64；Windows 与 macOS x64 会快速失败，TAKT 不会 fallback，也不需要准备 system Python。受限 package index 需要 proxy、证书或认证时，请使用 uv 标准的 `UV_INDEX_URL`、proxy 和 certificate 环境变量；TAKT 会传递这些设置，而 `uv sync --locked` 会保持同捆 lock 权威。install preflight 要求 `uv >= 0.11.0`；uv 未安装、版本无法解析或版本过低时，会在删除现有 managed environment 之前停止。
+managed environment 使用 uv-managed CPython 3.12，以及同捆 `pyproject.toml` / `uv.lock` 中固定的匹配 SDK/runtime 版本。官方 runtime wheel 支持 glibc `>= 2.28` 的 Linux x64/arm64 和 macOS arm64 `>= 14.0`；Windows、macOS x64、Linux musl、旧版 Linux glibc 和旧版 macOS 会快速失败，TAKT 不会 fallback，也不需要准备 system Python。受限 package index 需要 proxy、证书或认证时，请使用 uv 标准的 `UV_INDEX_URL`、proxy 和 certificate 环境变量；TAKT 会传递这些设置，而 `uv sync --locked` 会保持同捆 lock 权威。install preflight 要求 `uv >= 0.11.0`；uv 未安装、版本无法解析或版本过低时，会在删除现有 managed environment 之前停止。
 
 如果之前通过 `pip` 配置 package index，请迁移到 uv 标准的 `UV_INDEX_URL`、proxy 和 certificate 环境变量；`uv sync --locked` 将同捆 lock 作为依赖来源。
 
 install 的 `--python` 选项和 provider 的 `python_path` 选项已删除，因为只支持 managed interpreter。认证使用环境变量 `DEEPSEEK_API_KEY`，可选 `DEEPSEEK_BASE_URL`；API key 不会写入 workflow/config 或命令参数。
+
+DeepSeek Harness provider 目前处于 developer preview 阶段。只有在明确接受会消耗 DeepSeek API quota 的情况下，才应运行下面的 live smoke。
 
 ```bash
 export DEEPSEEK_API_KEY=your-key

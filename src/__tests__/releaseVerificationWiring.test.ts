@@ -344,10 +344,10 @@ describe('release verification wiring', () => {
     const lockCheck = lintSteps[lockCheckIndex];
     const pythonSetup = lintSteps[pythonSetupIndex];
 
-    expect(uvSetup?.uses).toBe('astral-sh/setup-uv@v7');
+    expect(uvSetup?.uses).toBe('astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78');
     expect(uvSetup?.with?.version).toBe('0.11.14');
     expect(lockCheck?.['working-directory']).toBe('src/infra/deepseek-harness');
-    expect(lockCheck?.run).toBe('uv lock --check --project pyproject.toml');
+    expect(lockCheck?.run).toBe('uv lock --check');
     expect(pythonSetup?.with?.['python-version']).toBe('3.12');
     expect(uvSetupIndex).toBeGreaterThanOrEqual(0);
     expect(lockCheckIndex).toBeGreaterThan(uvSetupIndex);
@@ -417,7 +417,7 @@ describe('release verification wiring', () => {
     }
   });
 
-  it.each(['3.12', '==3.12.*', '>=3.12,<3.13'])
+  it.each(['==3.12.*', '>=3.12,<3.13'])
     ('should accept equivalent fixed-minor Python requirements: %s', (requiresPython) => {
       const fixture = createDeepSeekContractFixture();
 
@@ -428,6 +428,18 @@ describe('release verification wiring', () => {
         rmSync(fixture.root, { recursive: true, force: true });
       }
     });
+
+  it('should reject an operatorless Python minor requirement', () => {
+    const fixture = createDeepSeekContractFixture();
+
+    try {
+      setFixturePythonRequires(fixture, '3.12');
+
+      expect(() => verifyDeepSeekHarnessContract(fixture.root)).toThrow();
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
 
   it('should run every release gate once', () => {
     expect(manifest.scripts['check:release']).toBe('node scripts/run-release-check.mjs');

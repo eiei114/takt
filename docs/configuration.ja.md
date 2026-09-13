@@ -513,7 +513,7 @@ kiro_api_key: ...              # Kiro CLI 用
 - 環境変数の使用を検討してください。
 - 必要に応じて `~/.takt/config.yaml` をグローバル `.gitignore` に追加してください。
 - Cursor provider は `cursor-agent login` が済んでいれば API キーなしでも動作できます。
-- 認証情報を設定すれば、対応する CLI ツール（Claude Code、Codex、OpenCode、Pi）のインストールは不要です。TAKT が対応する API を直接呼び出します。DeepSeek Harness は `takt deepseek-harness install` で用意する uv-managed environment と、Linux x64/arm64 または macOS arm64 が必要です。Windows と macOS x64 は未対応で、system Python は不要です。
+- 認証情報を設定すれば、対応する CLI ツール（Claude Code、Codex、OpenCode、Pi）のインストールは不要です。TAKT が対応する API を直接呼び出します。DeepSeek Harness は `takt deepseek-harness install` で用意する uv-managed environment と、glibc `>= 2.28` の Linux x64/arm64 または macOS arm64 `>= 14.0` が必要です。Windows、macOS x64、Linux musl、古い Linux glibc、古い macOS は未対応で、system Python は不要です。
 - DeepSeek API key は Python bridge の環境変数にだけ渡し、command argument や workflow 生成 config には渡しません。
 - Copilot provider は `copilot` CLI のインストールが必要です。GitHub トークンは認証に使用されます。
 - Kiro provider は `kiro-cli` CLI のインストールが必要です。`TAKT_KIRO_API_KEY` / `kiro_api_key` は子プロセスの `KIRO_API_KEY` として渡されます。どちらも未設定の場合は公式の `KIRO_API_KEY` 環境変数を使用します。
@@ -1188,7 +1188,7 @@ workflow と project config での `base_url` は local proxy 用に限定され
 
 `deepseek-harness` は TAKT が `uv` で構築する managed environment を使い、公式の `deepseek-harness-sdk` を非公開の行指向 JSON-RPC bridge 経由で起動します。初回の provider 呼び出し前に `takt deepseek-harness install` を一度実行してください。npm install と npm lifecycle hook は環境を構築・修復せず、install 中に起動した provider は installer lock を待たないため未対応です。
 
-managed environment は uv-managed CPython 3.12 と、同梱の `pyproject.toml` / `uv.lock` に固定された対応 SDK/runtime を使用します。Linux x64/arm64 と macOS arm64 に対応し、Windows と macOS x64 は fail fast します。TAKT は別 provider へ暗黙 fallback せず、system Python の準備も不要です。制限付き package index へ接続する場合は uv 標準の `UV_INDEX_URL`、proxy、certificate 環境変数を設定してください。TAKT はそれらを渡し、`uv sync --locked` により配布された lock を正本にします。install の preflight は `uv >= 0.11.0` を要求し、uv が未導入、版を解析できない、または古い場合は既存 managed environment を削除する前に停止します。
+managed environment は uv-managed CPython 3.12 と、同梱の `pyproject.toml` / `uv.lock` に固定された対応 SDK/runtime を使用します。glibc `>= 2.28` の Linux x64/arm64 と macOS arm64 `>= 14.0` に対応し、Windows、macOS x64、Linux musl、古い Linux glibc、古い macOS は fail fast します。TAKT は別 provider へ暗黙 fallback せず、system Python の準備も不要です。制限付き package index へ接続する場合は uv 標準の `UV_INDEX_URL`、proxy、certificate 環境変数を設定してください。TAKT はそれらを渡し、`uv sync --locked` により配布された lock を正本にします。install の preflight は `uv >= 0.11.0` を要求し、uv が未導入、版を解析できない、または古い場合は既存 managed environment を削除する前に停止します。
 
 以前 `pip` で package index を設定していた場合は、uv 標準の `UV_INDEX_URL`、proxy、certificate 環境変数へ移行してください。`uv sync --locked` は配布された lock を依存関係の正本として使います。
 
