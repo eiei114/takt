@@ -92,7 +92,6 @@
     "src/__tests__/loopAnalysis.test.ts",
     "src/__tests__/loopAnalysisArchive.test.ts",
     "src/__tests__/loopAnalysisWorker.test.ts",
-    "src/__tests__/managed-environment-docs.test.ts",
     "src/__tests__/mcp-entrypoint.integration.test.ts",
     "src/__tests__/mcp-entrypoint.test.ts",
     "src/__tests__/mock-call-log.test.ts",
