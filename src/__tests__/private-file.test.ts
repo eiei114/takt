@@ -614,6 +614,24 @@ describe('private file artifacts', () => {
     expect(() => fstatSync(injectedFileFailure.descriptor!)).toThrow();
   });
 
+  it('should classify a concurrent target creation before publication as a publication conflict', () => {
+    const root = mkdtempSync(join(TEST_TMPDIR, 'takt-private-publish-target-race-'));
+    roots.push(root);
+    const target = join(root, 'install.lock');
+
+    // Another process publishes the same path after the initial inspection and
+    // before the publication itself. The loser must see a publication conflict
+    // (contention) so callers such as the installer lock can wait and retry
+    // instead of failing the whole install.
+    injectedFileFailure.beforeArtifactCreation = () => {
+      writeFileSync(target, 'concurrent\n');
+    };
+
+    expect(() => writeNewPrivateFileWithMode(target, 'ours\n', 0o600))
+      .toThrow(PrivateArtifactPublicationConflictError);
+    expect(readFileSync(target, 'utf8')).toBe('concurrent\n');
+  });
+
   it('should classify a file replacement during a private read as a publication conflict', () => {
     const root = mkdtempSync(join(TEST_TMPDIR, 'takt-private-read-file-swap-'));
     roots.push(root);
