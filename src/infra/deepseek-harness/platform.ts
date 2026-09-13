@@ -1,5 +1,12 @@
 import { execFileSync } from 'node:child_process';
 
+/**
+ * `sw_vers` is probed on every install and provider startup. A stalled probe
+ * must not block the Node.js event loop, so the call is bounded and the
+ * existing catch treats a failure as "macOS version unknown".
+ */
+const MACOS_VERSION_TIMEOUT_MS = 5_000;
+
 const SUPPORTED_PLATFORM_MESSAGE =
   'Provider "deepseek-harness" requires the official DeepSeek Harness runtime on '
   + 'Linux x64/arm64 or macOS arm64. Windows, macOS x64, and other platforms are not supported; '
@@ -48,6 +55,7 @@ function detectPlatformRuntime(platform: string): DeepSeekHarnessPlatformRuntime
         macOSVersion: execFileSync('sw_vers', ['-productVersion'], {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'ignore'],
+          timeout: MACOS_VERSION_TIMEOUT_MS,
         }).trim(),
       };
     } catch {

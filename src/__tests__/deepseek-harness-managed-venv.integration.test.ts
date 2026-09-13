@@ -57,6 +57,12 @@ function installWithTestControls(options: InstallOptionsWithTestControls = {}): 
   return installDeepSeekHarness(options);
 }
 
+/**
+ * A PATH shim for `python3` can stall; the fixture must not hang the test
+ * worker, so each candidate is probed with a bounded timeout.
+ */
+const PYTHON_DETECTION_TIMEOUT_MS = 5_000;
+
 const fakePythonAvailable = supportedPlatform && findPython() !== undefined;
 const testsDirectory = fileURLToPath(new URL('.', import.meta.url));
 const manifestPath = path.join(
@@ -145,12 +151,14 @@ function findPython(): string | undefined {
       const executable = execFileSync(candidate, ['-c', 'import os, sys; print(os.path.realpath(sys.executable))'], {
         encoding: 'utf8',
         stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: PYTHON_DETECTION_TIMEOUT_MS,
       }).trim();
       if (path.isAbsolute(executable)) {
         return executable;
       }
     } catch {
-      // The test fixture tries the next interpreter name.
+      // A missing, stalled, or non-absolute candidate is not fatal: the fixture
+      // tries the next interpreter name.
     }
   }
   return undefined;
