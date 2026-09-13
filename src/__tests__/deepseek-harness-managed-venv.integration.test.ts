@@ -1,4 +1,9 @@
-import { execFileSync, spawn } from 'node:child_process';
+import {
+  execFileSync,
+  spawn,
+  spawnSync,
+  type ExecFileSyncOptionsWithStringEncoding,
+} from 'node:child_process';
 import {
   chmod,
   copyFile,
@@ -59,9 +64,17 @@ function installWithTestControls(options: InstallOptionsWithTestControls = {}): 
 
 /**
  * A PATH shim for `python3` can stall; the fixture must not hang the test
- * worker, so each candidate is probed with a bounded timeout.
+ * worker, so each candidate is probed with a bounded timeout. `SIGKILL` is
+ * required on timeout: the default `SIGTERM` can be ignored by a shim, which
+ * would leave the synchronous probe blocked past the timeout.
  */
 const PYTHON_DETECTION_TIMEOUT_MS = 5_000;
+const PYTHON_PROBE_OPTIONS: ExecFileSyncOptionsWithStringEncoding = {
+  encoding: 'utf8',
+  stdio: ['ignore', 'pipe', 'ignore'],
+  timeout: PYTHON_DETECTION_TIMEOUT_MS,
+  killSignal: 'SIGKILL',
+};
 
 const fakePythonAvailable = supportedPlatform && findPython() !== undefined;
 const testsDirectory = fileURLToPath(new URL('.', import.meta.url));
@@ -148,11 +161,11 @@ function findPython(): string | undefined {
   const candidates = process.platform === 'win32' ? ['python'] : ['python3', 'python'];
   for (const candidate of candidates) {
     try {
-      const executable = execFileSync(candidate, ['-c', 'import os, sys; print(os.path.realpath(sys.executable))'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'ignore'],
-        timeout: PYTHON_DETECTION_TIMEOUT_MS,
-      }).trim();
+      const executable = execFileSync(
+        candidate,
+        ['-c', 'import os, sys; print(os.path.realpath(sys.executable))'],
+        PYTHON_PROBE_OPTIONS,
+      ).trim();
       if (path.isAbsolute(executable)) {
         return executable;
       }
@@ -852,6 +865,48 @@ describe('DeepSeek Harness platform contract', () => {
     expect(() => assertSupportedDeepSeekHarnessPlatform('win32', 'x64'))
       .toThrow(/not supported|no provider fallback/i);
   });
+
+  // The probe is synchronous, so a shim that ignores the default SIGTERM would
+  // block the whole worker past the timeout. Run the probe in a child process so
+  // a regression fails this assertion instead of hanging the suite.
+  it.skipIf(process.platform === 'win32')(
+    'kills a SIGTERM-ignoring python shim instead of blocking detection',
+    async () => {
+      const shimDirectory = await mkdtemp(path.join(os.tmpdir(), 'takt-python-shim-'));
+      testRoots.push(shimDirectory);
+      const shimPath = path.join(shimDirectory, 'python3');
+      await writeFile(shimPath, '#!/bin/sh\ntrap "" TERM\nsleep 30\n', { mode: 0o755 });
+      await chmod(shimPath, 0o755);
+
+      const probeSource = [
+        "const { execFileSync } = require('node:child_process');",
+        'const options = JSON.parse(process.env.TAKT_PROBE_OPTIONS);',
+        'const started = Date.now();',
+        'try {',
+        "  execFileSync(process.env.TAKT_PROBE_COMMAND, ['-c', 'pass'], options);",
+        "  process.stdout.write(JSON.stringify({ outcome: 'resolved', elapsedMs: Date.now() - started }));",
+        '} catch (error) {',
+        "  process.stdout.write(JSON.stringify({ outcome: 'error', elapsedMs: Date.now() - started, code: error.code ?? null }));",
+        '}',
+      ].join('\n');
+      const child = spawnSync(process.execPath, ['-e', probeSource], {
+        encoding: 'utf8',
+        timeout: PYTHON_DETECTION_TIMEOUT_MS + 15_000,
+        env: {
+          ...process.env,
+          TAKT_PROBE_COMMAND: shimPath,
+          TAKT_PROBE_OPTIONS: JSON.stringify(PYTHON_PROBE_OPTIONS),
+        },
+      });
+
+      expect((child.error as NodeJS.ErrnoException | undefined)?.code ?? null).toBeNull();
+      expect(child.status).toBe(0);
+      const outcome = JSON.parse(child.stdout.trim()) as { outcome: string; elapsedMs: number };
+      expect(outcome.outcome).toBe('error');
+      expect(outcome.elapsedMs).toBeGreaterThanOrEqual(PYTHON_DETECTION_TIMEOUT_MS - 500);
+      expect(outcome.elapsedMs).toBeLessThan(PYTHON_DETECTION_TIMEOUT_MS + 5_000);
+    },
+  );
 });
 
 describe('DeepSeek Harness managed runtime constants', () => {
