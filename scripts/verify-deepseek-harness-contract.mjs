@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parse as parseYaml } from 'yaml';
 
 const scriptPath = fileURLToPath(import.meta.url);
 const repositoryRoot = resolve(dirname(scriptPath), '..');
@@ -179,14 +180,17 @@ function compareVersions(left, right) {
 }
 
 function readCiUvVersion(ciPath) {
-  const ci = readFileSync(ciPath, 'utf8');
-  const matches = [...ci.matchAll(
-    /^[ \t]*-[ \t]+uses:[ \t]+astral-sh\/setup-uv@[^\n]+\n[ \t]+with:[ \t]*\n[ \t]+version:[ \t]*['"]([^'"]+)['"][ \t]*$/gmu,
-  )];
-  if (matches.length !== 1 || matches[0]?.[1] === undefined) {
+  const ci = parseYaml(readFileSync(ciPath, 'utf8'));
+  const steps = Object.values(ci?.jobs ?? {})
+    .flatMap((job) => Array.isArray(job?.steps) ? job.steps : []);
+  const uvSteps = steps.filter((step) => (
+    typeof step?.uses === 'string' && step.uses.startsWith('astral-sh/setup-uv@')
+  ));
+  const version = uvSteps[0]?.with?.version;
+  if (uvSteps.length !== 1 || typeof version !== 'string' || version.trim().length === 0) {
     throw new Error(`CI must declare one explicit astral-sh/setup-uv version in ${ciPath}`);
   }
-  return matches[0][1];
+  return version;
 }
 
 function assertCiUvVersion(ciPath, minimumVersion) {

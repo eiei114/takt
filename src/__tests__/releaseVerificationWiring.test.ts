@@ -401,6 +401,38 @@ describe('release verification wiring', () => {
   });
 
   it.each([
+    '      - uses: astral-sh/setup-uv@pinned\n        # Keep the managed runtime reproducible.\n        with:\n          version: "0.11.14"',
+    '      - with:\n          version: 0.11.14\n          enable-cache: true\n        name: Install uv\n        uses: astral-sh/setup-uv@pinned',
+    '      - uses: astral-sh/setup-uv@pinned\n        with: { enable-cache: true, version: "0.11.14" }',
+  ])('should read the CI uv version independently of YAML formatting: %s', (step) => {
+    const fixture = createDeepSeekContractFixture();
+    try {
+      writeFileSync(join(fixture.root, '.github', 'workflows', 'ci.yml'), `jobs:\n  lint:\n    steps:\n${step}\n`);
+      expect(() => verifyDeepSeekHarnessContract(fixture.root)).not.toThrow();
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    '      - uses: actions/checkout@pinned',
+    '      - uses: astral-sh/setup-uv@pinned',
+    '      - uses: astral-sh/setup-uv@pinned\n        with: { enable-cache: true }',
+    '      - uses: astral-sh/setup-uv@pinned\n        with: { version: null }',
+    '      - uses: astral-sh/setup-uv@pinned\n        with: { version: "" }',
+    '      - uses: astral-sh/setup-uv@pinned\n        with: { version: "0.11.14" }\n      - uses: astral-sh/setup-uv@pinned\n        with: { version: "0.11.14" }',
+  ])('should reject CI without one explicit uv version: %s', (step) => {
+    const fixture = createDeepSeekContractFixture();
+    try {
+      writeFileSync(join(fixture.root, '.github', 'workflows', 'ci.yml'), `jobs:\n  lint:\n    steps:\n${step}\n`);
+      expect(() => verifyDeepSeekHarnessContract(fixture.root))
+        .toThrow('CI must declare one explicit astral-sh/setup-uv version');
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
     '>=3.11,<3.13',
     '>=3.12,<3.14',
     '>=3.12',
