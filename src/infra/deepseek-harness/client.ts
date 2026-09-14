@@ -30,9 +30,13 @@ import {
   sanitizeSensitiveTextWithKnownValues,
   sanitizeSensitiveValueWithKnownValues,
   createSensitiveTextStreamRedactor,
-  type SensitiveTextStreamRedactor,
 } from '../../shared/utils/sensitiveText.js';
-import { hasPotentialSensitiveTextSuffix } from '../../shared/utils/sensitive-text.js';
+import {
+  collectEmbeddedSensitiveValues,
+  hasPotentialSensitiveTextSuffix,
+  SENSITIVE_TEXT_BOUNDARY_WINDOW,
+} from '../../shared/utils/sensitive-text.js';
+import { collectSensitiveStringValues } from '../../shared/utils/sensitive-value.js';
 import type { DeepSeekHarnessProviderOptions } from '../../core/models/workflow-types.js';
 import { DEEPSEEK_HARNESS_DEFAULT_MODEL } from './constants.js';
 import { getDeepSeekHarnessManagedPaths } from './managed-venv.js';
@@ -45,6 +49,7 @@ const DEEPSEEK_HARNESS_CALL_TIMEOUT_MS = 3_600_000;
 const DEEPSEEK_HARNESS_SHUTDOWN_TIMEOUT_MS = 1_000;
 const DEEPSEEK_HARNESS_MAX_STDERR_BYTES = 32 * 1024;
 const DEEPSEEK_HARNESS_MAX_ERROR_BYTES = 8 * 1024;
+const DEEPSEEK_HARNESS_MAX_PENDING_RESPONSE_LENGTH = 10_000;
 const DEEPSEEK_HARNESS_MAX_NODE_TIMER_MS = 2_147_483_647;
 const DEEPSEEK_HARNESS_BRIDGE_PROTOCOL_VERSION = 1;
 const DEEPSEEK_HARNESS_INSTALL_INSTRUCTION = 'Run "takt deepseek-harness install" and retry';
@@ -81,9 +86,15 @@ interface HarnessRunResult {
   finishReason: string | null;
 }
 
+interface ResponseTextChunk {
+  field: 'text' | 'thinking';
+  text: string;
+}
+
 interface ResponseRedactionContext {
-  redactor: SensitiveTextStreamRedactor;
   pendingText: string;
+  pendingChunks: ResponseTextChunk[];
+  failClosed: boolean;
 }
 
 interface HarnessStreamState {
@@ -93,7 +104,6 @@ interface HarnessStreamState {
   pendingTextDeltasBySession: Set<string>;
   pendingThinkingDeltasBySession: Set<string>;
   responseRedactionContext: ResponseRedactionContext;
-  lastStreamField?: 'text' | 'thinking';
   emittedToolUses: Set<string>;
   emittedToolResults: Set<string>;
   finishReason?: string;
@@ -624,13 +634,83 @@ function hasSensitiveCredentialBoundary(text: string): boolean {
   return /(?:api[_-]?key|token|password|secret|credential|authorization|cookie|session[_-]?id)(?:\s*[:=]|\s*$)/iu.test(text);
 }
 
-function writeResponseRedactedText(
+function drainResponseRedactedChunks(
+  context: ResponseRedactionContext,
+  knownSecrets: Record<string, string>,
+  length = context.pendingText.length,
+): ResponseTextChunk[] {
+  const { values, exhausted } = collectSensitiveStringValues(knownSecrets);
+  context.failClosed ||= exhausted;
+  if (context.failClosed) {
+    const chunks = context.pendingChunks.map((chunk) => ({ field: chunk.field, text: '[REDACTED]' }));
+    context.pendingText = '';
+    context.pendingChunks = [];
+    return chunks;
+  }
+  collectEmbeddedSensitiveValues(context.pendingText, values);
+  // Mark source positions before replacing secrets: a replacement may span
+  // several chunks, but safe text must stay in the stream that produced it.
+  const sensitive = new Uint8Array(context.pendingText.length);
+  for (const value of values) {
+    if (value.length === 0) continue;
+    let offset = context.pendingText.indexOf(value);
+    while (offset >= 0) {
+      sensitive.fill(1, offset, offset + value.length);
+      offset = context.pendingText.indexOf(value, offset + 1);
+    }
+  }
+  // Never drain half of a redacted value and leave its unrecognizable suffix.
+  while (length > 0 && sensitive[length - 1] === 1 && sensitive[length] === 1) length -= 1;
+  let offset = 0;
+  const chunks: ResponseTextChunk[] = [];
+  const pendingChunks: ResponseTextChunk[] = [];
+  for (const chunk of context.pendingChunks) {
+    const consumed = Math.min(chunk.text.length, Math.max(0, length - offset));
+    let text = '';
+    let redacting = false;
+    for (let index = 0; index < consumed; index += 1) {
+      const redact = sensitive[offset + index] === 1;
+      if (redact) {
+        if (!redacting) text += '[REDACTED]';
+      } else {
+        text += chunk.text[index];
+      }
+      redacting = redact;
+    }
+    if (text.length > 0) chunks.push({ field: chunk.field, text });
+    if (consumed < chunk.text.length) {
+      pendingChunks.push({ field: chunk.field, text: chunk.text.slice(consumed) });
+    }
+    offset += chunk.text.length;
+  }
+  context.pendingText = context.pendingText.slice(length);
+  context.pendingChunks = pendingChunks;
+  return chunks;
+}
+
+function responseTextEvent(chunk: ResponseTextChunk): StreamEvent {
+  return chunk.field === 'text'
+    ? { type: 'text', data: { text: chunk.text } }
+    : { type: 'thinking', data: { thinking: chunk.text } };
+}
+
+function writeResponseRedactedChunks(
   context: ResponseRedactionContext,
   text: string,
+  field: ResponseTextChunk['field'],
   knownSecrets: Record<string, string>,
-): string {
+): ResponseTextChunk[] {
   const combined = context.pendingText + text;
-  const output = context.redactor.write(text, knownSecrets);
+  context.pendingText = combined;
+  const previous = context.pendingChunks.at(-1);
+  if (previous?.field === field) {
+    previous.text += text;
+  } else {
+    context.pendingChunks.push({ field, text });
+  }
+  context.failClosed ||= combined.length > DEEPSEEK_HARNESS_MAX_PENDING_RESPONSE_LENGTH
+    && (Object.values(knownSecrets).some((value) => value.length > 0) || hasPotentialSensitiveTextSuffix(combined));
+  if (context.failClosed) return drainResponseRedactedChunks(context, knownSecrets);
   const knownPrefixSuffix = longestKnownSecretPrefixSuffix(combined, knownSecrets);
   const containsKnownSecret = Object.values(knownSecrets)
     .some((value) => value.length > 0 && combined.includes(value));
@@ -641,13 +721,13 @@ function writeResponseRedactedText(
       && hasPotentialSensitiveTextSuffix(combined)
     );
   if (!shouldHold) {
-    context.pendingText = '';
-    return output + context.redactor.flush(knownSecrets);
+    return drainResponseRedactedChunks(context, knownSecrets);
   }
-  context.pendingText = knownPrefixSuffix.length > 0
-    ? knownPrefixSuffix
-    : combined.slice(-10_000);
-  return output;
+  if (Object.values(knownSecrets).some((value) => value.length > 0)) {
+    const retainedLength = Math.max(SENSITIVE_TEXT_BOUNDARY_WINDOW, knownPrefixSuffix.length);
+    return drainResponseRedactedChunks(context, knownSecrets, Math.max(0, combined.length - retainedLength));
+  }
+  return [];
 }
 
 function redactCrossBoundaryFinalValue(
@@ -694,25 +774,18 @@ function invokeStream(
   responseRedactionContext?: ResponseRedactionContext,
   streamField?: 'text' | 'thinking',
 ): void {
-  let streamEvent = event;
   if (responseRedactionContext !== undefined && streamField !== undefined) {
     const eventData = event.data as unknown as Record<string, unknown>;
     const streamValue = eventData[streamField];
     if (typeof streamValue === 'string') {
-      streamEvent = {
-        ...event,
-        data: {
-          ...eventData,
-          [streamField]: writeResponseRedactedText(
-            responseRedactionContext,
-            streamValue,
-            knownSecrets,
-          ),
-        },
-      } as unknown as StreamEvent;
+      const chunks = writeResponseRedactedChunks(responseRedactionContext, streamValue, streamField, knownSecrets);
+      for (const chunk of chunks) {
+        invokeStream(onStream, responseTextEvent(chunk), knownSecrets);
+      }
+      return;
     }
   }
-  const sanitized = sanitizeSensitiveValueWithKnownValues(streamEvent, knownSecrets) as StreamEvent;
+  const sanitized = sanitizeSensitiveValueWithKnownValues(event, knownSecrets) as StreamEvent;
   if (preserveValidatedField === undefined) {
     onStream?.(sanitized);
     return;
@@ -744,19 +817,14 @@ function flushHarnessResponseRedactor(
   if (hasKnownSecretPending && !discardPending) {
     return;
   }
-  const text = context.redactor.flush(knownSecrets);
-  context.pendingText = '';
-  if (hasKnownSecretPending || (discardPending && hadPending) || text.length === 0) {
+  if (discardPending && hadPending) {
+    context.pendingText = '';
+    context.pendingChunks = [];
     return;
   }
-  const field = state.lastStreamField ?? 'text';
-  invokeStream(
-    onStream,
-    field === 'text'
-      ? { type: 'text', data: { text } }
-      : { type: 'thinking', data: { thinking: text } },
-    knownSecrets,
-  );
+  for (const chunk of drainResponseRedactedChunks(context, knownSecrets)) {
+    invokeStream(onStream, responseTextEvent(chunk), knownSecrets);
+  }
 }
 
 function redactFinalResponse(
@@ -765,9 +833,8 @@ function redactFinalResponse(
   knownSecrets: Record<string, string>,
 ): string {
   const finalResponse = redactCrossBoundaryFinalValue(value, context.pendingText, knownSecrets);
-  context.redactor.write(value, knownSecrets);
-  context.redactor.flush(knownSecrets);
   context.pendingText = '';
+  context.pendingChunks = [];
   return finalResponse;
 }
 
@@ -855,7 +922,6 @@ function normalizeHarnessEvent(
       if (text.length > 0) {
         state.sawTextBySession.add(sessionId);
         state.pendingTextDeltasBySession.add(sessionId);
-        state.lastStreamField = 'text';
         invokeStream(
           onStream,
           { type: 'text', data: { text } },
@@ -869,7 +935,6 @@ function normalizeHarnessEvent(
       const thinking = requireString(chunk.text, 'assistant reasoning delta');
       if (thinking.length > 0) {
         state.pendingThinkingDeltasBySession.add(sessionId);
-        state.lastStreamField = 'thinking';
         invokeStream(
           onStream,
           { type: 'thinking', data: { thinking } },
@@ -891,7 +956,6 @@ function normalizeHarnessEvent(
     const text = textFromContentBlocks(blocks);
     if (!hasTextDelta && text.length > 0) {
       state.sawTextBySession.add(sessionId);
-      state.lastStreamField = 'text';
       invokeStream(
         onStream,
         { type: 'text', data: { text } },
@@ -907,7 +971,6 @@ function normalizeHarnessEvent(
       .map((block) => requireString(block.text, 'reasoning content block'))
       .join('');
     if (!hasThinkingDelta && thinking.length > 0) {
-      state.lastStreamField = 'thinking';
       invokeStream(
         onStream,
         { type: 'thinking', data: { thinking } },
@@ -1885,8 +1948,9 @@ export async function callDeepSeekHarness(
     pendingTextDeltasBySession: new Set(),
     pendingThinkingDeltasBySession: new Set(),
     responseRedactionContext: {
-      redactor: createSensitiveTextStreamRedactor(),
       pendingText: '',
+      pendingChunks: [],
+      failClosed: false,
     },
     emittedToolUses: new Set(),
     emittedToolResults: new Set(),

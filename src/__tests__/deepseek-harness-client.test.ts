@@ -210,6 +210,11 @@ class DeepSeekHarness:
                 {'type': 'assistant/message', 'data': {'message': {'content': [{'type': 'text', 'text': 'second'}]}}},
                 {'type': 'turn/end', 'data': {'reason': {'kind': 'completed'}}},
             ]
+        if input.startswith('typed-stream:'):
+            events = [
+                {'type': 'assistant/chunk', 'data': {'chunk': {'type': kind, 'text': value}}}
+                for kind, value in json.loads(input.split(':', 1)[1])
+            ] + [{'type': 'turn/end', 'data': {'reason': {'kind': 'completed'}}}]
         if input == 'split-secret-events':
             midpoint = len(secret) // 2
             events = [
@@ -626,6 +631,86 @@ sys.implementation = types.SimpleNamespace(
         { type: 'thinking', data: { thinking: '[REDACTED]' } },
         { type: 'text', data: { text: '[REDACTED]' } },
       ]));
+  });
+
+  it.each([
+    [['reasoning-delta', 'Let us'], ['text-delta', 'Answer']],
+    [['text-delta', 'Let us'], ['reasoning-delta', 'Answer']],
+    [['reasoning-delta', 'Let us'], ['text-delta', 'k-review'], ['reasoning-delta', ' safely'], ['text-delta', 'Answer']],
+  ])('keeps delayed safe output in its original stream: %j', async (...chunks) => {
+    const events: Array<{ type: string; text: string }> = [];
+    const response = await callDeepSeekHarness('worker', `typed-stream:${JSON.stringify(chunks)}`, {
+      cwd: root,
+      childProcessEnv: { DEEPSEEK_API_KEY: 'sk-review-fixture-123' },
+      providerOptions: { requestTimeoutMs: 10_000 },
+      onStream: (event) => {
+        if (event.type === 'text' || event.type === 'thinking') {
+          const text = event.type === 'text' ? event.data.text : event.data.thinking;
+          if (text.length > 0) events.push({ type: event.type, text });
+        }
+      },
+    });
+
+    expect(response.status).toBe('done');
+    expect(events).toEqual(chunks.map(([kind, text]) => ({
+      type: kind === 'reasoning-delta' ? 'thinking' : 'text',
+      text,
+    })));
+  });
+
+  it('drains long safe prefixes without losing the type of the retained suffix', async () => {
+    const thinkingChunk = `${'a'.repeat(300)}s`;
+    const chunks = [...Array.from({ length: 40 }, () => ['reasoning-delta', thinkingChunk]), ['text-delta', 'Answer']];
+    let thinking = '';
+    let text = '';
+    const response = await callDeepSeekHarness('worker', `typed-stream:${JSON.stringify(chunks)}`, {
+      cwd: root,
+      childProcessEnv: { DEEPSEEK_API_KEY: 'sk-review-fixture-123' },
+      providerOptions: { requestTimeoutMs: 10_000 },
+      onStream: (event) => {
+        if (event.type === 'thinking') thinking += event.data.thinking;
+        if (event.type === 'text') text += event.data.text;
+      },
+    });
+
+    expect(response.status).toBe('done');
+    expect(thinking).toBe(thinkingChunk.repeat(40));
+    expect(text).toBe('Answer');
+  });
+
+  it.each(['reasoning-delta', 'text-delta'] as const)('redacts a secret split across three alternating chunks starting with %s', async (firstKind) => {
+    const secondKind = firstKind === 'reasoning-delta' ? 'text-delta' : 'reasoning-delta';
+    const chunks = [[firstKind, 'Before sk-review'], [secondKind, '-fixture'], [firstKind, '-123 after']];
+    const events: Array<{ type: string; text: string }> = [];
+    const logsDir = path.join(root, 'logs');
+    await mkdir(logsDir);
+    const logger = createProviderEventLogger({
+      logsDir, sessionId: 'typed-stream-session', runId: 'typed-stream-run', enabled: true,
+    });
+    const response = await callDeepSeekHarness('worker', `typed-stream:${JSON.stringify(chunks)}`, {
+      cwd: root,
+      childProcessEnv: { DEEPSEEK_API_KEY: 'sk-review-fixture-123' },
+      providerOptions: { requestTimeoutMs: 10_000 },
+      onStream: (event) => {
+        logger.logEvent({ provider: 'deepseek-harness', providerModel: 'deepseek-v4-flash', step: 'redaction' }, event);
+        if (event.type === 'text' || event.type === 'thinking') {
+          const text = event.type === 'text' ? event.data.text : event.data.thinking;
+          if (text.length > 0) events.push({ type: event.type, text });
+        }
+      },
+    });
+
+    expect(response.status).toBe('done');
+    const firstType = firstKind === 'reasoning-delta' ? 'thinking' : 'text';
+    expect(events).toEqual([
+      { type: firstType, text: 'Before [REDACTED]' },
+      { type: firstType === 'thinking' ? 'text' : 'thinking', text: '[REDACTED]' },
+      { type: firstType, text: '[REDACTED] after' },
+    ]);
+    const log = await readFile(logger.filepath, 'utf8');
+    for (const fragment of ['sk-review', '-fixture', '-123']) {
+      expect(log).not.toContain(fragment);
+    }
   });
 
   it('flushes a safe credential-boundary pending response at turn end', async () => {
