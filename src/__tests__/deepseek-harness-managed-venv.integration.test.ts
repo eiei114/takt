@@ -527,6 +527,13 @@ const record = {
   syncAssets,
 };
 fs.appendFileSync(logPath, JSON.stringify(record) + '\\n');
+if (process.env.FAKE_UV_DESCENDANT_SCRIPT
+  && ((args.includes('--version') && process.env.FAKE_UV_HOLD_VERSION === '1')
+    || (args.includes('sync') && process.env.FAKE_UV_HOLD_SYNC === '1'))) {
+  require('node:child_process').spawn(process.execPath, [process.env.FAKE_UV_DESCENDANT_SCRIPT], {
+    stdio: ['ignore', 'inherit', 'inherit'],
+  });
+}
 if (args.length === 1 && args[0] === '--version') {
   if (process.env.FAKE_UV_HOLD_VERSION === '1'
     && !fs.existsSync(process.env.FAKE_UV_VERSION_RELEASE_PATH)) {
@@ -1415,7 +1422,7 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed installer', () =
 
   it('times out uv version detection and permits a subsequent install', async () => {
     const fixture = await prepareInstallFixture({}, { holdVersion: true, ignoreTermination: true });
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const installation = installWithTestControls({ uvPath: fixture.uv.path });
 
     try {
@@ -1439,7 +1446,7 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed installer', () =
 
   it('times out uv sync and permits a subsequent install', async () => {
     const fixture = await prepareInstallFixture({}, { holdSync: true, ignoreTermination: true });
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
     const installation = installWithTestControls({ uvPath: fixture.uv.path });
 
     try {
@@ -1461,6 +1468,58 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed installer', () =
     await installWithTestControls({ uvPath: fixture.uv.path });
     expect(readUvInvocations(fixture.uv.logPath)
       .filter((invocation) => invocation.args.includes('sync')))
+      .toHaveLength(2);
+  });
+
+  it.each(['version', 'sync'] as const)('terminates descendants holding uv %s output and releases the install lock', async (phase) => {
+    const fixture = await prepareInstallFixture({}, {
+      holdVersion: phase === 'version',
+      holdSync: phase === 'sync',
+    });
+    const descendantPidPath = path.join(fixture.root, 'descendant-started');
+    const descendantScript = path.join(fixture.root, 'output-holder.cjs');
+    await writeFile(descendantScript, [
+      "process.on('SIGTERM', () => {});",
+      `require('node:fs').writeFileSync(${JSON.stringify(descendantPidPath)}, String(process.pid));`,
+      'setTimeout(() => process.exit(0), 30_000);',
+    ].join('\n'));
+    vi.stubEnv('FAKE_UV_DESCENDANT_SCRIPT', descendantScript);
+    const leaderPidPath = phase === 'version' ? fixture.uv.versionStartedPath : fixture.uv.syncStartedPath;
+    // Advance the uv timeout without advancing the real process-tree deadline.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    let settled = false;
+    const installation = installWithTestControls({ uvPath: fixture.uv.path }).catch((error: unknown) => error)
+      .finally(() => { settled = true; });
+    try {
+      await vi.waitFor(() => {
+        expect(existsSync(leaderPidPath)).toBe(true);
+        expect(existsSync(descendantPidPath)).toBe(true);
+      }, CHILD_PROCESS_WAIT_OPTIONS);
+      await vi.advanceTimersByTimeAsync(60_250);
+      vi.useRealTimers();
+      await vi.waitFor(() => expect(settled).toBe(true), { timeout: 5_000 });
+      expect(await installation).toMatchObject({ message: expect.stringMatching(/timed out/i) });
+      expect(isProcessAlive(Number(readFileSync(leaderPidPath, 'utf8')))).toBe(false);
+      expect(isProcessAlive(Number(readFileSync(descendantPidPath, 'utf8')))).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      for (const pidPath of [leaderPidPath, descendantPidPath]) {
+        if (existsSync(pidPath)) {
+          const pid = Number(readFileSync(pidPath, 'utf8'));
+          if (isProcessAlive(pid)) process.kill(pid, 'SIGKILL');
+        }
+      }
+      await writeFile(fixture.uv.versionReleasePath, 'release');
+      await writeFile(fixture.uv.releasePath, 'release');
+      await installation;
+    }
+
+    vi.stubEnv('FAKE_UV_HOLD_VERSION', '0');
+    vi.stubEnv('FAKE_UV_HOLD_SYNC', '0');
+    vi.stubEnv('FAKE_UV_DESCENDANT_SCRIPT', '');
+    await installWithTestControls({ uvPath: fixture.uv.path });
+    expect(readUvInvocations(fixture.uv.logPath)
+      .filter((invocation) => invocation.args.includes(phase === 'version' ? '--version' : 'sync')))
       .toHaveLength(2);
   });
 

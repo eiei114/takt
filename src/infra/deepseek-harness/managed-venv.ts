@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process';
 import { copyFile, mkdir, readFile, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { join, resolve } from 'node:path';
@@ -13,13 +12,13 @@ import {
   validateDeepSeekHarnessRuntime,
 } from './runtime.js';
 import { runPrivateFileExclusiveAsync } from '../../shared/utils/private-file-lock.js';
+import { spawnManagedProcess } from '../../shared/utils/spawn.js';
 
 const MANAGED_DIRECTORY_NAME = 'deepseek-harness';
 const ENVIRONMENT_DIRECTORY_NAME = 'venv';
 const DSH_HOME_DIRECTORY_NAME = 'dsh-home';
 const INSTALL_LOCK_NAME = 'install.lock';
 const UV_COMMAND_TIMEOUT_MS = 60_000;
-const UV_COMMAND_TERMINATION_GRACE_MS = 250;
 const INSTALL_LOCK_TIMEOUT_MS = 5 * 60_000;
 const manifestSourcePath = fileURLToPath(new URL('./pyproject.toml', import.meta.url));
 const lockSourcePath = fileURLToPath(new URL('./uv.lock', import.meta.url));
@@ -84,67 +83,45 @@ function parseVersion(value: string): readonly [number, number, number] | undefi
     : [Number(match[1]), Number(match[2]), Number(match[3])];
 }
 
-function runCommand(
+async function runCommand(
   command: string,
   args: readonly string[],
   options: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number },
 ): Promise<CommandResult> {
-  return new Promise((resolveResult, rejectResult) => {
-    const child = spawn(command, [...args], {
+  const controller = new AbortController();
+  const managed = spawnManagedProcess(
+    command,
+    args,
+    {
       cwd: options.cwd,
       env: options.env,
       stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    let stdout = '';
-    let stderr = '';
-    let settled = false;
-    let timedOut = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    let terminationTimeout: ReturnType<typeof setTimeout> | undefined;
-    child.once('spawn', () => {
-      timeout = setTimeout(() => {
-        if (!settled) {
-          timedOut = true;
-          child.kill();
-          terminationTimeout = setTimeout(() => {
-            if (!settled) {
-              child.kill('SIGKILL');
-            }
-          }, UV_COMMAND_TERMINATION_GRACE_MS);
-        }
-      }, options.timeoutMs);
-    });
-    const clearCommandTimeout = (): void => {
-      if (timeout !== undefined) {
-        clearTimeout(timeout);
-      }
-      if (terminationTimeout !== undefined) {
-        clearTimeout(terminationTimeout);
-      }
-    };
-    child.stdout?.on('data', (chunk: Buffer | string) => {
-      stdout += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    });
-    child.stderr?.on('data', (chunk: Buffer | string) => {
-      stderr += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
-    });
-    child.once('error', (error) => {
-      if (settled) {
-        return;
-      }
-      clearCommandTimeout();
-      settled = true;
-      rejectResult(error);
-    });
-    child.once('close', (code) => {
-      if (settled) {
-        return;
-      }
-      clearCommandTimeout();
-      settled = true;
-      resolveResult({ code: timedOut ? null : code, timedOut, stdout, stderr });
-    });
+    },
+    controller.signal,
+    { terminationMode: 'process-tree' },
+  );
+  let stdout = '';
+  let stderr = '';
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  managed.child.once('spawn', () => {
+    timeout = setTimeout(() => controller.abort(), options.timeoutMs);
   });
+  managed.child.stdout?.on('data', (chunk: Buffer | string) => {
+    stdout += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+  });
+  managed.child.stderr?.on('data', (chunk: Buffer | string) => {
+    stderr += typeof chunk === 'string' ? chunk : chunk.toString('utf8');
+  });
+  try {
+    const { code } = await managed.wait();
+    return { code, timedOut: false, stdout, stderr };
+  } catch (error) {
+    if (!controller.signal.aborted) throw error;
+    // wait() already waits for the abort-triggered process-tree termination.
+    return { code: null, timedOut: true, stdout, stderr };
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 async function resolveUvVersion(
