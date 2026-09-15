@@ -36,6 +36,7 @@ const PI_READONLY_TOOL_SET = new Set<string>(PI_READONLY_TOOLS);
 export interface PiToolInfo {
   readonly name: string;
   readonly source: string;
+  readonly sourcePath?: string;
 }
 
 function normalizePiToolName(tool: string): string | undefined {
@@ -48,12 +49,31 @@ export function keepsPiToolWithoutEdit(tool: string): boolean {
   return normalized !== undefined && PI_READONLY_TOOL_SET.has(normalized);
 }
 
+function explicitExtensionToolNames(
+  allTools: readonly PiToolInfo[],
+  explicitExtensionPaths: readonly string[],
+): string[] {
+  if (explicitExtensionPaths.length === 0) {
+    return [];
+  }
+  const explicitPaths = new Set(explicitExtensionPaths);
+  return allTools
+    .filter((tool) => (
+      tool.sourcePath !== undefined
+      && explicitPaths.has(tool.sourcePath)
+      && !PI_BUILTIN_TOOLS.has(tool.name)
+    ))
+    .map((tool) => tool.name);
+}
+
 export function resolvePiActiveTools(
   permissionMode: PermissionMode | undefined,
   allowedTools: string[] | undefined,
   allTools: readonly PiToolInfo[],
+  explicitExtensionPaths: readonly string[] = [],
 ): string[] {
   const allToolNames = allTools.map((tool) => tool.name);
+  const explicitTools = explicitExtensionToolNames(allTools, explicitExtensionPaths);
   const permissionTools: readonly string[] | undefined = permissionMode === 'readonly'
     ? PI_READONLY_TOOLS
     : permissionMode === 'edit'
@@ -77,19 +97,34 @@ export function resolvePiActiveTools(
     if (permissionMode === 'readonly') {
       activeTools = normalized.filter((tool) => permissionTools?.includes(tool) === true);
     } else if (permissionMode === 'edit') {
-      activeTools = normalized.filter((tool) => permissionTools?.includes(tool) === true || !PI_BUILTIN_TOOLS.has(tool));
+      activeTools = normalized.filter((tool) => permissionTools?.includes(tool) === true);
     } else {
       activeTools = normalized;
     }
   }
 
-  const requiresBuiltinReadTools = permissionMode === 'readonly'
+  if (permissionMode !== 'full' && (allowedTools === undefined || allowedTools.length > 0)) {
+    activeTools = [...new Set([...activeTools, ...explicitTools])];
+  }
+
+  const enforcesBuiltinProvenance = permissionMode === 'readonly'
+    || permissionMode === 'edit'
     || allowedTools?.every(keepsPiToolWithoutEdit) === true;
-  if (!requiresBuiltinReadTools) {
+  if (!enforcesBuiltinProvenance) {
     return activeTools;
   }
   const builtinTools = new Set(allTools
     .filter((tool) => tool.source === 'builtin')
     .map((tool) => tool.name));
-  return activeTools.filter((tool) => builtinTools.has(tool));
+  const shadowedBuiltinTools = new Set(allTools
+    .filter((tool) => PI_BUILTIN_TOOLS.has(tool.name) && tool.source !== 'builtin')
+    .map((tool) => tool.name));
+  const piOwnedTools = new Set(allTools
+    .filter((tool) => tool.name === 'bash' && tool.source === 'sdk')
+    .map((tool) => tool.name));
+  return activeTools.filter((tool) => (
+    explicitTools.includes(tool)
+    || piOwnedTools.has(tool)
+    || (builtinTools.has(tool) && !shadowedBuiltinTools.has(tool))
+  ));
 }

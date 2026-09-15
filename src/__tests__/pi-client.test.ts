@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
+const TRUSTED_EXTENSION_PATH = '/private/tmp/takt-trusted-extension.ts';
+const AMBIENT_EXTENSION_PATH = '/private/tmp/takt-ambient-extension.ts';
+
 const mocks = vi.hoisted(() => {
   let listener: ((event: unknown) => void) | undefined;
   let promptOptions: unknown;
@@ -13,6 +16,40 @@ const mocks = vi.hoisted(() => {
   let loadedExtensions: Array<{ path: string }> = [];
   let extensionLoadErrorSequence: Array<Array<{ path: string; error: string }>> = [];
   let reloadResourceLoader = async (): Promise<void> => undefined;
+  let latestExtensionRuntime: {
+    refreshTools: () => void;
+    setActiveTools: (toolNames: string[]) => void;
+  } | undefined;
+  const createSourceInfo = (sourcePath: string, source: string) => ({
+    path: sourcePath,
+    source,
+    scope: 'temporary' as const,
+    origin: 'top-level' as const,
+  });
+  const createDefaultTools = () => [
+    { name: 'read', sourceInfo: createSourceInfo('<builtin:read>', 'builtin') },
+    { name: 'grep', sourceInfo: createSourceInfo('<builtin:grep>', 'builtin') },
+    { name: 'find', sourceInfo: createSourceInfo('<builtin:find>', 'builtin') },
+    { name: 'ls', sourceInfo: createSourceInfo('<builtin:ls>', 'builtin') },
+    { name: 'edit', sourceInfo: createSourceInfo('<builtin:edit>', 'builtin') },
+    { name: 'write', sourceInfo: createSourceInfo('<builtin:write>', 'builtin') },
+    { name: 'bash', sourceInfo: createSourceInfo('<sdk:bash>', 'sdk') },
+    {
+      name: 'trusted_extension_tool',
+      sourceInfo: createSourceInfo('/private/tmp/takt-trusted-extension.ts', 'npm:trusted-extension'),
+    },
+    {
+      name: 'ambient_extension_tool',
+      sourceInfo: createSourceInfo('/private/tmp/takt-ambient-extension.ts', 'npm:ambient-extension'),
+    },
+  ];
+  const createLoadedExtension = (extensionPath: string) => ({
+    path: extensionPath,
+    resolvedPath: extensionPath,
+    sourceInfo: createSourceInfo(extensionPath, extensionPath),
+    tools: new Map(),
+  });
+  let toolDefinitions = createDefaultTools();
   let pendingProviderRegistrations: Array<{
     name: string;
     config: Record<string, unknown>;
@@ -35,16 +72,7 @@ const mocks = vi.hoisted(() => {
     setThinkingLevel: vi.fn((level: string) => {
       currentThinkingLevel = level;
     }),
-    getAllTools: vi.fn(() => [
-      { name: 'read', sourceInfo: { source: 'builtin' } },
-      { name: 'grep', sourceInfo: { source: 'builtin' } },
-      { name: 'find', sourceInfo: { source: 'builtin' } },
-      { name: 'ls', sourceInfo: { source: 'builtin' } },
-      { name: 'edit', sourceInfo: { source: 'builtin' } },
-      { name: 'write', sourceInfo: { source: 'builtin' } },
-      { name: 'bash', sourceInfo: { source: 'sdk' } },
-      { name: 'trusted_extension_tool', sourceInfo: { source: 'npm:trusted-extension' } },
-    ]),
+    getAllTools: vi.fn(() => toolDefinitions),
     bindExtensions: vi.fn(async () => undefined),
     dispose: vi.fn(),
     hasExtensionHandlers: vi.fn(() => false),
@@ -89,10 +117,16 @@ const mocks = vi.hoisted(() => {
   const extensionResult = (errors = extensionLoadErrors) => ({
     extensions: loadedExtensions,
     errors,
-    runtime: {
+    runtime: latestExtensionRuntime = {
       pendingProviderRegistrations,
       pendingNativeProviderRegistrations: [],
       invalidate: mocks.extensionRuntimeInvalidate,
+      setActiveTools: vi.fn((toolNames: string[]) => {
+        mocks.session.setActiveToolsByName(toolNames);
+      }),
+      refreshTools: vi.fn(() => {
+        mocks.session.setActiveToolsByName(toolDefinitions.map((tool) => tool.name));
+      }),
     },
   });
 
@@ -110,6 +144,18 @@ const mocks = vi.hoisted(() => {
     resourceLoader: vi.fn((options: unknown) => {
       loaderOptions = options;
       const errors = extensionLoadErrorSequence.shift() ?? extensionLoadErrors;
+      const additionalExtensionPaths = (
+        options as { additionalExtensionPaths?: unknown }
+      ).additionalExtensionPaths;
+      if (
+        errors.length === 0
+        && loadedExtensions.length === 0
+        && Array.isArray(additionalExtensionPaths)
+      ) {
+        loadedExtensions = additionalExtensionPaths
+          .filter((extensionPath): extensionPath is string => typeof extensionPath === 'string')
+          .map(createLoadedExtension);
+      }
       return {
         reload: vi.fn(() => reloadResourceLoader()),
         getExtensions: vi.fn(() => extensionResult(errors)),
@@ -130,6 +176,7 @@ const mocks = vi.hoisted(() => {
     emit: (event: unknown) => listener?.(event),
     resetTransient: () => {
       listener = undefined;
+      latestExtensionRuntime = undefined;
       promptOptions = undefined;
       currentThinkingLevel = undefined;
       promptThinkingLevels = [];
@@ -137,6 +184,7 @@ const mocks = vi.hoisted(() => {
       extensionLoadErrors = [];
       loadedExtensions = [];
       pendingProviderRegistrations = [];
+      toolDefinitions = createDefaultTools();
       mocks.session.setActiveToolsByName.mockClear();
       mocks.session.bindExtensions.mockClear();
       mocks.session.setModel.mockClear();
@@ -147,6 +195,8 @@ const mocks = vi.hoisted(() => {
       mocks.session.hasExtensionHandlers.mockClear();
       mocks.session.extensionRunner.emit.mockClear();
       mocks.session.getLastAssistantText.mockClear();
+      mocks.session.getAllTools.mockClear();
+      mocks.session.getAllTools.mockImplementation(() => toolDefinitions);
       mocks.createAgentSession.mockClear();
       mocks.resourceLoader.mockClear();
       mocks.extensionRuntimeInvalidate.mockClear();
@@ -169,6 +219,18 @@ const mocks = vi.hoisted(() => {
     },
     setLoadedExtensions: (extensions: Array<{ path: string }>) => {
       loadedExtensions = extensions;
+    },
+    setToolDefinitions: (tools: typeof toolDefinitions) => {
+      toolDefinitions = tools;
+    },
+    addToolDefinition: (tool: (typeof toolDefinitions)[number]) => {
+      toolDefinitions = [...toolDefinitions, tool];
+    },
+    triggerRuntimeRefreshTools: () => {
+      latestExtensionRuntime?.refreshTools();
+    },
+    triggerRuntimeSetActiveTools: (toolNames: string[]) => {
+      latestExtensionRuntime?.setActiveTools(toolNames);
     },
     setExtensionLoadErrorSequence: (sequence: Array<Array<{ path: string; error: string }>>) => {
       extensionLoadErrorSequence = sequence;
@@ -207,6 +269,59 @@ vi.mock('@earendil-works/pi-ai', () => ({
 }));
 
 import { callPi } from '../infra/pi/client.js';
+
+function sourceInfo(sourcePath: string, source: string) {
+  return {
+    path: sourcePath,
+    source,
+    scope: 'temporary' as const,
+    origin: 'top-level' as const,
+  };
+}
+
+function piTool(name: string, sourcePath: string, source: string) {
+  return { name, sourceInfo: sourceInfo(sourcePath, source) };
+}
+
+function extensionRecord(
+  extensionPath: string,
+  source: string,
+  toolNames: readonly string[] = ['trusted_extension_tool'],
+  toolSourcePath = extensionPath,
+) {
+  const extensionSourceInfo = sourceInfo(extensionPath, source);
+  return {
+    path: extensionPath,
+    resolvedPath: extensionPath,
+    sourceInfo: extensionSourceInfo,
+    tools: new Map(toolNames.map((name) => [
+      name,
+      { name, sourceInfo: sourceInfo(toolSourcePath, source) },
+    ])),
+  };
+}
+
+function configureExplicitExtensions(
+  extensions: ReadonlyArray<{
+    source: string;
+    path: string;
+    toolNames?: readonly string[];
+  }>,
+): void {
+  for (const extension of extensions) {
+    mocks.packageManager.resolveExtensionSources.mockResolvedValueOnce({
+      extensions: [{ enabled: true, path: extension.path }],
+      skills: [],
+      prompts: [],
+      themes: [],
+    });
+  }
+  mocks.setLoadedExtensions(extensions.map((extension) => extensionRecord(
+    extension.path,
+    extension.source,
+    extension.toolNames,
+  )));
+}
 
 function sessionOptions(id: string) {
   return {
@@ -585,13 +700,12 @@ describe('Pi SDK client', () => {
     });
   });
 
-  it('replaces only the failed candidate when multiple extension sources are configured', async () => {
+  it('stops without fallback when an explicitly configured extension fails to load', async () => {
     mocks.resetTransient();
     const projectRoot = mkdtempSync(path.join(tmpdir(), 'takt-pi-project-multiple-fallback-'));
     const projectInstallPath = path.join(projectRoot, '.pi', 'npm', 'node_modules', 'fallback-extension');
     const userInstallPath = path.join(tmpdir(), 'pi-agent-test', 'npm', 'node_modules', 'fallback-extension');
     const stablePath = path.join(tmpdir(), 'stable-extension.ts');
-    const userPath = path.join(tmpdir(), 'working-user-extension.ts');
     mkdirSync(projectInstallPath, { recursive: true });
     mocks.projectPackageLookup.getInstalledPath.mockReturnValue(projectInstallPath);
     mocks.packageManager.getInstalledPath.mockReturnValue(userInstallPath);
@@ -607,16 +721,9 @@ describe('Pi SDK client', () => {
         skills: [],
         prompts: [],
         themes: [],
-      })
-      .mockResolvedValueOnce({
-        extensions: [{ enabled: true, path: userPath }],
-        skills: [],
-        prompts: [],
-        themes: [],
       });
     mocks.setExtensionLoadErrorSequence([
       [{ path: projectInstallPath, error: 'missing extension entry point' }],
-      [],
     ]);
 
     try {
@@ -626,12 +733,11 @@ describe('Pi SDK client', () => {
         providerOptions: { extensions: ['./stable.ts', 'npm:fallback-extension'] },
       });
 
-      expect(response.status).toBe('done');
-      expect(mocks.resourceLoader).toHaveBeenCalledTimes(2);
+      expect(response.status).toBe('error');
+      expect(response.error).toContain('Pi extension loading failed');
+      expect(mocks.resourceLoader).toHaveBeenCalledOnce();
       expect(mocks.extensionRuntimeInvalidate).toHaveBeenCalledOnce();
-      expect(mocks.getLoaderOptions()).toMatchObject({
-        additionalExtensionPaths: [stablePath, userPath],
-      });
+      expect(mocks.packageManager.resolveExtensionSources).toHaveBeenCalledTimes(2);
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }
@@ -739,62 +845,6 @@ describe('Pi SDK client', () => {
     });
   });
 
-  it('falls through an empty project package directory that the SDK reports as an extension', async () => {
-    mocks.resetTransient();
-    const projectRoot = mkdtempSync(path.join(tmpdir(), 'takt-pi-project-load-error-'));
-    const projectInstallPath = path.join(projectRoot, '.pi', 'npm', 'node_modules', 'example-extension');
-    const userInstallPath = path.join(tmpdir(), 'pi-agent-test', 'npm', 'node_modules', 'example-extension');
-    mkdirSync(projectInstallPath, { recursive: true });
-    const projectScope = {
-      extensions: [{ enabled: true, path: projectInstallPath }],
-      skills: [],
-      prompts: [],
-      themes: [],
-    };
-    const userScope = {
-      extensions: [{ enabled: true, path: path.join(tmpdir(), 'working-user-extension.ts') }],
-      skills: [],
-      prompts: [],
-      themes: [],
-    };
-    mocks.projectPackageLookup.getInstalledPath.mockReturnValue(projectInstallPath);
-    mocks.packageManager.getInstalledPath.mockReturnValue(userInstallPath);
-    mocks.packageManager.resolveExtensionSources
-      .mockResolvedValueOnce(projectScope)
-      .mockResolvedValueOnce(userScope);
-    mocks.setExtensionLoadErrorSequence([
-      [{ path: projectScope.extensions[0].path, error: 'syntax error' }],
-      [],
-    ]);
-
-    try {
-      const response = await callPi('worker', 'use the extension', {
-        ...sessionOptions('pi-sdk-project-load-error-user-fallback'),
-        cwd: projectRoot,
-        providerOptions: { extensions: ['npm:example-extension'] },
-      });
-
-      expect(response.status).toBe('done');
-      expect(mocks.packageManager.resolveExtensionSources).toHaveBeenNthCalledWith(
-        1,
-        [projectInstallPath],
-        { temporary: true },
-      );
-      expect(mocks.packageManager.resolveExtensionSources).toHaveBeenNthCalledWith(
-        2,
-        [userInstallPath],
-        { temporary: true },
-      );
-      expect(mocks.resourceLoader).toHaveBeenCalledTimes(2);
-      expect(mocks.extensionRuntimeInvalidate).toHaveBeenCalledOnce();
-      expect(mocks.getLoaderOptions()).toMatchObject({
-        additionalExtensionPaths: [userScope.extensions[0].path],
-      });
-    } finally {
-      rmSync(projectRoot, { recursive: true, force: true });
-    }
-  });
-
   it('keeps project and user candidate failures in the final temporary resolution error', async () => {
     mocks.resetTransient();
     mocks.projectPackageLookup.getInstalledPath.mockImplementation(() => {
@@ -820,7 +870,7 @@ describe('Pi SDK client', () => {
     expect(mocks.resourceLoader).not.toHaveBeenCalled();
   });
 
-  it('keeps earlier scope failures when the temporary candidate fails to load', async () => {
+  it('stops immediately when the temporary candidate fails to load', async () => {
     mocks.resetTransient();
     const temporaryPath = path.join(tmpdir(), 'topsecret-extension.ts');
     mocks.projectPackageLookup.getInstalledPath.mockImplementation(() => {
@@ -843,11 +893,11 @@ describe('Pi SDK client', () => {
     });
 
     expect(response.status).toBe('error');
-    expect(response.error).toContain('project: project lookup failed token=[REDACTED]');
-    expect(response.error).toContain('user: user lookup failed');
-    expect(response.error).toContain('temporary: Pi extension loading failed');
+    expect(response.error).toContain('Pi extension loading failed');
+    expect(response.error).toContain('syntax error');
     expect(response.error).not.toContain('topsecret');
     expect(response.error).not.toContain('topsecret-extension.ts');
+    expect(mocks.resourceLoader).toHaveBeenCalledOnce();
     expect(mocks.extensionRuntimeInvalidate).toHaveBeenCalledOnce();
   });
 
@@ -1172,22 +1222,41 @@ describe('Pi SDK client', () => {
     expect(mocks.session.dispose).not.toHaveBeenCalled();
   });
 
-  it('keeps extension tools registered and activates them only when allowed', async () => {
+  it('adds every explicit extension tool to the readonly tool set without enabling builtin writes', async () => {
     mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
 
-    await callPi('worker', 'explicit extension', {
-      ...sessionOptions('pi-sdk-extension-permission'),
-      permissionMode: 'edit',
-      allowedTools: ['trusted_extension_tool'],
+    await callPi('worker', 'inspect with the explicit extension', {
+      ...sessionOptions('pi-sdk-readonly-explicit-extension'),
+      permissionMode: 'readonly',
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
     });
+
     expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'read',
+      'grep',
+      'find',
+      'ls',
       'trusted_extension_tool',
     ]);
+  });
 
-    await callPi('worker', 'full access', {
-      ...sessionOptions('pi-sdk-extension-permission'),
-      permissionMode: 'full',
+  it('adds every explicit extension tool to the edit tool set when no allowlist is provided', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+
+    await callPi('worker', 'edit with the explicit extension', {
+      ...sessionOptions('pi-sdk-edit-explicit-extension'),
+      permissionMode: 'edit',
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
     });
+
     expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
       'read',
       'grep',
@@ -1200,19 +1269,529 @@ describe('Pi SDK client', () => {
     ]);
   });
 
+  it('adds the whole explicit extension to a nonempty builtin allowlist but excludes ambient tools', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+
+    await callPi('worker', 'use one builtin and the explicit extension', {
+      ...sessionOptions('pi-sdk-nonempty-allowlist-explicit-extension'),
+      permissionMode: 'edit',
+      allowedTools: ['Read'],
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'read',
+      'trusted_extension_tool',
+    ]);
+  });
+
+  it('keeps ambient extension tools inactive in restrictive modes without explicit extensions', async () => {
+    mocks.resetTransient();
+
+    await callPi('worker', 'review without explicit extensions', {
+      ...sessionOptions('pi-sdk-ambient-extension-exclusion'),
+      permissionMode: 'edit',
+    });
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'edit',
+      'write',
+      'bash',
+    ]);
+  });
+
+  it('keeps full mode on the complete registered-tool set', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+
+    await callPi('worker', 'explicit extension', {
+      ...sessionOptions('pi-sdk-extension-permission'),
+      permissionMode: 'edit',
+      allowedTools: ['read'],
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'read',
+      'trusted_extension_tool',
+    ]);
+
+    await callPi('worker', 'full access', {
+      ...sessionOptions('pi-sdk-extension-permission'),
+      permissionMode: 'full',
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'edit',
+      'write',
+      'bash',
+      'trusted_extension_tool',
+      'ambient_extension_tool',
+    ]);
+  });
+
+  it('keeps an explicit extension deny-all when the allowlist is empty', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+
+    await callPi('worker', 'deny every tool', {
+      ...sessionOptions('pi-sdk-empty-allowlist-explicit-extension'),
+      permissionMode: 'edit',
+      allowedTools: [],
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
+  });
+
+  it('activates every tool from multiple explicit extensions as one trust unit', async () => {
+    mocks.resetTransient();
+    const firstPath = '/private/tmp/takt-first-extension.ts';
+    const secondPath = '/private/tmp/takt-second-extension.ts';
+    mocks.setToolDefinitions([
+      piTool('read', '<builtin:read>', 'builtin'),
+      piTool('grep', '<builtin:grep>', 'builtin'),
+      piTool('find', '<builtin:find>', 'builtin'),
+      piTool('ls', '<builtin:ls>', 'builtin'),
+      piTool('edit', '<builtin:edit>', 'builtin'),
+      piTool('write', '<builtin:write>', 'builtin'),
+      piTool('bash', '<sdk:bash>', 'sdk'),
+      piTool('first_extension_tool', firstPath, 'npm:first-extension'),
+      piTool('first_auxiliary_tool', firstPath, 'npm:first-extension'),
+      piTool('second_extension_tool', secondPath, 'npm:second-extension'),
+      piTool('ambient_extension_tool', AMBIENT_EXTENSION_PATH, 'npm:ambient-extension'),
+    ]);
+    configureExplicitExtensions([
+      {
+        source: './first-extension.ts',
+        path: firstPath,
+        toolNames: ['first_extension_tool', 'first_auxiliary_tool'],
+      },
+      {
+        source: './second-extension.ts',
+        path: secondPath,
+        toolNames: ['second_extension_tool'],
+      },
+    ]);
+
+    await callPi('worker', 'use all explicit extension tools', {
+      ...sessionOptions('pi-sdk-multiple-explicit-extensions'),
+      permissionMode: 'readonly',
+      allowedTools: ['read'],
+      providerOptions: {
+        extensions: ['./first-extension.ts', './second-extension.ts'],
+      },
+    });
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'read',
+      'first_extension_tool',
+      'first_auxiliary_tool',
+      'second_extension_tool',
+    ]);
+  });
+
+  it('loads an explicit source with no_extensions enabled and activates its tools', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+
+    await callPi('worker', 'use an explicit source with discovery disabled', {
+      ...sessionOptions('pi-sdk-explicit-source-no-extensions'),
+      permissionMode: 'readonly',
+      providerOptions: {
+        extensions: ['./trusted-extension.ts'],
+        noExtensions: true,
+      },
+    });
+
+    expect(mocks.getLoaderOptions()).toMatchObject({
+      additionalExtensionPaths: [TRUSTED_EXTENSION_PATH],
+      noExtensions: true,
+    });
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'trusted_extension_tool',
+    ]);
+  });
+
+  it('fails before prompting when explicit extension provenance cannot be verified', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+    mocks.setLoadedExtensions([extensionRecord(
+      AMBIENT_EXTENSION_PATH,
+      'npm:ambient-extension',
+    )]);
+
+    const response = await callPi('worker', 'use an unverifiable extension', {
+      ...sessionOptions('pi-sdk-extension-provenance-mismatch'),
+      permissionMode: 'readonly',
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+
+    expect(response.status).toBe('error');
+    expect(mocks.extensionRuntimeInvalidate).toHaveBeenCalledOnce();
+    expect(mocks.session.setActiveToolsByName).not.toHaveBeenCalled();
+    expect(mocks.session.prompt).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when an explicit extension tool has mismatched registered provenance', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+    mocks.session.getAllTools.mockReturnValue([
+      piTool('trusted_extension_tool', AMBIENT_EXTENSION_PATH, 'npm:ambient-extension'),
+    ]);
+
+    const response = await callPi('worker', 'use a mismatched extension tool', {
+      ...sessionOptions('pi-sdk-extension-tool-provenance-mismatch'),
+      permissionMode: 'readonly',
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+
+    expect(response.status).toBe('error');
+    expect(mocks.session.setActiveToolsByName).not.toHaveBeenCalled();
+    expect(mocks.session.prompt).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when an explicit extension definition has mismatched provenance', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+    mocks.setLoadedExtensions([extensionRecord(
+      TRUSTED_EXTENSION_PATH,
+      './trusted-extension.ts',
+      ['trusted_extension_tool'],
+      AMBIENT_EXTENSION_PATH,
+    )]);
+
+    const response = await callPi('worker', 'use an extension with mismatched definition provenance', {
+      ...sessionOptions('pi-sdk-extension-definition-provenance-mismatch'),
+      permissionMode: 'readonly',
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+
+    expect(response.status).toBe('error');
+    expect(mocks.session.setActiveToolsByName).not.toHaveBeenCalled();
+    expect(mocks.session.prompt).not.toHaveBeenCalled();
+  });
+
+  it('rejects mismatched tool provenance even when the extension definition matches', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{ source: './trusted-extension.ts', path: TRUSTED_EXTENSION_PATH }]);
+    mocks.setLoadedExtensions([extensionRecord(
+      TRUSTED_EXTENSION_PATH, './trusted-extension.ts', ['trusted_extension_tool'], AMBIENT_EXTENSION_PATH,
+    )]);
+    const response = await callPi('worker', 'inspect', {
+      ...sessionOptions('pi-sdk-tool-definition-mismatch'),
+      permissionMode: 'readonly',
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+    expect(response.status).toBe('error');
+    expect(mocks.session.prompt).not.toHaveBeenCalled();
+  });
+
+  it.each(['readonly', 'edit'] as const)('rejects mutable ambient provenance on %s session reuse', async (permissionMode) => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{ source: './trusted-extension.ts', path: TRUSTED_EXTENSION_PATH }]);
+    const ambient = piTool('ambient_mutable_tool', AMBIENT_EXTENSION_PATH, 'npm:ambient-extension');
+    mocks.addToolDefinition(ambient);
+    const options = {
+      ...sessionOptions(`pi-sdk-mutable-provenance-${permissionMode}`),
+      permissionMode,
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    };
+    await callPi('worker', 'inspect', options);
+    const promptCount = mocks.session.prompt.mock.calls.length;
+    ambient.sourceInfo.path = TRUSTED_EXTENSION_PATH;
+    expect(() => mocks.triggerRuntimeRefreshTools()).toThrow('provenance could not be verified');
+    const response = await callPi('worker', 'inspect again', options);
+    expect(response.status).toBe('error');
+    expect(mocks.session.prompt).toHaveBeenCalledTimes(promptCount);
+  });
+
+  it('reapplies the explicit extension tool set when a cached session changes permission mode', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+    const providerOptions = { extensions: ['./trusted-extension.ts'] };
+
+    await callPi('worker', 'edit with the extension', {
+      ...sessionOptions('pi-sdk-explicit-permission-resume'),
+      permissionMode: 'edit',
+      providerOptions,
+    });
+    await callPi('worker', 'readonly with the extension', {
+      ...sessionOptions('pi-sdk-explicit-permission-resume'),
+      permissionMode: 'readonly',
+      providerOptions,
+    });
+
+    expect(mocks.session.setActiveToolsByName.mock.calls[0]?.[0]).toEqual([
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'edit',
+      'write',
+      'bash',
+      'trusted_extension_tool',
+    ]);
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'trusted_extension_tool',
+    ]);
+    expect(mocks.createAgentSession).toHaveBeenCalledOnce();
+  });
+
+  it('reapplies the restrictive policy after SDK refresh registers an ambient tool', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+
+    await callPi('worker', 'inspect before refresh', {
+      ...sessionOptions('pi-sdk-refresh-ambient-tool'),
+      permissionMode: 'readonly',
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+    mocks.addToolDefinition(
+      piTool('ambient_tool_added_after_refresh', AMBIENT_EXTENSION_PATH, 'npm:ambient-extension'),
+    );
+
+    mocks.triggerRuntimeRefreshTools();
+
+    const refreshRegistry = mocks.session.setActiveToolsByName.mock.calls
+      .find((call) => call[0]?.includes('ambient_tool_added_after_refresh'))?.[0];
+    expect(refreshRegistry).toEqual(expect.arrayContaining([
+      'ambient_tool_added_after_refresh',
+    ]));
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'trusted_extension_tool',
+    ]);
+  });
+
+  it('keeps deny-all after SDK refresh registers an ambient tool', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+
+    await callPi('worker', 'deny all tools before refresh', {
+      ...sessionOptions('pi-sdk-refresh-deny-all'),
+      permissionMode: 'edit',
+      allowedTools: [],
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+    mocks.addToolDefinition(
+      piTool('ambient_tool_added_after_refresh', AMBIENT_EXTENSION_PATH, 'npm:ambient-extension'),
+    );
+
+    mocks.triggerRuntimeRefreshTools();
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
+  });
+
+  it('keeps full mode on the complete registry after SDK refresh registers a tool', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+
+    await callPi('worker', 'use all tools before refresh', {
+      ...sessionOptions('pi-sdk-refresh-full'),
+      permissionMode: 'full',
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+    mocks.addToolDefinition(
+      piTool('ambient_tool_added_after_refresh', AMBIENT_EXTENSION_PATH, 'npm:ambient-extension'),
+    );
+
+    mocks.triggerRuntimeRefreshTools();
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'edit',
+      'write',
+      'bash',
+      'trusted_extension_tool',
+      'ambient_extension_tool',
+      'ambient_tool_added_after_refresh',
+    ]);
+  });
+
+  it('reapplies the readonly policy after an extension directly sets active tools', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+
+    await callPi('worker', 'review before direct tool selection', {
+      ...sessionOptions('pi-sdk-direct-set-readonly'),
+      permissionMode: 'readonly',
+      providerOptions: {
+        extensions: ['./trusted-extension.ts'],
+        noExtensions: true,
+      },
+    });
+    const ambientToolName = 'ambient_tool_added_after_direct_set';
+    mocks.addToolDefinition(piTool(ambientToolName, AMBIENT_EXTENSION_PATH, 'npm:ambient-extension'));
+
+    mocks.triggerRuntimeSetActiveTools([
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'trusted_extension_tool',
+      ambientToolName,
+    ]);
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenCalledWith([
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'trusted_extension_tool',
+      ambientToolName,
+    ]);
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'trusted_extension_tool',
+    ]);
+  });
+
+  it('reapplies the edit allowlist after an extension directly sets active tools', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+
+    await callPi('worker', 'review before direct edit tool selection', {
+      ...sessionOptions('pi-sdk-direct-set-edit'),
+      permissionMode: 'edit',
+      allowedTools: ['read'],
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+    const ambientToolName = 'ambient_tool_added_after_direct_set';
+    mocks.addToolDefinition(piTool(ambientToolName, AMBIENT_EXTENSION_PATH, 'npm:ambient-extension'));
+
+    mocks.triggerRuntimeSetActiveTools(['read', 'trusted_extension_tool', ambientToolName]);
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'read',
+      'trusted_extension_tool',
+    ]);
+  });
+
+  it('keeps deny-all after an extension directly sets active tools', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+
+    await callPi('worker', 'deny tools before direct selection', {
+      ...sessionOptions('pi-sdk-direct-set-deny-all'),
+      permissionMode: 'edit',
+      allowedTools: [],
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+    const ambientToolName = 'ambient_tool_added_after_direct_set';
+    mocks.addToolDefinition(piTool(ambientToolName, AMBIENT_EXTENSION_PATH, 'npm:ambient-extension'));
+
+    mocks.triggerRuntimeSetActiveTools(['read', 'trusted_extension_tool', ambientToolName]);
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
+  });
+
+  it('preserves full-mode direct active tool selection', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './trusted-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+    }]);
+
+    await callPi('worker', 'select tools directly in full mode', {
+      ...sessionOptions('pi-sdk-direct-set-full'),
+      permissionMode: 'full',
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+
+    mocks.triggerRuntimeSetActiveTools(['trusted_extension_tool']);
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([
+      'trusted_extension_tool',
+    ]);
+  });
+
   it('does not activate extension tools that shadow read-only builtins', async () => {
     mocks.resetTransient();
-    mocks.session.getAllTools.mockReturnValueOnce([
-      { name: 'read', sourceInfo: { source: 'npm:mutating-extension' } },
-      { name: 'grep', sourceInfo: { source: 'npm:mutating-extension' } },
-      { name: 'find', sourceInfo: { source: 'npm:mutating-extension' } },
-      { name: 'ls', sourceInfo: { source: 'npm:mutating-extension' } },
+    configureExplicitExtensions([{
+      source: './mutating-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+      toolNames: ['read', 'grep', 'find', 'ls'],
+    }]);
+    mocks.session.getAllTools.mockReturnValue([
+      piTool('read', TRUSTED_EXTENSION_PATH, 'npm:mutating-extension'),
+      piTool('grep', TRUSTED_EXTENSION_PATH, 'npm:mutating-extension'),
+      piTool('find', TRUSTED_EXTENSION_PATH, 'npm:mutating-extension'),
+      piTool('ls', TRUSTED_EXTENSION_PATH, 'npm:mutating-extension'),
     ]);
 
     await callPi('worker', 'review safely', {
       ...sessionOptions('pi-sdk-shadowed-read-tool'),
       permissionMode: 'edit',
       allowedTools: ['read', 'grep', 'find', 'ls'],
+      providerOptions: { extensions: ['./mutating-extension.ts'] },
     });
 
     expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
@@ -1220,16 +1799,42 @@ describe('Pi SDK client', () => {
 
   it('requires builtin provenance for the readonly permission profile without an allowlist', async () => {
     mocks.resetTransient();
-    mocks.session.getAllTools.mockReturnValueOnce([
-      { name: 'read', sourceInfo: { source: 'npm:mutating-extension' } },
-      { name: 'grep', sourceInfo: { source: 'npm:mutating-extension' } },
-      { name: 'find', sourceInfo: { source: 'npm:mutating-extension' } },
-      { name: 'ls', sourceInfo: { source: 'npm:mutating-extension' } },
+    configureExplicitExtensions([{
+      source: './mutating-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+      toolNames: ['read', 'grep', 'find', 'ls'],
+    }]);
+    mocks.session.getAllTools.mockReturnValue([
+      piTool('read', TRUSTED_EXTENSION_PATH, 'npm:mutating-extension'),
+      piTool('grep', TRUSTED_EXTENSION_PATH, 'npm:mutating-extension'),
+      piTool('find', TRUSTED_EXTENSION_PATH, 'npm:mutating-extension'),
+      piTool('ls', TRUSTED_EXTENSION_PATH, 'npm:mutating-extension'),
     ]);
 
     await callPi('worker', 'review safely', {
       ...sessionOptions('pi-sdk-readonly-shadowed-tools'),
       permissionMode: 'readonly',
+      providerOptions: { extensions: ['./mutating-extension.ts'] },
+    });
+
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
+  });
+
+  it('requires builtin provenance for the edit permission profile without an allowlist', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{
+      source: './mutating-extension.ts',
+      path: TRUSTED_EXTENSION_PATH,
+      toolNames: ['read'],
+    }]);
+    mocks.session.getAllTools.mockReturnValue([
+      piTool('read', TRUSTED_EXTENSION_PATH, 'npm:mutating-extension'),
+    ]);
+
+    await callPi('worker', 'edit safely', {
+      ...sessionOptions('pi-sdk-edit-shadowed-tool'),
+      permissionMode: 'edit',
+      providerOptions: { extensions: ['./mutating-extension.ts'] },
     });
 
     expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
