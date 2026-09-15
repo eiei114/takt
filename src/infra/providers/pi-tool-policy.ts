@@ -39,16 +39,19 @@ export interface PiToolInfo {
   readonly sourcePath?: string;
 }
 
+/** Maps workflow tool aliases to Pi builtin names without accepting unknown aliases. */
 function normalizePiToolName(tool: string): string | undefined {
   const trimmed = tool.trim();
   return PI_TOOL_ALIASES[trimmed] ?? PI_TOOL_ALIASES[trimmed.toLowerCase()];
 }
 
+/** Whether a workflow tool can remain available when editing is disabled. */
 export function keepsPiToolWithoutEdit(tool: string): boolean {
   const normalized = normalizePiToolName(tool);
   return normalized !== undefined && PI_READONLY_TOOL_SET.has(normalized);
 }
 
+/** Selects explicitly trusted extension tools, excluding reserved builtin names. */
 function explicitExtensionToolNames(
   allTools: readonly PiToolInfo[],
   explicitExtensionPaths: readonly string[],
@@ -66,6 +69,11 @@ function explicitExtensionToolNames(
     .map((tool) => tool.name);
 }
 
+/**
+ * Combines builtin permissions with extension-wide grants in readonly/edit modes.
+ * An empty allowlist always denies all tools; outside those two modes an explicit
+ * allowlist remains authoritative. Callers must validate extension provenance.
+ */
 export function resolvePiActiveTools(
   permissionMode: PermissionMode | undefined,
   allowedTools: string[] | undefined,
@@ -103,7 +111,7 @@ export function resolvePiActiveTools(
     }
   }
 
-  if (permissionMode !== 'full' && (allowedTools === undefined || allowedTools.length > 0)) {
+  if (permissionTools !== undefined && (allowedTools === undefined || allowedTools.length > 0)) {
     activeTools = [...new Set([...activeTools, ...explicitTools])];
   }
 

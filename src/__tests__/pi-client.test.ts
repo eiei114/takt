@@ -270,6 +270,7 @@ vi.mock('@earendil-works/pi-ai', () => ({
 
 import { callPi } from '../infra/pi/client.js';
 
+/** Builds mutable SDK metadata so tests can model provenance tampering. */
 function sourceInfo(sourcePath: string, source: string) {
   return {
     path: sourcePath,
@@ -279,10 +280,12 @@ function sourceInfo(sourcePath: string, source: string) {
   };
 }
 
+/** Creates a registry entry with provenance independent of the extension fixture. */
 function piTool(name: string, sourcePath: string, source: string) {
   return { name, sourceInfo: sourceInfo(sourcePath, source) };
 }
 
+/** Builds an owned tool map, optionally giving tool definitions inconsistent paths. */
 function extensionRecord(
   extensionPath: string,
   source: string,
@@ -301,6 +304,7 @@ function extensionRecord(
   };
 }
 
+/** Configures both package resolution and loaded definitions for explicit sources. */
 function configureExplicitExtensions(
   extensions: ReadonlyArray<{
     source: string;
@@ -665,6 +669,26 @@ describe('Pi SDK client', () => {
       );
     },
   );
+
+  it.each([
+    ['skills', 'additionalSkillPaths'],
+    ['prompts', 'additionalPromptTemplatePaths'],
+    ['themes', 'additionalThemePaths'],
+  ] as const)('loads a %s-only package without granting extension tools', async (resource, loaderKey) => {
+    mocks.resetTransient();
+    const resourcePath = path.join(tmpdir(), `pi-resource-only-${resource}`);
+    mocks.packageManager.resolveExtensionSources.mockResolvedValueOnce({
+      extensions: [], skills: [], prompts: [], themes: [],
+      [resource]: [{ enabled: true, path: resourcePath }],
+    });
+    const result = await callPi('worker', 'inspect resources', {
+      ...sessionOptions(`resource-only-${resource}`), permissionMode: 'readonly',
+      providerOptions: { extensions: ['./resource-package'], noExtensions: true },
+    });
+    expect(result.status).toBe('done');
+    expect(mocks.getLoaderOptions()).toMatchObject({ [loaderKey]: [resourcePath] });
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith(['read', 'grep', 'find', 'ls']);
+  });
 
   it('loads multiple successful extension sources only once', async () => {
     mocks.resetTransient();
@@ -2369,6 +2393,13 @@ describe('Pi SDK client', () => {
 
   it('does not dispose an active session when another configuration replaces it', async () => {
     mocks.resetTransient();
+    // Observe the active session independently of unrelated cache evictions.
+    const activeDispose = vi.fn();
+    const createSession = mocks.createAgentSession.getMockImplementation()!;
+    mocks.createAgentSession.mockImplementationOnce(async () => {
+      const result = await createSession();
+      return { ...result, session: { ...result.session, dispose: activeDispose } };
+    });
     let markFirstStarted!: () => void;
     let releaseFirst!: () => void;
     const firstStarted = new Promise<void>((resolve) => {
@@ -2393,11 +2424,11 @@ describe('Pi SDK client', () => {
     });
 
     expect(second.status).toBe('done');
-    expect(mocks.session.dispose).not.toHaveBeenCalled();
+    expect(activeDispose).not.toHaveBeenCalled();
 
     releaseFirst();
     await first;
-    expect(mocks.session.dispose).toHaveBeenCalledOnce();
+    expect(activeDispose).toHaveBeenCalledOnce();
   });
 
   it('lets an aborted caller stop while it waits for a reused SDK session', async () => {

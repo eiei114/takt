@@ -255,6 +255,7 @@ function assertSafeExtensionSources(sources: readonly string[]): void {
   }
 }
 
+/** Validates registered tool provenance before selecting the session's active tools. */
 function applyPiTools(
   session: AgentSession,
   options: PiCallOptions,
@@ -290,6 +291,11 @@ function applyPiTools(
   ));
 }
 
+/**
+ * Enforces tool policy across SDK updates and cached calls using captured owners.
+ * Validation failure revokes tools, aborts the session, and remains latched even
+ * when an extension hook catches the exception.
+ */
 function installPiToolRefreshPolicy(
   session: AgentSession,
   extensionsResult: LoadExtensionsResult,
@@ -366,12 +372,14 @@ function installPiToolRefreshPolicy(
   };
 }
 
+/** Extracts enabled paths of one Pi resource kind from a resolved package. */
 function enabledResourcePaths(paths: ResolvedPaths, key: keyof ResolvedPaths): string[] {
   return paths[key]
     .filter((resource) => resource.enabled)
     .map((resource) => resource.path);
 }
 
+/** Counts all supported resource kinds, including packages with no extension module. */
 function countEnabledResolvedResources(paths: ResolvedPaths): number {
   return enabledResourcePaths(paths, 'extensions').length
     + enabledResourcePaths(paths, 'skills').length
@@ -672,6 +680,7 @@ function extensionPathKey(cwd: string, extensionPath: string): string {
   return path.resolve(cwd, extensionPath);
 }
 
+/** Filters loader errors whose module did not also load successfully. */
 function actualExtensionLoadErrors(
   cwd: string,
   extensionsResult: LoadExtensionsResult,
@@ -684,6 +693,7 @@ function actualExtensionLoadErrors(
   ));
 }
 
+/** Returns normalized loader identities used to match an explicitly resolved module. */
 function explicitExtensionPathCandidates(
   cwd: string,
   extension: LoadExtensionsResult['extensions'][number],
@@ -695,20 +705,22 @@ function explicitExtensionPathCandidates(
   ].map((extensionPath) => extensionPathKey(cwd, extensionPath)));
 }
 
+/**
+ * Extracts trusted module paths without rejecting skill/prompt/theme-only packages.
+ * Candidate resolution already rejects packages with no enabled resources.
+ */
 function explicitExtensionPathsForResolutions(
   cwd: string,
   resolutions: readonly ExtensionSourceResolution[],
 ): string[] {
   const paths = resolutions.flatMap((resolution) => {
     const extensionPaths = enabledResourcePaths(resolution.candidate.paths, 'extensions');
-    if (extensionPaths.length === 0) {
-      throw new Error('Pi explicit extension provenance could not be verified');
-    }
     return extensionPaths.map((extensionPath) => extensionPathKey(cwd, extensionPath));
   });
   return [...new Set(paths)];
 }
 
+/** Requires each explicit module path to identify exactly one consistent loaded extension. */
 function assertLoadedExplicitExtensions(
   cwd: string,
   explicitExtensionPaths: readonly string[],
@@ -735,6 +747,7 @@ function assertLoadedExplicitExtensions(
   }
 }
 
+/** Checks that explicit tool definitions and the SDK registry agree on ownership. */
 function assertExplicitExtensionTools(
   cwd: string,
   explicitExtensionPaths: readonly string[],
@@ -778,10 +791,12 @@ function assertExplicitExtensionTools(
   }
 }
 
+/** Releases extension runtime resources when no session will own the rejected loader. */
 function invalidateRejectedResourceLoader(resourceLoader: DefaultResourceLoader): void {
   resourceLoader.getExtensions().runtime.invalidate('Pi extension candidate was rejected');
 }
 
+/** Resolves and loads explicit Pi resources, rejecting load errors and ambiguous provenance. */
 async function resolvePiResourceLoader(
   cwd: string,
   agentDir: string,
@@ -1135,6 +1150,7 @@ function cacheSessionRecord(record: PiSessionRecord, sessionIds: readonly string
   enforcePiSessionCacheLimit();
 }
 
+/** Creates a session with verified resources and policy hooks before extension startup. */
 async function createPiSession(
   options: PiCallOptions,
   agentDir: string,
@@ -1549,6 +1565,7 @@ function handlePiEvent(
   }
 }
 
+/** Runs a serialized Pi turn, reusing compatible sessions and reporting provider failures. */
 export async function callPi(
   agentType: string,
   prompt: string,
