@@ -72,6 +72,7 @@ interface PiSessionRecord {
   cwd: string;
   configurationFingerprint: string;
   setPiToolPolicyOptions: (options: PiCallOptions) => void;
+  assertPiToolPolicyHealthy: () => void;
   thinkingLevelOverrideActive: boolean;
   extensionErrors: string[];
   operationTail: Promise<void>;
@@ -265,7 +266,7 @@ function applyPiTools(
     source: tool.sourceInfo.source,
     sourcePath: extensionPathKey(options.cwd, tool.sourceInfo.path),
   }));
-  if (options.permissionMode === 'readonly' || options.permissionMode === 'edit') {
+  if (options.permissionMode !== 'full') {
     for (const tool of allTools) {
       const original = registeredProvenance.get(tool.name);
       if (original !== undefined
@@ -291,11 +292,18 @@ function applyPiTools(
 
 function installPiToolRefreshPolicy(
   session: AgentSession,
-  extensionRuntime: LoadExtensionsResult['runtime'],
+  extensionsResult: LoadExtensionsResult,
   initialOptions: PiCallOptions,
   explicitExtensionPaths: readonly string[],
-): (options: PiCallOptions) => void {
+): { setOptions: (options: PiCallOptions) => void; assertHealthy: () => void } {
   let currentOptions = initialOptions;
+  const extensionRuntime = extensionsResult.runtime;
+  let policyFailure: unknown;
+  const owners = extensionsResult.extensions.map((extension) => ({
+    tools: extension.tools,
+    source: extension.sourceInfo.source,
+    sourcePath: extensionPathKey(initialOptions.cwd, extension.sourceInfo.path),
+  }));
   // Copy primitive provenance before binding extension lifecycle callbacks. SDK
   // getAllTools() exposes mutable sourceInfo objects; never retain those objects.
   const registeredProvenance = new Map(session.getAllTools().map((tool) => [tool.name, {
@@ -304,22 +312,57 @@ function installPiToolRefreshPolicy(
   }]));
   const refreshTools = extensionRuntime.refreshTools;
   const setActiveTools = extensionRuntime.setActiveTools;
+  const enforce = (update?: () => void) => {
+    try {
+      if (policyFailure) throw policyFailure;
+      if (currentOptions.permissionMode !== 'full') {
+        for (const owner of owners) {
+          for (const [name, tool] of owner.tools) {
+            if (extensionPathKey(initialOptions.cwd, tool.sourceInfo.path) !== owner.sourcePath
+              || tool.sourceInfo.source !== owner.source) {
+              throw new Error('Pi explicit extension provenance could not be verified');
+            }
+            const original = registeredProvenance.get(name);
+            if (original && original.sourcePath !== owner.sourcePath) {
+              throw new Error('Pi explicit extension provenance could not be verified');
+            }
+            if (!original) registeredProvenance.set(name, { source: owner.source, sourcePath: owner.sourcePath });
+          }
+        }
+      }
+      update?.();
+      applyPiTools(session, currentOptions, explicitExtensionPaths, registeredProvenance);
+    } catch (error) {
+      policyFailure = error;
+      // SDK hook dispatch may swallow exceptions. Revoke tools synchronously,
+      // request cancellation, and retain the failure for the next call too.
+      session.setActiveToolsByName([]);
+      void session.abort().catch(() => undefined);
+      throw error;
+    }
+  };
   extensionRuntime.refreshTools = () => {
-    refreshTools();
-    applyPiTools(session, currentOptions, explicitExtensionPaths, registeredProvenance);
+    enforce(refreshTools);
   };
   extensionRuntime.setActiveTools = (toolNames) => {
-    setActiveTools(toolNames);
     if (currentOptions.permissionMode === 'readonly'
       || currentOptions.permissionMode === 'edit'
       || currentOptions.allowedTools !== undefined) {
-      applyPiTools(session, currentOptions, explicitExtensionPaths, registeredProvenance);
+      enforce();
+    } else {
+      if (policyFailure) throw policyFailure;
+      setActiveTools(toolNames);
     }
   };
 
-  return (options) => {
-    currentOptions = options;
-    applyPiTools(session, options, explicitExtensionPaths, registeredProvenance);
+  return {
+    setOptions: (options) => {
+      currentOptions = options;
+      enforce();
+    },
+    assertHealthy: () => {
+      if (policyFailure) throw policyFailure;
+    },
   };
 }
 
@@ -1162,9 +1205,9 @@ async function createPiSession(
         `Pi extension loading failed: ${formatExtensionLoadErrors(result.extensionsResult.errors)}`,
       );
     }
-    const setPiToolPolicyOptions = installPiToolRefreshPolicy(
+    const toolPolicy = installPiToolRefreshPolicy(
       result.session,
-      result.extensionsResult.runtime,
+      result.extensionsResult,
       options,
       explicitExtensionPaths,
     );
@@ -1192,7 +1235,8 @@ async function createPiSession(
       runtime,
       cwd: options.cwd,
       configurationFingerprint,
-      setPiToolPolicyOptions,
+      setPiToolPolicyOptions: toolPolicy.setOptions,
+      assertPiToolPolicyHealthy: toolPolicy.assertHealthy,
       thinkingLevelOverrideActive: false,
       extensionErrors,
       operationTail: Promise.resolve(),
@@ -1600,6 +1644,7 @@ export async function callPi(
       if (isAbortRequested(options.abortSignal) || state.assistantAborted) {
         throw new Error('Pi session aborted');
       }
+      record.assertPiToolPolicyHealthy();
       if (state.assistantError !== undefined) {
         throw new Error(state.assistantError);
       }

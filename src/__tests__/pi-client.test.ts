@@ -1520,7 +1520,7 @@ describe('Pi SDK client', () => {
     expect(mocks.session.prompt).not.toHaveBeenCalled();
   });
 
-  it.each(['readonly', 'edit'] as const)('rejects mutable ambient provenance on %s session reuse', async (permissionMode) => {
+  it.each(['readonly', 'edit', undefined] as const)('rejects mutable ambient provenance on %s session reuse', async (permissionMode) => {
     mocks.resetTransient();
     configureExplicitExtensions([{ source: './trusted-extension.ts', path: TRUSTED_EXTENSION_PATH }]);
     const ambient = piTool('ambient_mutable_tool', AMBIENT_EXTENSION_PATH, 'npm:ambient-extension');
@@ -1528,15 +1528,51 @@ describe('Pi SDK client', () => {
     const options = {
       ...sessionOptions(`pi-sdk-mutable-provenance-${permissionMode}`),
       permissionMode,
+      allowedTools: ['read'],
       providerOptions: { extensions: ['./trusted-extension.ts'] },
     };
     await callPi('worker', 'inspect', options);
     const promptCount = mocks.session.prompt.mock.calls.length;
     ambient.sourceInfo.path = TRUSTED_EXTENSION_PATH;
     expect(() => mocks.triggerRuntimeRefreshTools()).toThrow('provenance could not be verified');
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
+    expect(mocks.session.abort).toHaveBeenCalled();
     const response = await callPi('worker', 'inspect again', options);
     expect(response.status).toBe('error');
     expect(mocks.session.prompt).toHaveBeenCalledTimes(promptCount);
+  });
+
+  it('rejects an explicit-path registry tool missing from the extension definition', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{ source: './trusted-extension.ts', path: TRUSTED_EXTENSION_PATH }]);
+    mocks.addToolDefinition(piTool('unowned', TRUSTED_EXTENSION_PATH, './trusted-extension.ts'));
+    const result = await callPi('worker', 'inspect', {
+      ...sessionOptions('unowned-registry'), permissionMode: 'readonly',
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+    expect(result.status).toBe('error');
+    expect(mocks.session.setActiveToolsByName).not.toHaveBeenCalled();
+    expect(mocks.session.prompt).not.toHaveBeenCalled();
+  });
+
+  it('accepts an owned dynamic tool and clears it on cached deny-all', async () => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{ source: './trusted-extension.ts', path: TRUSTED_EXTENSION_PATH }]);
+    const extension = extensionRecord(TRUSTED_EXTENSION_PATH, './trusted-extension.ts');
+    mocks.setLoadedExtensions([extension]);
+    const options = {
+      ...sessionOptions('dynamic-and-deny-all'), permissionMode: 'readonly' as const,
+      allowedTools: ['read'], providerOptions: { extensions: ['./trusted-extension.ts'] },
+    };
+    await callPi('worker', 'inspect', options);
+    const tool = piTool('dynamic_tool', TRUSTED_EXTENSION_PATH, './trusted-extension.ts');
+    extension.tools.set(tool.name, tool);
+    mocks.addToolDefinition(tool);
+    mocks.triggerRuntimeRefreshTools();
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith(['read', 'trusted_extension_tool', 'dynamic_tool']);
+    await callPi('worker', 'deny', { ...options, allowedTools: [] });
+    expect(mocks.createAgentSession).toHaveBeenCalledOnce();
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
   });
 
   it('reapplies the explicit extension tool set when a cached session changes permission mode', async () => {
@@ -1691,7 +1727,7 @@ describe('Pi SDK client', () => {
       ambientToolName,
     ]);
 
-    expect(mocks.session.setActiveToolsByName).toHaveBeenCalledWith([
+    expect(mocks.session.setActiveToolsByName).not.toHaveBeenCalledWith([
       'read',
       'grep',
       'find',
@@ -1706,6 +1742,47 @@ describe('Pi SDK client', () => {
       'ls',
       'trusted_extension_tool',
     ]);
+  });
+
+  it.each(['refresh', 'set'] as const)('revokes tools and fails the prompt when SDK swallows a %s policy error', async (action) => {
+    mocks.resetTransient();
+    configureExplicitExtensions([{ source: './trusted-extension.ts', path: TRUSTED_EXTENSION_PATH }]);
+    const ambient = piTool('mutable_during_prompt', AMBIENT_EXTENSION_PATH, 'npm:ambient-extension');
+    mocks.addToolDefinition(ambient);
+    const successfulPrompt = mocks.session.prompt.getMockImplementation()!;
+    mocks.session.prompt.mockImplementationOnce(async (...args) => {
+      ambient.sourceInfo.path = TRUSTED_EXTENSION_PATH;
+      try {
+        if (action === 'refresh') mocks.triggerRuntimeRefreshTools();
+        else mocks.triggerRuntimeSetActiveTools(['mutable_during_prompt']);
+      } catch { /* SDK hook dispatch records errors and continues. */ }
+      expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
+      expect(mocks.session.abort).toHaveBeenCalled();
+      // Simulate SDK hook dispatch swallowing the error and still producing
+      // normal assistant text. Only the latched policy failure may reject it.
+      await successfulPrompt(...args);
+    });
+    const result = await callPi('worker', 'inspect', {
+      ...sessionOptions(`swallowed-policy-${action}`), permissionMode: 'readonly',
+      providerOptions: { extensions: ['./trusted-extension.ts'] },
+    });
+    expect(result.status).toBe('error');
+    expect(result.error).toContain('Pi explicit extension provenance could not be verified');
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
+  });
+
+  it('does not overwrite full-mode tool selection when checking prompt health', async () => {
+    mocks.resetTransient();
+    const prompt = mocks.session.prompt.getMockImplementation()!;
+    mocks.session.prompt.mockImplementationOnce(async (...args) => {
+      mocks.triggerRuntimeSetActiveTools(['trusted_extension_tool']);
+      await prompt(...args);
+    });
+    const result = await callPi('worker', 'inspect', {
+      ...sessionOptions('full-prompt-health'), permissionMode: 'full',
+    });
+    expect(result.status).toBe('done');
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith(['trusted_extension_tool']);
   });
 
   it('reapplies the edit allowlist after an extension directly sets active tools', async () => {
@@ -2410,6 +2487,14 @@ describe('Pi SDK client', () => {
 
   it('disposes a late bootstrap result after all original waiters abort', async () => {
     mocks.resetTransient();
+    // Other cached mock sessions can be evicted at capacity. Observe this
+    // bootstrap's disposal, not the shared spy belonging to every old session.
+    const lateDispose = vi.fn();
+    const createSession = mocks.createAgentSession.getMockImplementation()!;
+    mocks.createAgentSession.mockImplementationOnce(async () => {
+      const result = await createSession();
+      return { ...result, session: { ...result.session, dispose: lateDispose } };
+    });
     const previousModel = mocks.session.model;
     mocks.session.model = undefined;
     let markModelApplyStarted!: () => void;
@@ -2437,10 +2522,10 @@ describe('Pi SDK client', () => {
 
       const second = await callPi('worker', 'second', sessionOptions('pi-sdk-late-bootstrap'));
       expect(second.status).toBe('done');
-      expect(mocks.session.dispose).not.toHaveBeenCalled();
+      expect(lateDispose).not.toHaveBeenCalled();
 
       releaseModelApply();
-      await vi.waitFor(() => expect(mocks.session.dispose).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(lateDispose).toHaveBeenCalledOnce());
       expect(mocks.createAgentSession).toHaveBeenCalledTimes(2);
     } finally {
       releaseModelApply();
