@@ -372,18 +372,6 @@ export function normalizeProviderOptions(
   }
   if (options.deepseek_harness !== undefined) {
     const deepseekOptionsPath = `${normalizationOptions.pathPrefix ?? 'provider_options'}.deepseek_harness`;
-    if (Object.hasOwn(options.deepseek_harness, 'session_root')) {
-      throw new Error(
-        `Configuration error: ${deepseekOptionsPath}.session_root has been removed; `
-        + 'use workflow session_key for session reuse.',
-      );
-    }
-    if (Object.hasOwn(options.deepseek_harness, 'cordis')) {
-      throw new Error(
-        `Configuration error: ${deepseekOptionsPath}.cordis has been removed because the current SDK does not support it; `
-        + 'there is no supported replacement, so remove it.',
-      );
-    }
     const deepseekBaseUrlPath = `${deepseekOptionsPath}.base_url`;
     assertAllowedProviderBaseUrl(
       deepseekBaseUrlPath,
@@ -694,27 +682,6 @@ function selectProviderValueByScope<T>(
   return stepValue ?? personaValue ?? configValue;
 }
 
-/** Reject removed SDK fields in every input layer, even when a later layer would override them. */
-function assertNoRemovedDeepSeekHarnessOptions(
-  providerOptions: StepProviderOptions | undefined,
-): void {
-  const deepseekHarnessOptions = providerOptions?.deepseekHarness;
-  if (deepseekHarnessOptions === undefined) {
-    return;
-  }
-  if (Object.hasOwn(deepseekHarnessOptions, 'sessionRoot')) {
-    throw new Error(
-      'DeepSeek Harness sessionRoot option has been removed; use workflow session_key for session reuse.',
-    );
-  }
-  if (Object.hasOwn(deepseekHarnessOptions, 'cordis')) {
-    throw new Error(
-      'DeepSeek Harness cordis option has been removed because the current SDK does not support it; '
-      + 'there is no supported replacement, so remove it.',
-    );
-  }
-}
-
 export function resolvePersonaProviderOptions(
   personaProviders: Record<string, PersonaProviderEntry> | undefined,
   personaDisplayName: string | undefined,
@@ -818,7 +785,7 @@ export function resolveProfileScopedProviderOptionsLayers(
   ];
 }
 
-/** Combine config, persona, and step options using per-field origins after rejecting removed fields. */
+/** Combine config, persona, and step options using per-field origins. */
 export function resolveEffectiveProviderOptions(
   source: ProviderOptionsSource | undefined,
   originResolver: ProviderOptionsOriginResolver | undefined,
@@ -826,9 +793,6 @@ export function resolveEffectiveProviderOptions(
   stepOptions: StepProviderOptions | undefined,
   personaOptions?: StepProviderOptions,
 ): StepProviderOptions | undefined {
-  for (const options of [resolvedConfigOptions, stepOptions, personaOptions]) {
-    assertNoRemovedDeepSeekHarnessOptions(options);
-  }
   if (!resolvedConfigOptions) {
     return mergeProviderOptions(personaOptions, stepOptions);
   }

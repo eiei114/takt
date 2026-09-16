@@ -403,22 +403,6 @@ sys.implementation = types.SimpleNamespace(
   });
 
   it.each([
-    ['session_root', { sessionRoot: 'removed-session-root' }],
-    ['cordis', { cordis: 'removed-cordis.yml' }],
-  ] as const)('rejects removed %s before starting the bridge', async (optionName, providerOptions) => {
-    const response = await callDeepSeekHarness('worker', 'hello', {
-      cwd: root,
-      providerOptions: providerOptions as never,
-    });
-
-    expect(response.status).toBe('error');
-    expect(response.content).toMatch(new RegExp(`${optionName}.*(?:removed|deprecated|unsupported)`, 'iu'));
-    expect(response.content).toMatch(/(?:session_key|current SDK|no supported replacement|remove)/iu);
-    await expect(readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8'))
-      .rejects.toMatchObject({ code: 'ENOENT' });
-  });
-
-  it.each([
     ['openai/gpt-5.4', 'openai', 'gpt-5.4'],
     ['my-gateway/org/custom-model', 'my-gateway', 'org/custom-model'],
     ['my-gateway/ollama/qwen3.5:397b', 'my-gateway', 'ollama/qwen3.5:397b'],

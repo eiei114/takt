@@ -1232,7 +1232,7 @@ bridge 起動前に拒否されます。空白だけの route または model �
 bridge/SDK に渡します。SDK が拒否した場合は、入力された参照と bridge/SDK で
 失敗した箇所を含むエラーになります。
 
-`session_root` と `cordis` は DeepSeek Harness provider option から削除されました。セッション再利用には workflow の `session_key` を使用してください。`cordis` は現行 SDK が対応しておらず、対応する移行先がないため削除してください。設定ファイルと対応する `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_SESSION_ROOT` / `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS` 環境変数は、bridge 起動前にこの移行案内を含むエラーになります。黙って無視されることはありません。managed interpreter は install command が固定し、provider option から選択できません。project runtime profile の `base_url` は loopback のみ使用できます。
+managed interpreter は install command が固定し、provider option から選択できません。project runtime profile の `base_url` は loopback のみ使用できます。
 
 workflow が `session_key` を指定するとセッションを再利用し、one-shot call は bridge を直ちに close します。`request_timeout_ms` は Python bridge request 全体を終了させ、TAKT call の abort は bridge の process tree を終了させます。公式 `session.event` notification は TAKT の text、thinking、tool-use、tool-result、error、result event へ変換されます。system prompt、MCP server map、画像添付、structured output、`maxTurns` は公式 SDK の call に存在しないため warning とともに無視されます。tool composition option はこの provider contract では公開されません。
 

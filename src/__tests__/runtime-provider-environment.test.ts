@@ -245,46 +245,36 @@ describe('compileRuntimeProviderEnvironment (profile options)', () => {
       .toThrow('python_path');
   });
 
-  it.each([
-    ['session_root', { session_root: 'deepseek-sessions' }],
-    ['cordis', { cordis: 'cordis.yml' }],
-  ] as const)('rejects removed %s from a global runtime profile with migration guidance', (optionName, options) => {
+  it('rejects unknown DeepSeek options from a global runtime profile', () => {
     const section: RuntimeProviderSection = {
       defaults: { profile: 'p' },
       profiles: {
         p: {
           provider: 'deepseek-harness',
           model: 'deepseek-v4-flash',
-          options,
+          options: { unsupported: true },
         },
       },
     };
 
     expect(() => compileRuntimeProviderEnvironment(section, globalRuntimeResolutionContext))
-      .toThrow(new RegExp(`${optionName}.*(?:removed|deprecated|unsupported)`, 'iu'));
-    expect(() => compileRuntimeProviderEnvironment(section, globalRuntimeResolutionContext))
-      .toThrow(/(?:session_key|current SDK|no supported replacement|remove)/iu);
+      .toThrow(/unsupported/iu);
   });
 
-  it.each([
-    ['session_root', { session_root: 'deepseek-sessions' }],
-    ['cordis', { cordis: 'cordis.yml' }],
-  ] as const)('rejects removed %s from a project runtime profile with migration guidance', (optionName, options) => {
+  it('rejects unknown DeepSeek options from a project runtime profile', () => {
     const section: RuntimeProviderSection = {
       defaults: { profile: 'p' },
       profiles: {
         p: {
           provider: 'deepseek-harness',
           model: 'deepseek-v4-flash',
-          options,
+          options: { unsupported: true },
         },
       },
     };
 
     expect(() => compileRuntimeProviderEnvironment(section, projectRuntimeResolutionContext))
-      .toThrow(new RegExp(`${optionName}.*(?:removed|deprecated|unsupported)`, 'iu'));
-    expect(() => compileRuntimeProviderEnvironment(section, projectRuntimeResolutionContext))
-      .toThrow(/(?:session_key|current SDK|no supported replacement|remove)/iu);
+      .toThrow(/unsupported/iu);
   });
 
   it('rejects a DeepSeek executable override from a project runtime profile', () => {

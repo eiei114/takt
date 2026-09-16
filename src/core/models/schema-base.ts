@@ -169,19 +169,6 @@ const DeepSeekHarnessProviderOptionsSchema = z.object({
   request_timeout_ms: z.number().int().positive().safe().max(2_147_483_647).optional(),
   shutdown_timeout_ms: z.number().int().positive().safe().max(2_147_483_647).optional(),
   runtime_mode: z.enum(['exe', 'node']).optional(),
-}, {
-  error: (issue) => {
-    if (issue.code !== 'unrecognized_keys') {
-      return undefined;
-    }
-    if (issue.keys.includes('session_root')) {
-      return 'session_root has been removed; use workflow session_key for session reuse';
-    }
-    if (issue.keys.includes('cordis')) {
-      return 'cordis has been removed because the current SDK does not support it; there is no supported replacement, so remove it. The former trusted user configuration path is no longer available';
-    }
-    return undefined;
-  },
 }).strict();
 
 const PiProviderOptionsSchema = z.object({

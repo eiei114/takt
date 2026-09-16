@@ -64,42 +64,6 @@ describe('DeepSeek Harness provider options', () => {
     })).toThrow();
   });
 
-  it('rejects the removed session_root option with session_key migration guidance', () => {
-    expect(() => StepProviderOptionsObjectSchema.parse({
-      deepseek_harness: { session_root: '.takt/deepseek-sessions' },
-    })).toThrow(/session_root.*(?:removed|deprecated)/iu);
-    expect(() => StepProviderOptionsObjectSchema.parse({
-      deepseek_harness: { session_root: '.takt/deepseek-sessions' },
-    })).toThrow(/session_key/iu);
-  });
-
-  it('rejects the removed cordis option with current SDK migration guidance', () => {
-    expect(() => StepProviderOptionsObjectSchema.parse({
-      deepseek_harness: { cordis: '.takt/cordis.yml' },
-    })).toThrow(/cordis.*(?:removed|deprecated|unsupported)/iu);
-    expect(() => StepProviderOptionsObjectSchema.parse({
-      deepseek_harness: { cordis: '.takt/cordis.yml' },
-    })).toThrow(/(?:current SDK|no supported replacement|remove)/iu);
-  });
-
-  it('rejects removed DeepSeek options passed directly to the normalizer', () => {
-    expect(() => normalizeProviderOptions({
-      deepseek_harness: { session_root: '.takt/deepseek-sessions' },
-    } as never)).toThrow(/session_root/iu);
-    expect(() => normalizeProviderOptions({
-      deepseek_harness: { cordis: '.takt/cordis.yml' },
-    } as never)).toThrow(/cordis/iu);
-  });
-
-  it('rejects removed DeepSeek options passed directly to the serializer', () => {
-    expect(() => denormalizeProviderOptions({
-      deepseekHarness: { sessionRoot: '.takt/deepseek-sessions' },
-    } as never)).toThrow(/sessionRoot/iu);
-    expect(() => denormalizeProviderOptions({
-      deepseekHarness: { cordis: '.takt/cordis.yml' },
-    } as never)).toThrow(/cordis/iu);
-  });
-
   it('rejects a non-loopback base URL from project/workflow origin', () => {
     expect(() => normalizeProviderOptions(deepseekYaml, {
       baseUrlTrust: 'local-loopback-only',

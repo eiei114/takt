@@ -65,38 +65,21 @@ describe('resolveProviderOptionsWithTrace', () => {
     expect(result.originResolver('claude.skills.enabled')).toBe('default');
   });
 
-  it.each([
-    ['session_root', 'deepseek-sessions'],
-    ['cordis', 'cordis.yml'],
-  ] as const)('非 workflow の global 設定で削除済み DeepSeek %s を拒否する', (optionName, value) => {
+  it('非 workflow の global 設定で未知の DeepSeek option を拒否する', () => {
     writeFileSync(
       globalConfigPath,
       [
         'language: en',
         'provider_options:',
         '  deepseek_harness:',
-        `    ${optionName}: ${value}`,
+        '    unsupported: true',
       ].join('\n'),
       'utf-8',
     );
     invalidateGlobalConfigCache();
 
     expect(() => resolveNonWorkflowProviderOptions(projectDir))
-      .toThrow(new RegExp(`${optionName}.*(?:removed|deprecated|unsupported)`, 'iu'));
-    expect(() => resolveNonWorkflowProviderOptions(projectDir))
-      .toThrow(/(?:session_key|current SDK|no supported replacement|remove)/iu);
-  });
-
-  it.each([
-    ['SESSION_ROOT', 'session_root', 'env-deepseek-sessions'],
-    ['CORDIS', 'cordis', 'env-cordis.yml'],
-  ] as const)('非 workflow の environment override で削除済み DeepSeek %s を拒否する', (envSuffix, optionName, value) => {
-    process.env[`TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_${envSuffix}`] = value;
-
-    expect(() => resolveNonWorkflowProviderOptions(projectDir))
-      .toThrow(new RegExp(`${optionName}.*(?:removed|deprecated|unsupported)`, 'iu'));
-    expect(() => resolveNonWorkflowProviderOptions(projectDir))
-      .toThrow(/(?:session_key|current SDK|no supported replacement|remove)/iu);
+      .toThrow(/unsupported/iu);
   });
 
   it('既定の Skill 設定を解決結果ごとに分離する', () => {

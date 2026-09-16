@@ -936,7 +936,7 @@ allowlist，也不转换 provider alias。route 和 model 两部分都会按原�
 provider 和 model 字段传给 bridge/SDK；若 SDK 拒绝，错误会标明原始引用以及
 bridge/SDK 的失败位置。
 
-`session_root` 和 `cordis` 已从 DeepSeek Harness provider option 中删除。要复用 session，请使用 workflow 的 `session_key`。当前 SDK 不支持 `cordis`，也没有受支持的替代配置，因此必须删除。配置文件以及对应的 `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_SESSION_ROOT` / `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS` 环境变量会在 bridge 启动前报错并给出迁移说明，不会被静默忽略。managed interpreter 由 install command 固定，不能通过 provider option 选择。project runtime profile 的 `base_url` 只能使用 loopback。
+managed interpreter 由 install command 固定，不能通过 provider option 选择。project runtime profile 的 `base_url` 只能使用 loopback。
 
 带有 `session_key` 的 workflow 会复用 session；one-shot call 会立即关闭 bridge。官方 event 会转换成 TAKT 的 text、thinking、tool-use、tool-result、error 和 result event。system prompt、MCP server map、图片附件、structured output 和 `maxTurns` 不属于官方 SDK 调用，会被警告并忽略。工具组合 option 不在此 provider contract 中公开。
 

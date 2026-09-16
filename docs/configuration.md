@@ -1293,7 +1293,7 @@ validation point. Unknown routes or model IDs are not validated by TAKT and are
 passed unchanged as separate provider/model fields to the bridge/SDK; an SDK
 rejection identifies the supplied reference and the bridge/SDK failure point.
 
-`session_root` and `cordis` have been removed from DeepSeek Harness provider options. Use workflow `session_key` to reuse a session. `cordis` has no supported replacement in the current SDK and must be removed. Configuration files and the corresponding `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_SESSION_ROOT` / `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS` environment variables fail before the bridge starts with this migration guidance; they are not ignored. The managed interpreter is fixed by the install command and cannot be selected through provider options. Project runtime profiles may use only loopback `base_url` values.
+The managed interpreter is fixed by the install command and cannot be selected through provider options. Project runtime profiles may use only loopback `base_url` values.
 
 Sessions are reused when a workflow supplies `session_key`; one-shot calls close the bridge immediately. `request_timeout_ms` terminates the complete Python bridge request, and aborting a TAKT call terminates the bridge process tree. Stream events are converted from official `session.event` notifications into TAKT text, thinking, tool-use, tool-result, error, and result events. System prompts, MCP server maps, image attachments, structured output, and `maxTurns` are not part of the official SDK call and are ignored with a warning. Tool composition options are not exposed through this provider contract.
 

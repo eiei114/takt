@@ -275,23 +275,11 @@ function assertOpaqueToolId(id: string, knownSecrets: Record<string, string>): v
   assertOpaqueProtocolIdentifier(id, knownSecrets, 'tool ID');
 }
 
-/** Build the supported bridge configuration, rejecting removed SDK options before process creation. */
+/** Build the supported bridge configuration before process creation. */
 function resolveBridgeConfiguration(
   options: DeepSeekHarnessCallOptions,
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
 ): ResolvedBridgeConfiguration {
-  if (providerOptions !== undefined && Object.hasOwn(providerOptions, 'sessionRoot')) {
-    throw new Error(
-      'DeepSeek Harness session_root option (sessionRoot) has been removed; '
-      + 'use workflow session_key for session reuse.',
-    );
-  }
-  if (providerOptions !== undefined && Object.hasOwn(providerOptions, 'cordis')) {
-    throw new Error(
-      'DeepSeek Harness cordis option has been removed because the current SDK does not support it; '
-      + 'there is no supported replacement, so remove it.',
-    );
-  }
   const modelReference = options.model ?? DEEPSEEK_HARNESS_DEFAULT_MODEL;
   const { provider, model } = parseDeepSeekHarnessModelReference(modelReference);
   assertSafeSessionId(options.sessionId);

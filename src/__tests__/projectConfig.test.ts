@@ -346,26 +346,6 @@ describe('projectConfig', () => {
     });
   });
 
-  it('rejects removed project DeepSeek cordis with SDK incompatibility and removal guidance', () => {
-    writeFileSync(join(testDir, '.takt', 'config.yaml'), [
-      'provider_options:',
-      '  deepseek_harness:',
-      '    cordis: .takt/cordis.yml',
-    ].join('\n'), 'utf-8');
-
-    let thrown: unknown;
-    try {
-      loadProjectConfig(testDir);
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toBeInstanceOf(Error);
-    const message = thrown instanceof Error ? thrown.message : String(thrown);
-    expect(message).toContain('cordis has been removed');
-    expect(message).toContain('current SDK does not support it');
-    expect(message).toContain('no supported replacement, so remove it');
-  });
-
   describe('workflow_overrides empty array round-trip', () => {
     it('should preserve empty rate_limit_fallback switch_chain in save/load cycle', () => {
       const configPath = join(testDir, '.takt', 'config.yaml');

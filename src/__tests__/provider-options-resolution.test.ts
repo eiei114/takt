@@ -59,43 +59,6 @@ describe('resolveEffectiveProviderOptions', () => {
     });
   });
 
-  it.each([
-    ['resolved config', 'sessionRoot'],
-    ['resolved config', 'cordis'],
-    ['step options', 'sessionRoot'],
-    ['step options', 'cordis'],
-    ['persona options', 'sessionRoot'],
-    ['persona options', 'cordis'],
-    ['merged options without config', 'sessionRoot'],
-    ['merged options without config', 'cordis'],
-  ] as const)('rejects removed DeepSeek options from %s: %s', (layer, option) => {
-    const removedOptions = {
-      deepseekHarness: { [option]: './removed' },
-    } as unknown as StepProviderOptions;
-    const configOptions = layer === 'resolved config'
-      ? removedOptions
-      : layer === 'merged options without config'
-        ? undefined
-        : { codex: { networkAccess: false } };
-    const stepOptions = layer === 'step options' || layer === 'merged options without config'
-      ? removedOptions
-      : undefined;
-    const personaOptions = layer === 'persona options' ? removedOptions : undefined;
-
-    const resolve = (): StepProviderOptions | undefined => resolveEffectiveProviderOptions(
-      'project',
-      undefined,
-      configOptions,
-      stepOptions,
-      personaOptions,
-    );
-
-    const expectedMessage = option === 'sessionRoot'
-      ? /sessionRoot.*session_key/iu
-      : /cordis.*(?:current SDK|supported replacement|remove)/iu;
-    expect(resolve).toThrow(expectedMessage);
-  });
-
   it('preserves all supported DeepSeek options through effective resolution', () => {
     expect(resolveEffectiveProviderOptions(
       'project',
@@ -1026,8 +989,6 @@ describe('providerOptionsContract', () => {
       'provider_options.kiro.guards.call_timeout_ms',
       'provider_options.cursor.guards.call_timeout_ms',
       'provider_options.deepseek_harness.base_url',
-      'provider_options.deepseek_harness.session_root',
-      'provider_options.deepseek_harness.cordis',
       'provider_options.deepseek_harness.max_tokens',
       'provider_options.deepseek_harness.request_timeout_ms',
       'provider_options.deepseek_harness.shutdown_timeout_ms',

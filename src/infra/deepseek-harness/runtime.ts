@@ -31,14 +31,12 @@ export function redactDeepSeekHarnessDiagnostic(
 
 const PROBE_SCRIPT = `
 import importlib.metadata
-import inspect
 import json
 import sys
 from deepseek_harness import DeepSeekHarness
 
 sdk_distribution = importlib.metadata.distribution('deepseek-harness-sdk')
 runtime_distribution = importlib.metadata.distribution('deepseek-harness-runtime-bin')
-constructor_signature = inspect.signature(DeepSeekHarness)
 probe_kwargs = {
     'provider': '__takt_probe_provider__',
     'model': '__takt_probe_model__',
@@ -48,12 +46,6 @@ probe_kwargs = {
     'request_timeout_seconds': 1.0,
     'shutdown_timeout_seconds': 1.0,
 }
-try:
-    constructor_signature.bind(**probe_kwargs)
-except TypeError as error:
-    raise RuntimeError(
-        'DeepSeek Harness SDK constructor signature is incompatible with the managed runtime contract'
-    ) from error
 harness = None
 try:
     try:
@@ -71,7 +63,6 @@ print(json.dumps({
     'sdkVersion': sdk_distribution.metadata.get('Version'),
     'sdkRequiresPython': sdk_distribution.metadata.get('Requires-Python'),
     'runtimeVersion': runtime_distribution.metadata.get('Version'),
-    'constructorParameters': list(constructor_signature.parameters),
 }))
 `;
 
@@ -87,7 +78,6 @@ export interface DeepSeekHarnessRuntimeInfo {
   sdkVersion: string;
   sdkRequiresPython: string | undefined;
   runtimeVersion: string;
-  constructorParameters: readonly string[];
 }
 
 function createProbeTimeoutError(timeoutMs: number): Error {
@@ -232,7 +222,6 @@ function parseProbeOutput(stdout: string): DeepSeekHarnessRuntimeInfo {
   }
   const record = parsed as Record<string, unknown>;
   const python = record.python;
-  const constructorParameters = record.constructorParameters;
   if (
     typeof record.implementation !== 'string'
     || !Array.isArray(python)
@@ -241,8 +230,6 @@ function parseProbeOutput(stdout: string): DeepSeekHarnessRuntimeInfo {
     || typeof record.sdkVersion !== 'string'
     || (record.sdkRequiresPython !== undefined && typeof record.sdkRequiresPython !== 'string')
     || typeof record.runtimeVersion !== 'string'
-    || !Array.isArray(constructorParameters)
-    || !constructorParameters.every((value) => typeof value === 'string')
   ) {
     throw new Error(
       `managed interpreter probe returned incomplete metadata: ${redactDeepSeekHarnessDiagnostic(JSON.stringify(parsed), process.env)}`,
@@ -254,7 +241,6 @@ function parseProbeOutput(stdout: string): DeepSeekHarnessRuntimeInfo {
     sdkVersion: record.sdkVersion,
     sdkRequiresPython: record.sdkRequiresPython,
     runtimeVersion: record.runtimeVersion,
-    constructorParameters: constructorParameters as string[],
   };
 }
 
