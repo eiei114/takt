@@ -606,6 +606,7 @@ export function resolveProviderOptionsWithTrace(
   };
 }
 
+/** Resolve provider options for calls outside a workflow using the same origin-aware precedence. */
 export function resolveNonWorkflowProviderOptions(
   projectDir: string,
   callOptions?: StepProviderOptions,

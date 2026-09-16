@@ -663,6 +663,7 @@ export function buildRawTaktProvidersOrThrow(
   };
 }
 
+/** Serialize supported internal provider options to YAML keys, omitting unspecified values. */
 export function denormalizeProviderOptions(
   providerOptions: StepProviderOptions | undefined,
 ): Record<string, unknown> | undefined {

@@ -71,6 +71,7 @@ export type { ProjectConfig as ProjectLocalConfig } from '../types.js';
 type ProviderType = NonNullable<ProjectConfig['provider']>;
 type RawProviderReference = ConfigProviderReference<ProviderType>;
 
+/** Load project configuration with provenance, validating it before normalizing provider options. */
 export function loadProjectConfig(projectDir: string): ProjectConfig {
   const configPath = getProjectConfigPath(projectDir);
   const loadedTrace = loadProjectConfigTrace(

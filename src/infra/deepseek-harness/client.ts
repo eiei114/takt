@@ -275,6 +275,7 @@ function assertOpaqueToolId(id: string, knownSecrets: Record<string, string>): v
   assertOpaqueProtocolIdentifier(id, knownSecrets, 'tool ID');
 }
 
+/** Build the supported bridge configuration, rejecting removed SDK options before process creation. */
 function resolveBridgeConfiguration(
   options: DeepSeekHarnessCallOptions,
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
@@ -443,6 +444,7 @@ function stableValue(value: unknown): unknown {
   );
 }
 
+/** Identify reusable bridges by configuration and environment fingerprints without embedding secrets. */
 function processKey(
   configuration: ResolvedBridgeConfiguration,
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
@@ -1091,6 +1093,7 @@ class DeepSeekHarnessProcess {
     }
   }
 
+  /** Validate managed paths and SDK compatibility against the bridge home before spawning Python. */
   private async startInternal(abortSignal?: AbortSignal): Promise<void> {
     assertSupportedDeepSeekHarnessPlatform();
     if (this.closed) {
@@ -1659,6 +1662,7 @@ function registerExitCleanup(): void {
   exitCleanupRegistered = true;
 }
 
+/** Evict every pool entry for a process without releasing its session identity bindings. */
 function removeProcess(processRecord: DeepSeekHarnessProcess): void {
   for (const [key, value] of processes) {
     if (value === processRecord) {
@@ -1667,6 +1671,7 @@ function removeProcess(processRecord: DeepSeekHarnessProcess): void {
   }
 }
 
+/** Bind a session to one project/configuration identity and reject incompatible reuse. */
 function registerProcessBindings(
   sessionId: string | undefined,
   identity: string,
@@ -1685,6 +1690,7 @@ function registerProcessBindings(
   }
 }
 
+/** Reuse compatible session bridges while assigning unbound calls distinct one-shot process keys. */
 function getOrCreateProcess(options: DeepSeekHarnessCallOptions): DeepSeekHarnessProcess {
   assertSupportedDeepSeekHarnessPlatform();
   const providerOptions = options.providerOptions;
@@ -1945,6 +1951,7 @@ export async function callDeepSeekHarness(
   }
 }
 
+/** Clear pooled processes and session bindings, then await closure of all previously active bridges. */
 export async function closeDeepSeekHarnessProcesses(): Promise<void> {
   const active = [...processes.values()];
   processes.clear();

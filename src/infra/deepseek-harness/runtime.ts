@@ -258,6 +258,7 @@ function parseProbeOutput(stdout: string): DeepSeekHarnessRuntimeInfo {
   };
 }
 
+/** Parse an isolated SDK probe result, redacting process failures before reporting them. */
 async function probeDeepSeekHarnessRuntime(
   pythonPath: string,
   probeCwd: string,
@@ -277,6 +278,7 @@ async function probeDeepSeekHarnessRuntime(
   return parseProbeOutput(result.stdout);
 }
 
+/** Reject interpreter or package versions that differ from the pinned managed runtime contract. */
 function assertDeepSeekHarnessRuntimeContract(
   info: DeepSeekHarnessRuntimeInfo,
 ): void {

@@ -694,6 +694,7 @@ function selectProviderValueByScope<T>(
   return stepValue ?? personaValue ?? configValue;
 }
 
+/** Reject removed SDK fields in every input layer, even when a later layer would override them. */
 function assertNoRemovedDeepSeekHarnessOptions(
   providerOptions: StepProviderOptions | undefined,
 ): void {
@@ -817,6 +818,7 @@ export function resolveProfileScopedProviderOptionsLayers(
   ];
 }
 
+/** Combine config, persona, and step options using per-field origins after rejecting removed fields. */
 export function resolveEffectiveProviderOptions(
   source: ProviderOptionsSource | undefined,
   originResolver: ProviderOptionsOriginResolver | undefined,

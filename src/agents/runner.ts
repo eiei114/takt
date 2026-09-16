@@ -116,6 +116,7 @@ export class AgentRunner {
     };
   }
 
+  /** Use pre-resolved handoff options when supplied; otherwise resolve config and persona precedence. */
   private static resolveProviderOptions(
     cwd: string,
     personaDisplayName: string | undefined,

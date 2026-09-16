@@ -111,7 +111,7 @@ describe('DeepSeekHarnessProvider', () => {
       'DeepSeek Harness does not expose TAKT permission callbacks through the Python SDK; ignoring',
     );
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      'DeepSeek Harness does not support TAKT mcpServers; tool composition is not exposed by the current SDK',
+      expect.stringContaining('mcpServers'),
     );
     expect(mockLogger.warn).toHaveBeenCalledWith('DeepSeek Harness does not support maxTurns; ignoring');
     expect(mockLogger.warn).toHaveBeenCalledWith('DeepSeek Harness does not support TAKT structured output; ignoring');

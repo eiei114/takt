@@ -104,6 +104,7 @@ def _error_message(error: BaseException) -> str:
 
 
 def _start_harness(config: dict[str, Any]) -> Any:
+    """Reject removed options, translate supported wire fields, and start the managed SDK."""
     if "sessionRoot" in config or "session_root" in config:
         raise RuntimeError(
             "DeepSeek Harness session_root option has been removed; "

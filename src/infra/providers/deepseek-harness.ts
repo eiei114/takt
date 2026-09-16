@@ -19,6 +19,7 @@ async function callDeepSeekHarnessLazy(
   return callDeepSeekHarness(agentType, prompt, options);
 }
 
+/** Fail closed before calling the client when permission or tool restrictions cannot be honored. */
 function unsupportedConstraintResponse(
   agentType: string,
   options: ProviderCallOptions,
@@ -42,6 +43,7 @@ function unsupportedConstraintResponse(
   };
 }
 
+/** Forward bridge-supported options and warn about unsupported optional TAKT features. */
 function toDeepSeekHarnessOptions(
   options: ProviderCallOptions,
   systemPrompt: string | undefined,

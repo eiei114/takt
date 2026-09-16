@@ -233,6 +233,7 @@ export function resolveWorkflowProviderOptionsWithHost(
   );
 }
 
+/** Resolve and validate workflow option inheritance within the resource boundary, tracking cycles. */
 function resolveWorkflowProviderOptionsFromDir(
   raw: RawWorkflowProviderOptions | undefined,
   currentDir: string,
