@@ -127,6 +127,29 @@ function getCaretUpperBound(version: NodeVersion): NodeVersion {
 }
 
 describe('dependency versions', () => {
+  it('declares and resolves both Pi SDK packages at 0.85.1', () => {
+    const packageJson = readPackageJson();
+    const packageLock = readPackageLock();
+    const piPackages = [
+      '@earendil-works/pi-ai',
+      '@earendil-works/pi-coding-agent',
+    ] as const;
+
+    for (const packageName of piPackages) {
+      expect(packageJson.dependencies?.[packageName]).toBe('^0.85.1');
+
+      const lockEntries = Object.entries(packageLock.packages ?? {})
+        .filter(([packagePath]) => (
+          packagePath === `node_modules/${packageName}`
+          || packagePath.endsWith(`/node_modules/${packageName}`)
+        ));
+      expect(lockEntries.length).toBeGreaterThan(0);
+      for (const [packagePath, packageInfo] of lockEntries) {
+        expect(packageInfo.version, packagePath).toBe('0.85.1');
+      }
+    }
+  });
+
   it('declares OpenTelemetry foundation dependencies', () => {
     const packageJson = readPackageJson();
     const packageLock = readPackageLock();

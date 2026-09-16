@@ -26,6 +26,29 @@ describe('allowed-tool-edit-policy', () => {
     }
   });
 
+  it('requires builtin provenance for an explicit allowlist when Pi mode is unset', () => {
+    const tools = [
+      { name: 'read', source: 'builtin' },
+      { name: 'bash', source: 'sdk' },
+      { name: 'powershell', source: 'builtin' },
+      { name: 'powershell', source: 'extension', sourcePath: '/trusted.ts' },
+      { name: 'trusted_extension', source: 'extension', sourcePath: '/trusted.ts' },
+      { name: 'ambient_extension', source: 'extension', sourcePath: '/ambient.ts' },
+    ];
+
+    expect(resolvePiActiveTools(
+      undefined,
+      ['read', 'bash', 'powershell', 'trusted_extension', 'ambient_extension'],
+      tools,
+      ['/trusted.ts'],
+    )).toEqual(['read', 'bash', 'trusted_extension']);
+    expect(resolvePiActiveTools(
+      undefined,
+      ['powershell'],
+      [{ name: 'powershell', source: 'builtin' }],
+    )).toEqual(['powershell']);
+  });
+
   it('should export Claude edit tool names for provider policy checks', () => {
     expect(CLAUDE_EDIT_TOOL_NAMES).toEqual(new Set([
       'edit',

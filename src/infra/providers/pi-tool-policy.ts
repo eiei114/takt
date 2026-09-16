@@ -12,6 +12,7 @@ const PI_BUILTIN_TOOLS = new Set([
   'grep',
   'find',
   'ls',
+  'powershell',
 ]);
 const PI_TOOL_ALIASES: Readonly<Record<string, string>> = {
   read: 'read',
@@ -117,7 +118,7 @@ export function resolvePiActiveTools(
 
   const enforcesBuiltinProvenance = permissionMode === 'readonly'
     || permissionMode === 'edit'
-    || allowedTools?.every(keepsPiToolWithoutEdit) === true;
+    || (permissionMode === undefined && allowedTools !== undefined);
   if (!enforcesBuiltinProvenance) {
     return activeTools;
   }
