@@ -12,6 +12,20 @@ import { providerDefaultAllowedToolsWithoutEdit } from '../infra/providers/provi
 import { resolvePiActiveTools } from '../infra/providers/pi-tool-policy.js';
 
 describe('allowed-tool-edit-policy', () => {
+  it.each(['PowerShell', 'POWERSHELL', ' powershell '])('normalizes the Pi %s alias without widening permissions', (alias) => {
+    const builtin = { name: 'powershell', source: 'builtin' };
+    const extension = { name: 'powershell', source: 'extension', sourcePath: '/trusted.ts' };
+
+    for (const mode of [undefined, 'full'] as const) {
+      expect(resolvePiActiveTools(mode, [alias], [builtin])).toEqual(['powershell']);
+    }
+    for (const mode of ['readonly', 'edit'] as const) {
+      expect(resolvePiActiveTools(mode, [alias], [builtin])).toEqual([]);
+    }
+    expect(resolvePiActiveTools(undefined, [alias], [builtin, extension], ['/trusted.ts']))
+      .toEqual([]);
+  });
+
   it('rejects builtin shadowing for a readonly allowlist even in full Pi mode', () => {
     const builtin = { name: 'read', source: 'builtin' };
     const extension = { name: 'read', source: 'extension', sourcePath: '/trusted.ts' };

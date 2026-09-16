@@ -31,6 +31,7 @@ const PI_TOOL_ALIASES: Readonly<Record<string, string>> = {
   Write: 'write',
   bash: 'bash',
   Bash: 'bash',
+  powershell: 'powershell',
 };
 const PI_READONLY_TOOL_SET = new Set<string>(PI_READONLY_TOOLS);
 
