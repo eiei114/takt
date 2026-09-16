@@ -353,10 +353,17 @@ describe('projectConfig', () => {
       '    cordis: .takt/cordis.yml',
     ].join('\n'), 'utf-8');
 
-    const load = () => loadProjectConfig(testDir);
-    expect(load).toThrow('cordis has been removed');
-    expect(load).toThrow('current SDK does not support it');
-    expect(load).toThrow('no supported replacement, so remove it');
+    let thrown: unknown;
+    try {
+      loadProjectConfig(testDir);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(Error);
+    const message = thrown instanceof Error ? thrown.message : String(thrown);
+    expect(message).toContain('cordis has been removed');
+    expect(message).toContain('current SDK does not support it');
+    expect(message).toContain('no supported replacement, so remove it');
   });
 
   describe('workflow_overrides empty array round-trip', () => {
