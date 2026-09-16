@@ -940,7 +940,7 @@ bridge/SDK 的失败位置。
 
 带有 `session_key` 的 workflow 会复用 session；one-shot call 会立即关闭 bridge。官方 event 会转换成 TAKT 的 text、thinking、tool-use、tool-result、error 和 result event。system prompt、MCP server map、图片附件、structured output 和 `maxTurns` 不属于官方 SDK 调用，会被警告并忽略。工具组合 option 不在此 provider contract 中公开。
 
-权限控制和工具限制不会被忽略。请求设置了 `permissionMode`、`bypassPermissions: true` 或显式 `allowedTools`（workflow 的 `allowed_tools`，包括空列表）时，会在 bridge 启动前返回 `status: 'error'`。需要这些约束时，请使用支持它们的 provider。
+权限控制和工具限制不会被忽略。provider 调用设置了 `permissionMode`、`bypassPermissions: true` 或显式 `allowedTools`（包括空列表）时，会在 bridge 启动前返回 `status: 'error'`。需要这些约束时，请使用支持它们的 provider。另一方面，workflow step 不支持 `allowed_tools` 字段，workflow schema 校验会在调用 provider 之前拒绝该字段，不会进入上述 provider 错误响应流程。
 
 #### 网络访问（`network_access`）
 

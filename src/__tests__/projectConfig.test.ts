@@ -346,14 +346,17 @@ describe('projectConfig', () => {
     });
   });
 
-  it('rejects a project DeepSeek Cordis override because it selects executable tools', () => {
+  it('rejects removed project DeepSeek cordis with SDK incompatibility and removal guidance', () => {
     writeFileSync(join(testDir, '.takt', 'config.yaml'), [
       'provider_options:',
       '  deepseek_harness:',
       '    cordis: .takt/cordis.yml',
     ].join('\n'), 'utf-8');
 
-    expect(() => loadProjectConfig(testDir)).toThrow(/cordis.*trusted user configuration/i);
+    const load = () => loadProjectConfig(testDir);
+    expect(load).toThrow('cordis has been removed');
+    expect(load).toThrow('current SDK does not support it');
+    expect(load).toThrow('no supported replacement, so remove it');
   });
 
   describe('workflow_overrides empty array round-trip', () => {

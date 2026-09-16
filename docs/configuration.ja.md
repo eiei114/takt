@@ -1236,7 +1236,7 @@ bridge/SDK に渡します。SDK が拒否した場合は、入力された参�
 
 workflow が `session_key` を指定するとセッションを再利用し、one-shot call は bridge を直ちに close します。`request_timeout_ms` は Python bridge request 全体を終了させ、TAKT call の abort は bridge の process tree を終了させます。公式 `session.event` notification は TAKT の text、thinking、tool-use、tool-result、error、result event へ変換されます。system prompt、MCP server map、画像添付、structured output、`maxTurns` は公式 SDK の call に存在しないため warning とともに無視されます。tool composition option はこの provider contract では公開されません。
 
-権限制御とツール制限は無視しません。`permissionMode`、`bypassPermissions: true`、または `allowedTools`（workflow の `allowed_tools`。空配列も含む）が明示された場合は、bridge を起動せず `status: 'error'` を返します。これらの制約が必要な場合は、対応する provider を使用してください。
+権限制御とツール制限は無視しません。provider への呼び出しで `permissionMode`、`bypassPermissions: true`、または `allowedTools`（空配列も含む）が明示された場合は、bridge を起動せず `status: 'error'` を返します。これらの制約が必要な場合は、対応する provider を使用してください。一方、workflow step の `allowed_tools` は対応していないフィールドであり、workflow の schema 検証で拒否されます。provider 呼び出しには到達せず、上記のエラー応答とは別の段階で失敗します。
 
 対応する環境変数 override は `_BASE_URL`、`_MAX_TOKENS`、`_REQUEST_TIMEOUT_MS`、`_SHUTDOWN_TIMEOUT_MS`、`_RUNTIME_MODE` です。`base_url` の環境変数 override はユーザー管理なので non-loopback も設定できます。`runtime_mode: node` は公式 SDK の開発用 Node carrier を必要とし、暗黙には選択されません。
 
