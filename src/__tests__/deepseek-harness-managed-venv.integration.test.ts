@@ -158,6 +158,7 @@ interface FakeRuntime {
   pythonInvocationLog: string;
   bridgeStartedMarker: string;
   lifecycleLog: string;
+  probeHomeLog: string;
   probeStartedMarker: string;
   probeReleasePath: string;
   probeFailOncePath: string;
@@ -222,6 +223,7 @@ async function createFakeRuntime(workspace: Workspace, options: FakeRuntimeOptio
   const pythonInvocationLog = path.join(workspace.root, 'managed-python-invocations.log');
   const bridgeStartedMarker = path.join(workspace.root, 'bridge-started.marker');
   const lifecycleLog = path.join(workspace.root, 'sdk-lifecycle.log');
+  const probeHomeLog = path.join(workspace.root, 'probe-home.log');
   const probeStartedMarker = path.join(workspace.root, 'probe-started.marker');
   const probeReleasePath = path.join(workspace.root, 'release-probe');
   const probeFailOncePath = path.join(workspace.root, 'fail-probe-once');
@@ -279,7 +281,13 @@ class DeepSeekHarnessConfig:
   const constructor = `    def __init__(self, **kwargs):
         self.config = DeepSeekHarnessConfig(**kwargs)
         self.kwargs = self.config.kwargs
+        dsh_home = os.environ.get('DSH_HOME')
+        if not dsh_home:
+            raise ValueError('dsh_home or non-empty DSH_HOME is required')
         phase = 'probe' if sys.argv[0] == '-c' else 'bridge'
+        if phase == 'probe':
+            with open(${JSON.stringify(probeHomeLog)}, 'w', encoding='utf-8') as home_log:
+                home_log.write(dsh_home)
         with open(${JSON.stringify(lifecycleLog)}, 'a', encoding='utf-8') as lifecycle:
             lifecycle.write(phase + '-constructor\\n')
         if phase == 'bridge':
@@ -430,6 +438,7 @@ ${constructor}
     pythonInvocationLog,
     bridgeStartedMarker,
     lifecycleLog,
+    probeHomeLog,
     probeStartedMarker,
     probeReleasePath,
     probeFailOncePath,
@@ -984,6 +993,7 @@ describe.skipIf(!realRuntimeRequested || !supportedPlatform)('DeepSeek Harness f
     const workspace = await createWorkspace();
     vi.stubEnv('TAKT_CONFIG_DIR', workspace.globalDir);
     vi.stubEnv('DEEPSEEK_API_KEY', undefined);
+    vi.stubEnv('DSH_HOME', undefined);
 
     const uvPath = process.env.TAKT_TEST_DEEPSEEK_HARNESS_UV_PATH ?? 'uv';
     await installDeepSeekHarness({ uvPath });
@@ -992,6 +1002,7 @@ describe.skipIf(!realRuntimeRequested || !supportedPlatform)('DeepSeek Harness f
     const runtime = await validateDeepSeekHarnessRuntime(
       paths.pythonPath,
       paths.managedRoot,
+      paths.dshHomeDir,
       undefined,
       60_000,
     );
@@ -1011,6 +1022,19 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed installer', () =
     for (const root of testRoots.splice(0)) {
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it.each(['unset', 'foreign'] as const)('uses managed DSH_HOME for install probing when ambient home is %s', async (ambient) => {
+    const fixture = await prepareInstallFixture();
+    const ambientHome = ambient === 'unset' ? undefined : path.join(fixture.root, 'unrelated-home');
+    vi.stubEnv('DSH_HOME', ambientHome);
+
+    await installDeepSeekHarness({ uvPath: fixture.uv.path });
+
+    expect(await readFile(fixture.runtime.probeHomeLog, 'utf8')).toBe(fixture.dshHomeDir);
+    expect(process.env.DSH_HOME).toBe(ambientHome);
+    expect(existsSync(fixture.runtime.bridgeStartedMarker)).toBe(false);
+    expect(await readFile(fixture.runtime.lifecycleLog, 'utf8')).toBe('probe-constructor\nprobe-close\n');
   });
 
   it('syncs the managed project once with absolute paths and the locked non-dev contract', async () => {
@@ -1752,6 +1776,22 @@ describe.skipIf(!fakePythonAvailable)('DeepSeek Harness managed provider startup
       uvLogPath,
     };
   }
+
+  it.each(['unset', 'foreign'] as const)('uses managed DSH_HOME for startup probing when ambient home is %s', async (ambient) => {
+    const fixture = await prepareProviderFixture();
+    const ambientHome = ambient === 'unset' ? undefined : path.join(fixture.root, 'unrelated-home');
+    vi.stubEnv('DSH_HOME', ambientHome);
+
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: fixture.projectDir,
+      model: DEEPSEEK_HARNESS_DEFAULT_MODEL_FOR_TEST,
+    });
+
+    expect(response).toMatchObject({ status: 'done', content: 'managed response' });
+    expect(await readFile(fixture.runtime.probeHomeLog, 'utf8')).toBe(fixture.dshHomeDir);
+    expect(process.env.DSH_HOME).toBe(ambientHome);
+    expect(existsSync(fixture.uvLogPath)).toBe(false);
+  });
 
   it('uses the managed interpreter by absolute path with an empty child PATH', async () => {
     const fixture = await prepareProviderFixture();

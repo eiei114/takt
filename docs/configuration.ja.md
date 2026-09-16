@@ -1234,7 +1234,9 @@ bridge/SDK に渡します。SDK が拒否した場合は、入力された参�
 
 `session_root` と `cordis` は DeepSeek Harness provider option から削除されました。セッション再利用には workflow の `session_key` を使用してください。`cordis` は現行 SDK が対応しておらず、対応する移行先がないため削除してください。設定ファイルと対応する `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_SESSION_ROOT` / `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS` 環境変数は、bridge 起動前にこの移行案内を含むエラーになります。黙って無視されることはありません。managed interpreter は install command が固定し、provider option から選択できません。project runtime profile の `base_url` は loopback のみ使用できます。
 
-workflow が `session_key` を指定するとセッションを再利用し、one-shot call は bridge を直ちに close します。`request_timeout_ms` は Python bridge request 全体を終了させ、TAKT call の abort は bridge の process tree を終了させます。公式 `session.event` notification は TAKT の text、thinking、tool-use、tool-result、error、result event へ変換されます。system prompt、TAKT の `allowed_tools`、MCP server map、画像添付、structured output、permission mode、`maxTurns` は公式 SDK の call に存在しないため warning とともに無視されます。tool composition option はこの provider contract では公開されません。
+workflow が `session_key` を指定するとセッションを再利用し、one-shot call は bridge を直ちに close します。`request_timeout_ms` は Python bridge request 全体を終了させ、TAKT call の abort は bridge の process tree を終了させます。公式 `session.event` notification は TAKT の text、thinking、tool-use、tool-result、error、result event へ変換されます。system prompt、MCP server map、画像添付、structured output、`maxTurns` は公式 SDK の call に存在しないため warning とともに無視されます。tool composition option はこの provider contract では公開されません。
+
+権限制御とツール制限は無視しません。`permissionMode`、`bypassPermissions: true`、または `allowedTools`（workflow の `allowed_tools`。空配列も含む）が明示された場合は、bridge を起動せず `status: 'error'` を返します。これらの制約が必要な場合は、対応する provider を使用してください。
 
 対応する環境変数 override は `_BASE_URL`、`_MAX_TOKENS`、`_REQUEST_TIMEOUT_MS`、`_SHUTDOWN_TIMEOUT_MS`、`_RUNTIME_MODE` です。`base_url` の環境変数 override はユーザー管理なので non-loopback も設定できます。`runtime_mode: node` は公式 SDK の開発用 Node carrier を必要とし、暗黙には選択されません。
 

@@ -1109,6 +1109,7 @@ class DeepSeekHarnessProcess {
       await validateDeepSeekHarnessRuntime(
         this.pythonPath,
         this.managedEnvironmentDir,
+        dshHomeDir,
         abortSignal,
         this.configuration.requestTimeoutMs < DEEPSEEK_HARNESS_STARTUP_TIMEOUT_MS
           ? this.configuration.requestTimeoutMs

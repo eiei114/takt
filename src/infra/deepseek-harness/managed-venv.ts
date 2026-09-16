@@ -268,6 +268,7 @@ async function installManagedEnvironment(
   const runtime = await validateDeepSeekHarnessRuntime(
     paths.pythonPath,
     paths.managedRoot,
+    paths.dshHomeDir,
     undefined,
     UV_COMMAND_TIMEOUT_MS,
   );

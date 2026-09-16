@@ -96,9 +96,11 @@ function createProbeTimeoutError(timeoutMs: number): Error {
   return error;
 }
 
+/** Probe the managed SDK with its own home, never an ambient user's profile tree. */
 async function runProbeCommand(
   pythonPath: string,
   probeCwd: string,
+  dshHomeDir: string,
   abortSignal: AbortSignal | undefined,
   timeoutMs: number | undefined,
 ): Promise<ProbeCommandResult> {
@@ -115,6 +117,7 @@ async function runProbeCommand(
     ? undefined
     : setTimeout(() => probeController.abort(createProbeTimeoutError(timeoutMs)), timeoutMs);
   const environment = { ...process.env };
+  environment.DSH_HOME = dshHomeDir;
   delete environment.PYTHONHOME;
   delete environment.PYTHONPATH;
   delete environment.VIRTUAL_ENV;
@@ -258,10 +261,11 @@ function parseProbeOutput(stdout: string): DeepSeekHarnessRuntimeInfo {
 async function probeDeepSeekHarnessRuntime(
   pythonPath: string,
   probeCwd: string,
+  dshHomeDir: string,
   abortSignal: AbortSignal | undefined,
   timeoutMs: number | undefined,
 ): Promise<DeepSeekHarnessRuntimeInfo> {
-  const result = await runProbeCommand(pythonPath, probeCwd, abortSignal, timeoutMs);
+  const result = await runProbeCommand(pythonPath, probeCwd, dshHomeDir, abortSignal, timeoutMs);
   if (result.code !== 0) {
     const diagnostic = redactDeepSeekHarnessDiagnostic(result.stderr, process.env);
     throw new Error(
@@ -307,13 +311,15 @@ function assertDeepSeekHarnessRuntimeContract(
   }
 }
 
+/** Validate pinned versions and constructor/close using the same home as the managed bridge. */
 export async function validateDeepSeekHarnessRuntime(
   pythonPath: string,
   probeCwd: string,
+  dshHomeDir: string,
   abortSignal?: AbortSignal,
   timeoutMs?: number,
 ): Promise<DeepSeekHarnessRuntimeInfo> {
-  const info = await probeDeepSeekHarnessRuntime(pythonPath, probeCwd, abortSignal, timeoutMs);
+  const info = await probeDeepSeekHarnessRuntime(pythonPath, probeCwd, dshHomeDir, abortSignal, timeoutMs);
   assertDeepSeekHarnessRuntimeContract(info);
   return info;
 }

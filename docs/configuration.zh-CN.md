@@ -938,7 +938,9 @@ bridge/SDK 的失败位置。
 
 `session_root` 和 `cordis` 已从 DeepSeek Harness provider option 中删除。要复用 session，请使用 workflow 的 `session_key`。当前 SDK 不支持 `cordis`，也没有受支持的替代配置，因此必须删除。配置文件以及对应的 `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_SESSION_ROOT` / `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_CORDIS` 环境变量会在 bridge 启动前报错并给出迁移说明，不会被静默忽略。managed interpreter 由 install command 固定，不能通过 provider option 选择。project runtime profile 的 `base_url` 只能使用 loopback。
 
-带有 `session_key` 的 workflow 会复用 session；one-shot call 会立即关闭 bridge。官方 event 会转换成 TAKT 的 text、thinking、tool-use、tool-result、error 和 result event。system prompt、TAKT `allowed_tools`、MCP server map、图片附件、structured output、permission mode 和 `maxTurns` 不属于官方 SDK 调用，会被警告并忽略。工具组合 option 不在此 provider contract 中公开。
+带有 `session_key` 的 workflow 会复用 session；one-shot call 会立即关闭 bridge。官方 event 会转换成 TAKT 的 text、thinking、tool-use、tool-result、error 和 result event。system prompt、MCP server map、图片附件、structured output 和 `maxTurns` 不属于官方 SDK 调用，会被警告并忽略。工具组合 option 不在此 provider contract 中公开。
+
+权限控制和工具限制不会被忽略。请求设置了 `permissionMode`、`bypassPermissions: true` 或显式 `allowedTools`（workflow 的 `allowed_tools`，包括空列表）时，会在 bridge 启动前返回 `status: 'error'`。需要这些约束时，请使用支持它们的 provider。
 
 #### 网络访问（`network_access`）
 

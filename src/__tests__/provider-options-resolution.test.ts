@@ -68,7 +68,7 @@ describe('resolveEffectiveProviderOptions', () => {
     ['persona options', 'cordis'],
     ['merged options without config', 'sessionRoot'],
     ['merged options without config', 'cordis'],
-  ] as const)('rejects removed DeepSeek %s from %s before resolving effective options', (layer, option) => {
+  ] as const)('rejects removed DeepSeek options from %s: %s', (layer, option) => {
     const removedOptions = {
       deepseekHarness: { [option]: './removed' },
     } as unknown as StepProviderOptions;
