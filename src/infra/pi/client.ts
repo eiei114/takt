@@ -351,7 +351,9 @@ function installPiToolRefreshPolicy(
             if (original && !hasMatchingPiToolProvenance(original, owner)) {
               throw new Error('Pi explicit extension provenance could not be verified');
             }
-            if (!original) registeredProvenance.set(name, owner);
+            if (!original) {
+              registeredProvenance.set(name, { source: owner.source, sourcePath: owner.sourcePath });
+            }
           }
         }
       }
