@@ -118,7 +118,8 @@ export function resolvePiActiveTools(
 
   const enforcesBuiltinProvenance = permissionMode === 'readonly'
     || permissionMode === 'edit'
-    || (permissionMode === undefined && allowedTools !== undefined);
+    || (permissionMode === undefined && allowedTools !== undefined)
+    || (permissionMode === 'full' && allowedTools?.every(keepsPiToolWithoutEdit) === true);
   if (!enforcesBuiltinProvenance) {
     return activeTools;
   }

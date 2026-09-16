@@ -422,6 +422,18 @@ export default function registerLifecycleTool(pi) {
       expect(bindErrors).toEqual([]);
       expect(session.getAllTools().map((tool) => tool.name)).toContain('takt_pi_sdk_lifecycle_tool');
 
+      const registeredTool = result.extensionsResult.extensions
+        .flatMap((extension) => [...extension.tools.values()])
+        .find((tool) => tool.definition.name === 'takt_pi_sdk_lifecycle_tool');
+      const sessionTool = session.getAllTools()
+        .find((tool) => tool.name === 'takt_pi_sdk_lifecycle_tool');
+      expect(registeredTool).toBeDefined();
+      expect(sessionTool).toBeDefined();
+      expect(sessionTool!.sourceInfo.source).toBe(registeredTool!.sourceInfo.source);
+      expect(path.resolve(cwd, sessionTool!.sourceInfo.path))
+        .toBe(path.resolve(cwd, registeredTool!.sourceInfo.path));
+      expect(path.resolve(cwd, registeredTool!.sourceInfo.path)).toBe(extensionPath);
+
       session.setActiveToolsByName(['takt_pi_sdk_lifecycle_tool']);
       expect(session.getActiveToolNames()).toEqual(['takt_pi_sdk_lifecycle_tool']);
     } finally {
@@ -451,12 +463,30 @@ export default function registerLifecycleTool(pi) {
           (pi) => {
             pi.events.on('takt_failed_factory_probe', (data) => observedEvents.push(data));
             pi.registerProvider('failed-factory-provider', {});
+            pi.registerTool({
+              name: 'failed_factory_tool',
+              label: 'Failed factory tool',
+              description: 'Must be discarded with its failed factory',
+              parameters: { type: 'object', properties: {} },
+              async execute() {
+                return { content: [{ type: 'text', text: 'failed' }], details: {} };
+              },
+            });
             throw new Error('factory failed');
           },
           (pi) => {
             pi.on('session_start', () => {
               healthyFactoryStarted = true;
               pi.events.emit('takt_failed_factory_probe', 'healthy extension reached session_start');
+              pi.registerTool({
+                name: 'healthy_factory_tool',
+                label: 'Healthy factory tool',
+                description: 'Retains provenance after another factory fails',
+                parameters: { type: 'object', properties: {} },
+                async execute() {
+                  return { content: [{ type: 'text', text: 'ok' }], details: {} };
+                },
+              });
             });
           },
         ],
@@ -486,6 +516,19 @@ export default function registerLifecycleTool(pi) {
 
       expect(healthyFactoryStarted).toBe(true);
       expect(observedEvents).toEqual([]);
+      const registeredTools = extensionsResult.extensions
+        .flatMap((extension) => [...extension.tools.values()]);
+      expect(registeredTools.map((tool) => tool.definition.name)).toEqual(['healthy_factory_tool']);
+      const registeredTool = registeredTools[0]!;
+      const sessionTools = session.getAllTools();
+      expect(sessionTools.map((tool) => tool.name)).not.toContain('failed_factory_tool');
+      const sessionTool = sessionTools.find((tool) => tool.name === 'healthy_factory_tool');
+      expect(sessionTool).toBeDefined();
+      expect(sessionTool!.sourceInfo.source).toBe(registeredTool.sourceInfo.source);
+      expect(path.resolve(cwd, sessionTool!.sourceInfo.path))
+        .toBe(path.resolve(cwd, registeredTool.sourceInfo.path));
+      session.setActiveToolsByName(['healthy_factory_tool']);
+      expect(session.getActiveToolNames()).toEqual(['healthy_factory_tool']);
     } finally {
       session?.dispose();
       rmSync(root, { recursive: true, force: true });

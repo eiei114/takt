@@ -12,6 +12,21 @@ import { providerDefaultAllowedToolsWithoutEdit } from '../infra/providers/provi
 import { resolvePiActiveTools } from '../infra/providers/pi-tool-policy.js';
 
 describe('allowed-tool-edit-policy', () => {
+  it('rejects builtin shadowing for a readonly allowlist even in full Pi mode', () => {
+    const builtin = { name: 'read', source: 'builtin' };
+    const extension = { name: 'read', source: 'extension', sourcePath: '/trusted.ts' };
+
+    for (const alias of ['read', 'Read']) {
+      expect(resolvePiActiveTools('full', [alias], [builtin])).toEqual(['read']);
+      expect(resolvePiActiveTools('full', [alias], [builtin, extension], ['/trusted.ts']))
+        .toEqual([]);
+    }
+    expect(resolvePiActiveTools('full', [], [builtin, extension])).toEqual([]);
+    expect(resolvePiActiveTools('full', undefined, [extension])).toEqual(['read']);
+    expect(resolvePiActiveTools('full', ['read', 'bash'], [extension]))
+      .toEqual(['read', 'bash']);
+  });
+
   it('keeps an ordinary allowlist authoritative when Pi permission mode is unset', () => {
     const tools = [
       { name: 'read', source: 'builtin' },
