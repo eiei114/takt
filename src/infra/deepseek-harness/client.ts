@@ -446,7 +446,11 @@ function stableValue(value: unknown): unknown {
   );
 }
 
-/** Identify reusable bridges by configuration and environment fingerprints without embedding secrets. */
+/**
+ * Identify bridge configurations using environment fingerprints without embedding secrets.
+ * Exclude effort for logical session identity so changing effort can replace its process
+ * without rebinding the conversation to a different project or configuration.
+ */
 function processKey(
   configuration: ResolvedBridgeConfiguration,
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
@@ -1073,6 +1077,7 @@ class DeepSeekHarnessProcess {
     return this.environment.knownSecrets;
   }
 
+  /** Await the current operation tail, including failures, before replacing this bridge. */
   async waitForIdle(): Promise<void> {
     await this.operationTail.catch(() => undefined);
   }
@@ -1665,7 +1670,10 @@ function registerProcessBindings(
   }
 }
 
-/** Reuse compatible session bridges while assigning unbound calls distinct one-shot process keys. */
+/**
+ * Reuse a session-local bridge, or replace its idle process when only effort changed.
+ * Reject incompatible session identities; unbound calls always get distinct one-shot keys.
+ */
 async function getOrCreateProcess(options: DeepSeekHarnessCallOptions): Promise<DeepSeekHarnessProcess> {
   assertSupportedDeepSeekHarnessPlatform();
   const providerOptions = options.providerOptions;
@@ -1856,6 +1864,11 @@ function createSuccessResponse(
   };
 }
 
+/**
+ * Capture this turn's options and execute it in session order, or as a one-shot call.
+ * Validate responses and dispose broken bridges before releasing the session queue slot;
+ * translate failures into the provider response contract without silently retrying.
+ */
 export async function callDeepSeekHarness(
   agentType: string,
   prompt: string,

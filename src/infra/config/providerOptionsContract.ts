@@ -5,6 +5,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/**
+ * Reject DeepSeek effort in legacy file or root JSON option objects before overrides merge.
+ * Dedicated leaf env and runtime profile options are validated through their own paths.
+ */
 export function assertNoRemovedProviderOptionConfigurationValues(
   configuration: unknown,
 ): void {

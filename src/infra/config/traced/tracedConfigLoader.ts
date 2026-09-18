@@ -158,6 +158,10 @@ function buildRawConfig(
   return rawConfig;
 }
 
+/**
+ * Load YAML and environment values with their origins, then assemble the effective config.
+ * Validate forbidden source values before leaf overrides can hide legacy effort settings.
+ */
 export function loadConfigTrace(options: LoadConfigTraceOptions): {
   parsedConfig: Record<string, unknown>;
   rawConfig: Record<string, unknown>;

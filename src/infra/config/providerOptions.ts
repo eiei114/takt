@@ -187,6 +187,10 @@ function assertAllowedProviderBaseUrl(
   );
 }
 
+/**
+ * Allow effort only for authorized runtime profiles or the top-level dedicated env path.
+ * The traced loader separately rejects root JSON env values before origin inheritance.
+ */
 function assertAllowedDeepSeekHarnessReasoningEffort(
   path: string,
   value: DeepSeekReasoningEffort | undefined,

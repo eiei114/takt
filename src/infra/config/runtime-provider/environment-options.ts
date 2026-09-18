@@ -3,7 +3,11 @@ import { mergeProviderOptions } from '../providerOptions.js';
 import { resolveProviderOptionsWithTrace } from '../resolveConfigValue.js';
 import type { CompiledProviderEnvironment } from './environment.js';
 
-/** Direct runtime consumers do not pass through the workflow's option resolver. */
+/**
+ * Apply dedicated DeepSeek effort env overrides to compiled direct-consumer profiles.
+ * Defaults, internal agents, companions and the auto-router bypass the workflow resolver;
+ * only their DeepSeek entries are updated, leaving other providers and absent env intact.
+ */
 export function applyDeepSeekEnvironmentOptions(
   projectCwd: string,
   environment: CompiledProviderEnvironment,
