@@ -190,24 +190,31 @@ export function runHeadlessCli(
       lineBuffer = final ? '' : (parts.pop() ?? '');
       if (!options.onStream) return;
 
-      for (const line of parts) {
-        const toolUses = tryExtractToolUseFromStreamJsonLine(line);
-        for (const toolUse of toolUses) {
-          options.onStream({ type: 'tool_use', data: toolUse });
+      try {
+        for (const line of parts) {
+          const toolUses = tryExtractToolUseFromStreamJsonLine(line);
+          for (const toolUse of toolUses) {
+            options.onStream({ type: 'tool_use', data: toolUse });
+          }
+          const toolResults = tryExtractToolResultFromStreamJsonLine(line);
+          for (const toolResult of toolResults) {
+            options.onStream({ type: 'tool_result', data: toolResult });
+          }
+          const thinking = tryExtractThinkingFromStreamJsonLine(line);
+          if (thinking) {
+            options.onStream({ type: 'thinking', data: { thinking } });
+            continue;
+          }
+          const text = tryExtractTextFromStreamJsonLine(line);
+          if (text) {
+            options.onStream({ type: 'text', data: { text } });
+          }
         }
-        const toolResults = tryExtractToolResultFromStreamJsonLine(line);
-        for (const toolResult of toolResults) {
-          options.onStream({ type: 'tool_result', data: toolResult });
-        }
-        const thinking = tryExtractThinkingFromStreamJsonLine(line);
-        if (thinking) {
-          options.onStream({ type: 'thinking', data: { thinking } });
-          continue;
-        }
-        const text = tryExtractTextFromStreamJsonLine(line);
-        if (text) {
-          options.onStream({ type: 'text', data: { text } });
-        }
+      } catch (error) {
+        // onStream runs inside the child's stdout/close listeners. An exception
+        // escaping here never reaches the promise, so the call would neither
+        // resolve nor reject (#1580). Fail the call and stop the child instead.
+        rejectOnce(error instanceof Error ? error : new Error(String(error)), true);
       }
     };
 
