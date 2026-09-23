@@ -118,6 +118,7 @@
     "src/__tests__/mock-scenario-stream-chunks.test.ts",
     "src/__tests__/mock-scenario.test.ts",
     "src/__tests__/npmTestEntrypoint.test.ts",
+    "src/__tests__/opencode-client-structured-output.test.ts",
     "src/__tests__/opencode-types.test.ts",
     "src/__tests__/pathText.test.ts",
     "src/__tests__/pi-client-cache.test.ts",

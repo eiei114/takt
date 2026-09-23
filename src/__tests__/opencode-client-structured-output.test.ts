@@ -739,6 +739,152 @@ describe('OpenCodeClient structured output', () => {
     expect(promptAsync.mock.calls[1]?.[0]).not.toHaveProperty('format');
   });
 
+  function failedFirstAttemptMock(firstAttemptEvents: unknown[]) {
+    const subscribe = vi.fn()
+      .mockResolvedValueOnce({ stream: new MockEventStream(firstAttemptEvents, 'session-rejected') })
+      .mockResolvedValueOnce({
+        stream: new MockEventStream([
+          {
+            type: 'message.part.updated',
+            properties: {
+              part: { id: 'p-1', sessionID: 'session-retry', type: 'text', text: '{"records": []}' },
+              delta: '{"records": []}',
+            },
+          },
+          { type: 'session.idle', properties: { sessionID: 'session-retry' } },
+        ], 'session-retry'),
+      });
+    const sessionCreate = vi.fn()
+      .mockResolvedValueOnce({ data: { id: 'session-rejected' } })
+      .mockResolvedValueOnce({ data: { id: 'session-retry' } });
+    const promptAsync = vi.fn().mockResolvedValue(undefined);
+    createOpencodeMock.mockResolvedValue({
+      client: {
+        instance: { dispose: vi.fn().mockResolvedValue({ data: {} }) },
+        session: {
+          create: sessionCreate,
+          promptAsync,
+          abort: successfulSessionAbort(),
+        },
+        event: { subscribe },
+        permission: { reply: vi.fn() },
+      },
+      server: { close: vi.fn() },
+    });
+    return { promptAsync, sessionCreate };
+  }
+
+  function formatRejectionMock(errorMessage: string) {
+    return failedFirstAttemptMock([
+      {
+        type: 'message.updated',
+        properties: {
+          info: {
+            sessionID: 'session-rejected',
+            role: 'assistant',
+            error: { name: 'APIError', data: { message: errorMessage, statusCode: 400 } },
+          },
+        },
+      },
+    ]);
+  }
+
+  function toolErrorEvent(i: number, tool: string, input: Record<string, unknown>, error: string) {
+    return {
+      type: 'message.part.updated',
+      properties: {
+        part: {
+          id: `t-${i}`,
+          callID: `t-${i}`,
+          type: 'tool',
+          tool,
+          sessionID: 'session-rejected',
+          state: { status: 'error', input, error },
+        },
+      },
+    };
+  }
+
+  it.each([
+    ['DeepSeek tool_choice', 'litellm.BadRequestError: DeepseekException - {"error":{"message":"Thinking mode does not support this tool_choice","type":"invalid_request_error","param":null,"code":"invalid_request_error"}}'],
+    ['OpenAI response_format', "Invalid parameter: 'response_format' of type 'json_schema' is not supported with this model."],
+  ])('should degrade to formatless when the provider rejects the native format request: %s', async (_label, errorMessage) => {
+    const { OpenCodeClient } = await import('../infra/opencode/client.js');
+    const schema = { type: 'object', required: ['records'], properties: { records: { type: 'array' } } };
+    const { promptAsync, sessionCreate } = formatRejectionMock(errorMessage);
+
+    const result = await new OpenCodeClient().call('reviewer', 'review it', {
+      cwd: '/tmp',
+      model: 'opencode/big-pickle',
+      outputSchema: schema,
+    });
+
+    expect(result.status).toBe('done');
+    expect(result.structuredOutput).toEqual({ records: [] });
+    expect(result.sessionId).toBe('session-retry');
+    expect(sessionCreate).toHaveBeenCalledTimes(2);
+    expect(promptAsync).toHaveBeenCalledTimes(2);
+    expect(promptAsync.mock.calls[0]?.[0]).toHaveProperty('format');
+    expect(promptAsync.mock.calls[0]?.[0]).toMatchObject({ sessionID: 'session-rejected' });
+    expect(promptAsync.mock.calls[1]?.[0]).not.toHaveProperty('format');
+    expect(promptAsync.mock.calls[1]?.[0]).toMatchObject({ sessionID: 'session-retry' });
+  });
+
+  it('should not degrade to formatless on an unrelated bad request', async () => {
+    const { OpenCodeClient } = await import('../infra/opencode/client.js');
+    const schema = { type: 'object', required: ['records'], properties: { records: { type: 'array' } } };
+    const { promptAsync } = formatRejectionMock(
+      '{"error":{"message":"This model\'s maximum context length is 128000 tokens.","type":"invalid_request_error","code":"context_length_exceeded"}}',
+    );
+
+    const result = await new OpenCodeClient().call('reviewer', 'review it', {
+      cwd: '/tmp',
+      model: 'opencode/big-pickle',
+      outputSchema: schema,
+    });
+
+    expect(result.status).toBe('error');
+    expect(promptAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [
+      'edit conflict on a json_schema file',
+      Array.from({ length: 3 }, (_, i) => toolErrorEvent(
+        i,
+        'edit',
+        { filePath: '/tmp/src/json_schema.py', oldString: 'missing', newString: 'x' },
+        'oldString not found in content',
+      )),
+    ],
+    [
+      'error burst from a json_schema tool',
+      Array.from({ length: 10 }, (_, i) => toolErrorEvent(i, 'validate_json_schema', { n: i }, `boom ${i}`)),
+    ],
+    [
+      'invalid-argument loop whose tool error reads like a provider rejection',
+      Array.from({ length: 4 }, (_, i) => toolErrorEvent(
+        i,
+        'validate_json_schema',
+        { n: i },
+        "SchemaError: Invalid parameter: 'response_format' of type 'json_schema' is not supported",
+      )),
+    ],
+  ])('should not degrade to formatless on a tool-guard failure: %s', async (_label, events) => {
+    const { OpenCodeClient } = await import('../infra/opencode/client.js');
+    const schema = { type: 'object', required: ['records'], properties: { records: { type: 'array' } } };
+    const { promptAsync } = failedFirstAttemptMock(events);
+
+    await new OpenCodeClient().call('reviewer', 'review it', {
+      cwd: '/tmp',
+      model: 'opencode/big-pickle',
+      outputSchema: schema,
+    });
+
+    expect(promptAsync).toHaveBeenCalledTimes(2);
+    expect(promptAsync.mock.calls[1]?.[0]).toHaveProperty('format');
+  });
+
   it('should return a new session id in the final response so callers persist the recovered session', async () => {
     const { OpenCodeClient } = await import('../infra/opencode/client.js');
     const staleStream = new MockEventStream([
