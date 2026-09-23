@@ -83,6 +83,14 @@ const REQUEST_REJECTION_MARKERS = [
   'does not support',
 ];
 
+// "Unsupported parameter: '<name>'" call out a single rejected parameter, so unlike
+// the co-occurrence markers above, this one only counts when <name> is itself a
+// format parameter — otherwise a message like "Unsupported parameter: 'seed'.
+// Valid parameters include ... response_format, tool_choice ..." would false-positive
+// on the parameter names that happen to appear later in the same message.
+const UNSUPPORTED_FORMAT_PARAMETER_PATTERN =
+  /unsupported parameter:\s*['"`]?(response_format|tool_choice|json_schema)\b/i;
+
 /**
  * native format の要求そのものが失敗したことを示すエラー文言の判定。
  * StructuredOutput ツールを一度も呼ばなかった場合と、ゲートウェイ/モデルが
@@ -98,11 +106,15 @@ export function isNativeStructuredOutputFailureMessage(message: string): boolean
  * json_schema）をリクエストごと拒否したことを示すエラー文言の判定。
  * パラメータ名だけではファイルパスやツール名にも現れうるため、
  * リクエスト拒否を示す文言が併記されている場合に限る。
+ * "Unsupported parameter: '<name>'" 形式は拒否対象そのものを明示するので、
+ * <name> が format パラメータの場合のみ判定する。
  */
 export function isNativeFormatRejectionMessage(message: string): boolean {
   const lower = message.toLowerCase();
-  return NATIVE_FORMAT_PARAMETER_NAMES.some((name) => lower.includes(name))
-    && REQUEST_REJECTION_MARKERS.some((marker) => lower.includes(marker));
+  return (
+    NATIVE_FORMAT_PARAMETER_NAMES.some((name) => lower.includes(name))
+    && REQUEST_REJECTION_MARKERS.some((marker) => lower.includes(marker))
+  ) || UNSUPPORTED_FORMAT_PARAMETER_PATTERN.test(message);
 }
 
 /**

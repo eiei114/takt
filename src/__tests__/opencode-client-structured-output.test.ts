@@ -739,7 +739,7 @@ describe('OpenCodeClient structured output', () => {
     expect(promptAsync.mock.calls[1]?.[0]).not.toHaveProperty('format');
   });
 
-  function failedFirstAttemptMock(firstAttemptEvents: unknown[]) {
+  function failedFirstAttemptMock(firstAttemptEvents: unknown[], secondStreamSessionId = 'session-retry') {
     const subscribe = vi.fn()
       .mockResolvedValueOnce({ stream: new MockEventStream(firstAttemptEvents, 'session-rejected') })
       .mockResolvedValueOnce({
@@ -747,12 +747,12 @@ describe('OpenCodeClient structured output', () => {
           {
             type: 'message.part.updated',
             properties: {
-              part: { id: 'p-1', sessionID: 'session-retry', type: 'text', text: '{"records": []}' },
+              part: { id: 'p-1', sessionID: secondStreamSessionId, type: 'text', text: '{"records": []}' },
               delta: '{"records": []}',
             },
           },
-          { type: 'session.idle', properties: { sessionID: 'session-retry' } },
-        ], 'session-retry'),
+          { type: 'session.idle', properties: { sessionID: secondStreamSessionId } },
+        ], secondStreamSessionId),
       });
     const sessionCreate = vi.fn()
       .mockResolvedValueOnce({ data: { id: 'session-rejected' } })
@@ -808,6 +808,8 @@ describe('OpenCodeClient structured output', () => {
   it.each([
     ['DeepSeek tool_choice', 'litellm.BadRequestError: DeepseekException - {"error":{"message":"Thinking mode does not support this tool_choice","type":"invalid_request_error","param":null,"code":"invalid_request_error"}}'],
     ['OpenAI response_format', "Invalid parameter: 'response_format' of type 'json_schema' is not supported with this model."],
+    // OpenAI Responses API 400, quoted in https://github.com/mkht/PSOpenAI/issues/44
+    ['OpenAI Responses API unsupported parameter', "OpenAI API returned an 400 (Bad Request) Error: Unsupported parameter: 'response_format'. In the Responses API, this parameter has moved to 'text.format'. Try again with the new parameter. See the API documentation for more information: https://platform.openai.com/docs/api-reference/responses/create."],
   ])('should degrade to formatless when the provider rejects the native format request: %s', async (_label, errorMessage) => {
     const { OpenCodeClient } = await import('../infra/opencode/client.js');
     const schema = { type: 'object', required: ['records'], properties: { records: { type: 'array' } } };
@@ -847,6 +849,23 @@ describe('OpenCodeClient structured output', () => {
     expect(promptAsync).toHaveBeenCalledTimes(1);
   });
 
+  it('should not degrade when "unsupported parameter" names a non-format parameter', async () => {
+    const { OpenCodeClient } = await import('../infra/opencode/client.js');
+    const schema = { type: 'object', required: ['records'], properties: { records: { type: 'array' } } };
+    const { promptAsync } = formatRejectionMock(
+      "Unsupported parameter: 'seed'. Valid parameters include model, response_format, tool_choice, stream, max_tokens.",
+    );
+
+    const result = await new OpenCodeClient().call('reviewer', 'review it', {
+      cwd: '/tmp',
+      model: 'opencode/big-pickle',
+      outputSchema: schema,
+    });
+
+    expect(result.status).toBe('error');
+    expect(promptAsync).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     [
       'edit conflict on a json_schema file',
@@ -873,14 +892,21 @@ describe('OpenCodeClient structured output', () => {
   ])('should not degrade to formatless on a tool-guard failure: %s', async (_label, events) => {
     const { OpenCodeClient } = await import('../infra/opencode/client.js');
     const schema = { type: 'object', required: ['records'], properties: { records: { type: 'array' } } };
-    const { promptAsync } = failedFirstAttemptMock(events);
+    // tool-guard recovery sends an in-session correction, so the second
+    // stream reuses the original session id ('session-rejected'), not a
+    // fresh one — matching this lets the runner's session filter actually
+    // accept the second stream's events instead of silently dropping them.
+    const { promptAsync } = failedFirstAttemptMock(events, 'session-rejected');
 
-    await new OpenCodeClient().call('reviewer', 'review it', {
+    const result = await new OpenCodeClient().call('reviewer', 'review it', {
       cwd: '/tmp',
       model: 'opencode/big-pickle',
       outputSchema: schema,
     });
 
+    expect(result.status).toBe('done');
+    expect(result.structuredOutput).toEqual({ records: [] });
+    expect(result.sessionId).toBe('session-rejected');
     expect(promptAsync).toHaveBeenCalledTimes(2);
     expect(promptAsync.mock.calls[1]?.[0]).toHaveProperty('format');
   });
