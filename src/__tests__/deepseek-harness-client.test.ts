@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -56,6 +56,30 @@ function findLifecyclePython(): string | undefined {
   return findPython(candidates);
 }
 
+interface BridgePatchEntry {
+  path: string;
+  content: string;
+}
+
+async function readBridgePatches(workspace: string): Promise<BridgePatchEntry[]> {
+  try {
+    const content = await readFile(path.join(workspace, 'bridge-patches.jsonl'), 'utf8');
+    return content.trim().split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as BridgePatchEntry);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return [];
+    }
+    throw error;
+  }
+}
+
+async function writeSourceSettings(sourceHome: string, content: string): Promise<void> {
+  await mkdir(sourceHome, { recursive: true });
+  await writeFile(path.join(sourceHome, 'settings.yaml'), content, 'utf8');
+}
+
 const supportedPlatform = (
   (process.platform === 'linux' && (process.arch === 'x64' || process.arch === 'arm64'))
   || (process.platform === 'darwin' && process.arch === 'arm64')
@@ -74,6 +98,7 @@ describe.skipIf(!lifecycleRuntimeSupported)('DeepSeek Harness bridge lifecycle',
   let root: string;
   let globalConfigDir: string;
   let managedPythonPath: string;
+  let sourceHome: string;
 
   beforeEach(async () => {
     const python = findLifecyclePython();
@@ -89,7 +114,9 @@ describe.skipIf(!lifecycleRuntimeSupported)('DeepSeek Harness bridge lifecycle',
       process.platform === 'win32' ? 'Scripts' : 'bin',
       process.platform === 'win32' ? 'python.exe' : 'python',
     );
+    sourceHome = path.join(root, 'credential-source-home');
     vi.stubEnv('TAKT_CONFIG_DIR', globalConfigDir);
+    vi.stubEnv('DSH_HOME', sourceHome);
     const moduleDir = path.join(root, 'deepseek_harness');
     await mkdir(moduleDir);
     await writeFile(path.join(moduleDir, '__init__.py'), `
@@ -117,7 +144,7 @@ class JsonRpcError(Exception):
     pass
 
 class DeepSeekHarnessConfig:
-    def __init__(self, provider, model, cwd, runtime_cwd, max_tokens=None, request_timeout_seconds=None, shutdown_timeout_seconds=None, reasoning_effort=None):
+    def __init__(self, provider, model, cwd, runtime_cwd, max_tokens=None, request_timeout_seconds=None, shutdown_timeout_seconds=None, reasoning_effort=None, patches=None):
         kwargs = {
             'provider': provider,
             'model': model,
@@ -131,6 +158,8 @@ class DeepSeekHarnessConfig:
             if reasoning_effort not in ('off', 'low', 'high', 'max'):
                 raise ValueError('unsupported reasoning_effort')
             kwargs['reasoning_effort'] = reasoning_effort
+        if patches is not None:
+            kwargs['patches'] = [str(patch) for patch in patches]
         self.kwargs = kwargs
 
 class DeepSeekHarness:
@@ -143,6 +172,13 @@ class DeepSeekHarness:
             config_file = os.path.join(kwargs['cwd'], 'bridge-start-configs.jsonl')
             with open(config_file, 'a', encoding='utf-8') as config:
                 config.write(json.dumps(kwargs, sort_keys=True) + '\\n')
+            patch_paths = kwargs.get('patches') or []
+            if patch_paths:
+                patches_file = os.path.join(kwargs['cwd'], 'bridge-patches.jsonl')
+                with open(patches_file, 'a', encoding='utf-8') as patches_log:
+                    for patch_path in patch_paths:
+                        with open(patch_path, encoding='utf-8') as patch_stream:
+                            patches_log.write(json.dumps({'path': patch_path, 'content': patch_stream.read()}, sort_keys=True) + '\\n')
         if kwargs.get('reasoning_effort') == 'max' and sys.argv[0] != '-c' and os.path.exists(${JSON.stringify(path.join(root, 'fail-max-effort'))}):
             raise RuntimeError('reasoning effort process startup failure')
         if kwargs.get('provider') == 'unknown-route':
@@ -188,6 +224,8 @@ class DeepSeekHarness:
                 marker.write('started\\n')
         if input == 'fail-secret':
             raise RuntimeError(os.environ.get('DEEPSEEK_API_KEY', 'missing-secret'))
+        if input == 'fail-custom-ref':
+            raise RuntimeError(os.environ.get('CUSTOM_DSH_KEY', 'missing-custom-ref'))
         if input == 'malformed-json':
             print('not-json', flush=True)
         if input == 'jsonrpc-failure':
@@ -207,7 +245,7 @@ class DeepSeekHarness:
                 prompt_file.write(input)
         if input == 'inspect-env':
             environment = {}
-            for name in ['DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'OPENAI_API_KEY', 'TAKT_OBSERVABILITY_ENABLED', 'HOME', 'DSH_RUNTIME_MODE']:
+            for name in ['DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'CUSTOM_DSH_KEY', 'OPENAI_API_KEY', 'TAKT_OBSERVABILITY_ENABLED', 'HOME', 'DSH_RUNTIME_MODE']:
                 value = os.environ.get(name)
                 if value is not None:
                     environment[name] = value
@@ -964,7 +1002,8 @@ sys.implementation = types.SimpleNamespace(
     });
 
     expect(response.status).toBe('error');
-    expect(response.content).toContain('must not contain configured secret values');
+    // Endpoint validation rejects userinfo before a session can be created.
+    expect(response.content).toMatch(/credential|endpoint/iu);
     expect(response.content).not.toContain(embeddedSecret);
     expect(response.sessionId).toBeUndefined();
   });
@@ -982,7 +1021,7 @@ sys.implementation = types.SimpleNamespace(
     });
 
     expect(response.status).toBe('error');
-    expect(response.content).toContain('must not contain configured secret values');
+    expect(response.content).toMatch(/credential|endpoint/iu);
     expect(response.content).not.toContain(encodedUsername);
     expect(response.content).not.toContain(encodedPassword);
   });
@@ -1591,6 +1630,196 @@ sys.implementation = types.SimpleNamespace(
     expect(response.status).toBe('error');
     expect(response.failureCategory).toBe('external_abort');
     expect(Date.now() - startedAt).toBeLessThan(10_000);
+  });
+
+  it('hands the credential store path and default reference to the official runtime', async () => {
+    const response = await callDeepSeekHarness('worker', 'inspect-env', {
+      cwd: root,
+      childProcessEnv: { DEEPSEEK_API_KEY: 'deepseek-env-secret' },
+      providerOptions: { requestTimeoutMs: 10_000 },
+    });
+    const [configuration] = (await readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const patches = await readBridgePatches(root);
+
+    expect(response.status).toBe('done');
+    expect(configuration?.patches).toEqual([patches[0]?.path]);
+    expect(patches[0]?.content).toContain('apiKeyEnv: DEEPSEEK_API_KEY');
+    expect(patches[0]?.content).toContain(path.join(sourceHome, '.credentials.yaml'));
+  });
+
+  it('reads the custom reference from the source home settings without touching the credential store', async () => {
+    await writeSourceSettings(sourceHome, 'llm-deepseek:\n  apiKeyEnv: CUSTOM_DSH_KEY\n');
+    const response = await callDeepSeekHarness('worker', 'inspect-env', {
+      cwd: root,
+      childProcessEnv: { CUSTOM_DSH_KEY: 'custom-source-secret' },
+      providerOptions: { requestTimeoutMs: 10_000 },
+    });
+    const bridgeEnvironment = JSON.parse(await readFile(path.join(root, 'bridge-env.json'), 'utf8')) as Record<string, string>;
+    const patches = await readBridgePatches(root);
+
+    expect(response.status).toBe('done');
+    expect(bridgeEnvironment.CUSTOM_DSH_KEY).toBe('custom-source-secret');
+    expect(Object.prototype.hasOwnProperty.call(bridgeEnvironment, 'DEEPSEEK_API_KEY')).toBe(false);
+    expect(patches[0]?.content).toContain('apiKeyEnv: CUSTOM_DSH_KEY');
+    expect(patches[0]?.content).toContain(path.join(sourceHome, '.credentials.yaml'));
+    expect(await readdir(sourceHome)).toEqual(['settings.yaml']);
+    await expect(readFile(path.join(globalConfigDir, 'deepseek-harness', 'dsh-home', 'session-history.jsonl'), 'utf8'))
+      .resolves.toContain('inspect-env');
+  });
+
+  it('redacts the selected custom reference value from provider failures', async () => {
+    await writeSourceSettings(sourceHome, 'llm-deepseek:\n  apiKeyEnv: CUSTOM_DSH_KEY\n');
+    const secret = 'custom-reference-secret-321';
+    const response = await callDeepSeekHarness('worker', 'fail-custom-ref', {
+      cwd: root,
+      childProcessEnv: { CUSTOM_DSH_KEY: secret },
+      providerOptions: { requestTimeoutMs: 10_000 },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.content).not.toContain(secret);
+    expect(response.content).toContain('[REDACTED]');
+  });
+
+  it('does not substitute an unselected DEEPSEEK_API_KEY for another selected reference', async () => {
+    await writeSourceSettings(sourceHome, 'llm-deepseek:\n  apiKeyEnv: CUSTOM_DSH_KEY\n');
+    const unselected = 'unselected-reference-secret';
+    const response = await callDeepSeekHarness('worker', 'fail-secret', {
+      cwd: root,
+      childProcessEnv: { DEEPSEEK_API_KEY: unselected },
+      providerOptions: { requestTimeoutMs: 10_000 },
+    });
+    const patches = await readBridgePatches(root);
+
+    expect(response.status).toBe('error');
+    expect(response.content).toContain('missing-secret');
+    expect(response.content).not.toContain(unselected);
+    expect(patches[0]?.content).toContain('apiKeyEnv: CUSTOM_DSH_KEY');
+  });
+
+  it('uses the default harness home when neither environment defines DSH_HOME', async () => {
+    const userHome = path.join(root, 'user-home');
+    await mkdir(userHome, { recursive: true });
+    vi.stubEnv('DSH_HOME', undefined);
+    vi.stubEnv('HOME', userHome);
+
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      providerOptions: { requestTimeoutMs: 10_000 },
+    });
+    const patches = await readBridgePatches(root);
+
+    expect(response.status).toBe('done');
+    expect(patches[0]?.content).toContain(path.join(userHome, '.dsh', '.credentials.yaml'));
+  });
+
+  it.each([
+    ['relative', 'relative/source-home'],
+    ['empty', ''],
+  ] as const)('rejects an explicit %s DSH_HOME before starting the bridge', async (_label, dshHome) => {
+    vi.stubEnv('DSH_HOME', dshHome);
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      providerOptions: { requestTimeoutMs: 10_000 },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.content).toContain('DSH_HOME');
+    await expect(readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8'))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it.each([
+    ['duplicate selector', 'llm-deepseek:\n  apiKeyEnv: FIRST_KEY\n  apiKeyEnv: SECOND_KEY\n', 'FIRST_KEY'],
+    ['unparsable document', 'llm-deepseek: [unclosed\n', 'unclosed'],
+    ['invalid reference', 'llm-deepseek:\n  apiKeyEnv: 1INVALID\n', '1INVALID'],
+  ] as const)('rejects an unsafe settings document (%s) before starting the bridge', async (_label, content, fragment) => {
+    await writeSourceSettings(sourceHome, content);
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      providerOptions: { requestTimeoutMs: 10_000 },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.content).not.toContain(fragment);
+    await expect(readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8'))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('rejects a stored endpoint that disagrees with the effective endpoint before starting the bridge', async () => {
+    await writeSourceSettings(sourceHome, 'llm-deepseek:\n  baseURL: https://stored.example/v1\n');
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      providerOptions: { baseUrl: 'https://effective.example/v1', requestTimeoutMs: 10_000 },
+    });
+
+    expect(response.status).toBe('error');
+    expect(response.content).not.toContain('https://stored.example/v1');
+    expect(response.content).not.toContain('https://effective.example/v1');
+    await expect(readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8'))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('continues when the stored baseURL matches the effective endpoint', async () => {
+    await writeSourceSettings(sourceHome, 'llm-deepseek:\n  baseURL: https://api.deepseek.com\n');
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      providerOptions: { baseUrl: 'https://api.deepseek.com/', requestTimeoutMs: 10_000 },
+    });
+
+    expect(response.status).toBe('done');
+  });
+
+  it('fails an existing session turn when the credential binding changes', async () => {
+    const firstSourceHome = path.join(root, 'first-source-home');
+    const secondSourceHome = path.join(root, 'second-source-home');
+    await writeSourceSettings(firstSourceHome, 'llm-deepseek:\n  apiKeyEnv: FIRST_REF\n');
+    await writeSourceSettings(secondSourceHome, 'llm-deepseek:\n  apiKeyEnv: SECOND_REF\n');
+
+    const first = await callDeepSeekHarness('worker', 'first-turn', {
+      cwd: root,
+      sessionId: 'binding-change-session',
+      childProcessEnv: { DSH_HOME: firstSourceHome, FIRST_REF: 'first-ref-secret' },
+      providerOptions: { requestTimeoutMs: 10_000 },
+    });
+    const failed = await callDeepSeekHarness('worker', 'second-turn', {
+      cwd: root,
+      sessionId: 'binding-change-session',
+      childProcessEnv: { DSH_HOME: secondSourceHome, SECOND_REF: 'second-ref-secret' },
+      providerOptions: { requestTimeoutMs: 10_000 },
+    });
+
+    expect(first.status).toBe('done');
+    expect(failed.status).toBe('error');
+    expect(failed.content).toMatch(/binding/iu);
+    expect(failed.content).toMatch(/new (run|session)/iu);
+    expect(failed.content).not.toContain('second-ref-secret');
+    expect((await readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8')).trim().split('\n'))
+      .toHaveLength(1);
+    const history = (await readFile(path.join(globalConfigDir, 'deepseek-harness', 'dsh-home', 'session-history.jsonl'), 'utf8'))
+      .trim()
+      .split('\n');
+    expect(history).toHaveLength(1);
+  });
+
+  it('removes the temporary credential patch after the one-shot bridge closes', async () => {
+    const response = await callDeepSeekHarness('worker', 'hello', {
+      cwd: root,
+      providerOptions: { requestTimeoutMs: 10_000 },
+    });
+    const patches = await readBridgePatches(root);
+    const patchPath = patches[0]?.path;
+
+    expect(response.status).toBe('done');
+    expect(typeof patchPath).toBe('string');
+    if (patchPath === undefined) {
+      throw new Error('the bridge did not receive a credential patch');
+    }
+    await expect(stat(patchPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(stat(path.dirname(patchPath))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 });
 
