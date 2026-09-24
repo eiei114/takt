@@ -1,5 +1,5 @@
 import { existsSync, statSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -104,17 +104,13 @@ describe('DeepSeek Harness credential patch', () => {
     expect(existsSync(path.dirname(second.path))).toBe(false);
   });
 
-  it('refuses to overwrite an existing patch file and leaves its content untouched', async () => {
-    const patchDirectory = path.join(root, 'patch-directory');
-    await mkdir(patchDirectory);
-    const existingPath = path.join(patchDirectory, PATCH_FILE_NAME);
-    await writeFile(existingPath, 'existing-content\n', 'utf8');
-
-    await expect(createDeepSeekCredentialPatch(
+  it('removes its owned directory on synchronous cleanup and tolerates later async cleanup', async () => {
+    const patch = await createDeepSeekCredentialPatch(
       createBinding(path.join(root, '.credentials.yaml'), 'DEEPSEEK_API_KEY'),
-      { patchDirectory },
-    )).rejects.toThrow();
-
-    expect(await readFile(existingPath, 'utf8')).toBe('existing-content\n');
+    );
+    patch.disposeSync();
+    expect(existsSync(path.dirname(patch.path))).toBe(false);
+    patch.disposeSync();
+    await expect(patch.dispose()).resolves.toBeUndefined();
   });
 });

@@ -1,4 +1,4 @@
-import type { DeepSeekCredentialHomeOrigin } from './credential-home.js';
+import { describeDeepSeekCredentialHomeOrigin, type DeepSeekCredentialHomeOrigin } from './credential-home.js';
 import { isValidDeepSeekCredentialReference } from './credential-settings.js';
 import { DEEPSEEK_HARNESS_DEFAULT_CREDENTIAL_REFERENCE } from './constants.js';
 
@@ -8,7 +8,12 @@ export type DeepSeekCredentialFailureClassification =
   | 'invalid-selector'
   | 'endpoint-mismatch'
   | 'auth-rejected'
-  | 'binding-changed';
+  | 'binding-changed'
+  | 'runtime-failure'
+  | 'settings-unreadable'
+  | 'settings-too-large'
+  | 'invalid-settings'
+  | 'invalid-stored-endpoint';
 
 export type DeepSeekRuntimeCredentialFailureClassification =
   | 'missing-credential'
@@ -23,6 +28,11 @@ export const DEEPSEEK_CREDENTIAL_DIAGNOSTIC_CLASSIFICATIONS: readonly DeepSeekCr
   'endpoint-mismatch',
   'auth-rejected',
   'binding-changed',
+  'runtime-failure',
+  'settings-unreadable',
+  'settings-too-large',
+  'invalid-settings',
+  'invalid-stored-endpoint',
 ];
 
 export interface DeepSeekCredentialDiagnosticContext {
@@ -48,12 +58,14 @@ const CLASSIFICATION_DETAILS: Record<
     + 'verify the saved credential and the endpoint, then save a valid key.',
   'binding-changed': () => 'The credential binding (DSH_HOME source home, reference, or endpoint) '
     + 'changed during this session: start a new run or session to use the changed binding.',
-};
-
-const ORIGIN_NOTES: Record<DeepSeekCredentialHomeOrigin, string> = {
-  'child-process-env': 'the child-process DSH_HOME environment variable',
-  environment: 'the DSH_HOME environment variable',
-  default: 'the default harness home ~/.dsh',
+  'runtime-failure': () => 'The provider bridge/SDK failed. Verify the selected credential, endpoint, '
+    + 'runtime installation and connectivity, then retry. Upstream error details are withheld.',
+  'settings-unreadable': () => 'The settings.yaml file could not be read. Check its permissions and file type.',
+  'settings-too-large': () => 'The settings.yaml file exceeds 1 MiB. Reduce its size before retrying.',
+  'invalid-settings': () => 'The settings.yaml document is invalid. Correct its YAML syntax, types, '
+    + 'duplicate keys or unsupported tags before retrying.',
+  'invalid-stored-endpoint': () => 'The settings.yaml llm-deepseek.baseURL must be a non-empty URL string. '
+    + 'Correct or remove that field before retrying.',
 };
 
 function safeReference(reference: string): string {
@@ -65,7 +77,7 @@ function safeReference(reference: string): string {
 /** Build a classified, secret-free diagnostic in the existing provider error format. */
 export function buildCredentialDiagnostic(context: DeepSeekCredentialDiagnosticContext): string {
   const reference = safeReference(context.reference);
-  const origin = ORIGIN_NOTES[context.sourceHomeOrigin] ?? ORIGIN_NOTES.default;
+  const origin = describeDeepSeekCredentialHomeOrigin(context.sourceHomeOrigin);
   const detail = CLASSIFICATION_DETAILS[context.classification](reference);
   return `DeepSeek Harness credential resolution failed. Credential source: ${origin}. `
     + `Reference: ${reference}. ${detail}`;
@@ -74,7 +86,7 @@ export function buildCredentialDiagnostic(context: DeepSeekCredentialDiagnosticC
 /**
  * Classify a failure reported by the official runtime. Only patterns observed from
  * the pinned runtime are classified; anything else stays unknown so the caller
- * keeps the existing safe message path.
+ * emits a fixed failure diagnostic without exposing upstream text.
  */
 export function classifyDeepSeekRuntimeCredentialFailure(
   failure: string,

@@ -1,4 +1,5 @@
 import { open } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { parseAllDocuments } from 'yaml';
 import { DEEPSEEK_HARNESS_DEFAULT_CREDENTIAL_REFERENCE } from './constants.js';
 
@@ -20,13 +21,24 @@ export interface DeepSeekCredentialSelector {
   storedBaseUrl?: string;
 }
 
+export class DeepSeekCredentialSettingsError extends Error {
+  constructor(
+    readonly classification: 'invalid-selector' | 'settings-unreadable' | 'settings-too-large'
+      | 'invalid-settings' | 'invalid-stored-endpoint',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'DeepSeekCredentialSettingsError';
+  }
+}
+
 /** Accept only environment-style reference names; the value is never interpolated. */
 export function isValidDeepSeekCredentialReference(value: unknown): value is string {
   return typeof value === 'string' && REFERENCE_PATTERN.test(value);
 }
 
 function invalidDocument(): Error {
-  return new Error(INVALID_DOCUMENT_MESSAGE);
+  return new DeepSeekCredentialSettingsError('invalid-settings', INVALID_DOCUMENT_MESSAGE);
 }
 
 function extractFromNamespace(namespace: Record<string, unknown>): DeepSeekCredentialSelector {
@@ -34,7 +46,7 @@ function extractFromNamespace(namespace: Record<string, unknown>): DeepSeekCrede
   if (Object.hasOwn(namespace, REFERENCE_KEY)) {
     const reference = namespace[REFERENCE_KEY];
     if (!isValidDeepSeekCredentialReference(reference)) {
-      throw new Error(INVALID_REFERENCE_MESSAGE);
+      throw new DeepSeekCredentialSettingsError('invalid-selector', INVALID_REFERENCE_MESSAGE);
     }
     ref = reference;
   }
@@ -42,7 +54,7 @@ function extractFromNamespace(namespace: Record<string, unknown>): DeepSeekCrede
   if (Object.hasOwn(namespace, BASE_URL_KEY)) {
     const baseUrl = namespace[BASE_URL_KEY];
     if (typeof baseUrl !== 'string' || baseUrl.length === 0) {
-      throw new Error(INVALID_BASE_URL_MESSAGE);
+      throw new DeepSeekCredentialSettingsError('invalid-stored-endpoint', INVALID_BASE_URL_MESSAGE);
     }
     storedBaseUrl = baseUrl;
   }
@@ -109,28 +121,32 @@ export async function readDeepSeekCredentialSelector(
 ): Promise<DeepSeekCredentialSelector> {
   let handle: Awaited<ReturnType<typeof open>>;
   try {
-    handle = await open(settingsPath, 'r');
+    // A FIFO must not block before fstat can reject non-regular files.
+    handle = await open(settingsPath, constants.O_RDONLY | constants.O_NONBLOCK);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT' || code === 'ENOTDIR') {
       return { ref: DEEPSEEK_HARNESS_DEFAULT_CREDENTIAL_REFERENCE };
     }
-    throw new Error(UNREADABLE_SETTINGS_MESSAGE);
+    throw new DeepSeekCredentialSettingsError('settings-unreadable', UNREADABLE_SETTINGS_MESSAGE);
   }
   try {
     const stats = await handle.stat();
     if (!stats.isFile()) {
-      throw new Error(UNREADABLE_SETTINGS_MESSAGE);
+      throw new DeepSeekCredentialSettingsError('settings-unreadable', UNREADABLE_SETTINGS_MESSAGE);
     }
     if (stats.size > MAX_SETTINGS_FILE_BYTES) {
-      throw new Error(OVERSIZED_SETTINGS_MESSAGE);
+      throw new DeepSeekCredentialSettingsError('settings-too-large', OVERSIZED_SETTINGS_MESSAGE);
     }
     const buffer = Buffer.alloc(MAX_SETTINGS_FILE_BYTES + 1);
     const { bytesRead } = await handle.read(buffer, 0, MAX_SETTINGS_FILE_BYTES + 1, 0);
     if (bytesRead > MAX_SETTINGS_FILE_BYTES) {
-      throw new Error(OVERSIZED_SETTINGS_MESSAGE);
+      throw new DeepSeekCredentialSettingsError('settings-too-large', OVERSIZED_SETTINGS_MESSAGE);
     }
     return extractDeepSeekCredentialSelector(parseSettingsDocument(buffer.subarray(0, bytesRead).toString('utf8')));
+  } catch (error) {
+    if (error instanceof DeepSeekCredentialSettingsError) throw error;
+    throw new DeepSeekCredentialSettingsError('settings-unreadable', UNREADABLE_SETTINGS_MESSAGE);
   } finally {
     await handle.close();
   }

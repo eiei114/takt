@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -115,6 +115,30 @@ describe('DeepSeek Harness credential settings file reading', () => {
     expect(selector.storedBaseUrl).toBeUndefined();
   });
 
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'classifies unreadable settings without misdiagnosing the selector', async () => {
+      const settingsPath = await writeSettings('llm-deepseek:\n  apiKeyEnv: PRIVATE_REFERENCE\n');
+      await chmod(settingsPath, 0o000);
+      try {
+        await expect(readDeepSeekCredentialSelector(settingsPath)).rejects.toMatchObject({
+          classification: 'settings-unreadable',
+        });
+        const message = await captureSettingsErrorAsync(() => readDeepSeekCredentialSelector(settingsPath));
+        expect(message).not.toContain(settingsPath);
+        expect(message).not.toContain('PRIVATE_REFERENCE');
+      } finally {
+        await chmod(settingsPath, 0o600);
+      }
+    },
+  );
+
+  it.each(['', 123])('classifies an invalid baseURL value without blaming apiKeyEnv: %s', async (baseURL) => {
+    const settingsPath = await writeSettings(JSON.stringify({ 'llm-deepseek': { baseURL } }));
+    await expect(readDeepSeekCredentialSelector(settingsPath)).rejects.toMatchObject({
+      classification: 'invalid-stored-endpoint',
+    });
+  });
+
   it('reads a block-style llm-deepseek selector with its stored baseURL', async () => {
     const settingsPath = await writeSettings([
       'llm-deepseek:',
@@ -220,5 +244,6 @@ describe('DeepSeek Harness credential settings file reading', () => {
     const message = await captureSettingsErrorAsync(() => readDeepSeekCredentialSelector(settingsPath));
 
     expect(message).not.toContain('BIG_KEY');
+    await expect(readDeepSeekCredentialSelector(settingsPath)).rejects.toMatchObject({ classification: 'settings-too-large' });
   });
 });

@@ -1,4 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import * as os from 'node:os';
@@ -10,6 +12,9 @@ import {
   closeDeepSeekHarnessProcesses,
 } from '../infra/deepseek-harness/index.js';
 import { getGlobalConfigDir } from '../infra/config/paths.js';
+import { createProviderEventLogger } from '../core/logging/providerEventLogger.js';
+import { renderTraceReportFromRecords } from '../features/tasks/execute/traceReport.js';
+import type { StreamCallback } from '../shared/types/provider.js';
 
 const liveEnabled = process.env.TAKT_DEEPSEEK_HARNESS_LIVE === '1';
 const supportedRuntime = (
@@ -26,6 +31,7 @@ const ENV_KEY = 'dummy-env-credential-1487';
 const REQUEST_TIMEOUT_MS = 120_000;
 const WATCHER_TIMEOUT_MS = 20_000;
 const WATCHER_POLL_INTERVAL_MS = 500;
+const execFileAsync = promisify(execFile);
 
 interface RecordedRequest {
   authorization: string | undefined;
@@ -38,6 +44,7 @@ interface MockEndpoint {
   baseUrl: string;
   requests: RecordedRequest[];
   setMode: (mode: MockMode) => void;
+  holdNextResponse: () => { received: Promise<void>; release: () => void };
   close: () => Promise<void>;
 }
 
@@ -62,17 +69,27 @@ function writeEventStream(response: import('node:http').ServerResponse): void {
 async function startMockEndpoint(): Promise<MockEndpoint> {
   const requests: RecordedRequest[] = [];
   let mode: MockMode = 'ok';
+  let hold: { received: () => void; ready: Promise<void> } | undefined;
+  let releaseHeld: (() => void) | undefined;
   const server: Server = createServer((request, response) => {
     let body = '';
     request.setEncoding('utf8');
     request.on('data', (chunk: string) => {
       body += chunk;
     });
-    request.on('end', () => {
+    request.on('end', async () => {
       requests.push({ authorization: request.headers.authorization, body });
+      const currentHold = hold;
+      hold = undefined;
+      if (currentHold) {
+        currentHold.received();
+        await currentHold.ready;
+      }
       if (mode === 'auth-echo') {
         response.writeHead(401, { 'Content-Type': 'application/json' });
-        response.end(JSON.stringify({ error: { message: `rejected ${STORE_KEY}` } }));
+        response.end(JSON.stringify({ error: {
+          message: `rejected ${STORE_KEY}`, cause: { message: `nested ${STORE_KEY}` },
+        } }));
         return;
       }
       writeEventStream(response);
@@ -92,7 +109,17 @@ async function startMockEndpoint(): Promise<MockEndpoint> {
     setMode: (next) => {
       mode = next;
     },
+    holdNextResponse: () => {
+      let received!: () => void;
+      let release!: () => void;
+      const receipt = new Promise<void>((resolve) => { received = resolve; });
+      const ready = new Promise<void>((resolve) => { release = resolve; });
+      hold = { received, ready };
+      releaseHeld = release;
+      return { received: receipt, release };
+    },
     close: () => new Promise<void>((resolve) => {
+      releaseHeld?.();
       server.close(() => resolve());
     }),
   };
@@ -184,9 +211,11 @@ describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', 
     sessionId?: string;
     model?: string;
     childProcessEnv?: Readonly<Record<string, string>>;
+    onStream?: StreamCallback;
   } = {}): Promise<Awaited<ReturnType<typeof callDeepSeekHarness>>> {
     return callDeepSeekHarness('live-smoke', options.prompt ?? 'Return ok.', {
       cwd: workspace,
+      ...(options.onStream === undefined ? {} : { onStream: options.onStream }),
       ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
       ...(options.childProcessEnv === undefined ? {} : { childProcessEnv: options.childProcessEnv }),
       ...(options.model === undefined ? {} : { model: options.model }),
@@ -310,9 +339,72 @@ describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', 
     expect(response.content).toContain('DSH_HOME');
   });
 
+  it.skipIf(process.platform === 'win32' || process.getuid?.() === 0)(
+    'fails closed for an unreadable store without changing permissions or sending a request', async () => {
+      const before = await readFile(storePath);
+      await chmod(storePath, 0o000);
+      try {
+        const response = await runTurn();
+        expect(response.status).toBe('error');
+        expect(endpoint.requests).toHaveLength(0);
+        expect(response.content).not.toContain(STORE_KEY);
+        expect(response.content).not.toContain(storePath);
+        expect((await stat(storePath)).mode & 0o777).toBe(0);
+      } finally {
+        await chmod(storePath, 0o600);
+      }
+      expect(await readFile(storePath)).toEqual(before);
+    },
+  );
+
+  it('keeps an in-flight request on its initial credential and reloads for later turns', async () => {
+    const held = endpoint.holdNextResponse();
+    const pending = runTurn({ sessionId: 'snapshot-session' });
+    try {
+      await Promise.race([
+        held.received,
+        pending.then(() => { throw new Error('Turn ended before reaching mock endpoint'); }),
+      ]);
+      await writeStore(`version: 1\nrefs:\n  DEEPSEEK_API_KEY: ${UPDATED_STORE_KEY}\n`);
+      expect(endpoint.requests).toHaveLength(1);
+      expect(endpoint.requests[0]?.authorization).toContain(STORE_KEY);
+    } finally {
+      held.release();
+    }
+    expect((await pending).status).toBe('done');
+    expect(endpoint.requests).toHaveLength(1);
+    await vi.waitFor(async () => {
+      expect((await runTurn({ sessionId: 'snapshot-session' })).status).toBe('done');
+      expect(endpoint.requests.at(-1)?.authorization).toContain(UPDATED_STORE_KEY);
+    }, { timeout: WATCHER_TIMEOUT_MS, interval: WATCHER_POLL_INTERVAL_MS });
+  });
+
+  it('observes malformed live reload independently from deletion and recovers after repair', async () => {
+    expect((await runTurn({ sessionId: 'malformed-reload' })).status).toBe('done');
+    await writeStore('version: 1\nrefs: [broken\n');
+    // Wait past the official watcher's debounce, then observe its last-good policy.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    const afterCorruption = await runTurn({ sessionId: 'malformed-reload' });
+    expect(afterCorruption.status).toBe('done');
+    expect(endpoint.requests.at(-1)?.authorization).toContain(STORE_KEY);
+    await writeStore(`version: 1\nrefs:\n  DEEPSEEK_API_KEY: ${UPDATED_STORE_KEY}\n`);
+    await vi.waitFor(async () => {
+      expect((await runTurn({ sessionId: 'malformed-reload' })).status).toBe('done');
+      expect(endpoint.requests.at(-1)?.authorization).toContain(UPDATED_STORE_KEY);
+    }, { timeout: WATCHER_TIMEOUT_MS, interval: WATCHER_POLL_INTERVAL_MS });
+  });
+
   it('keeps an echoed dummy credential out of TAKT output and the runtime session store', async () => {
     endpoint.setMode('auth-echo');
-    const response = await runTurn({ prompt: 'Trigger the mocked auth rejection.' });
+    await mkdir(path.join(root, 'reports'));
+    const logger = createProviderEventLogger({
+      logsDir: path.join(root, 'reports'), sessionId: 'credential-echo', runId: 'credential-echo', enabled: true,
+    });
+    const events: unknown[] = [];
+    const response = await runTurn({ prompt: 'Trigger the mocked auth rejection.', onStream: (event) => {
+      events.push(event);
+      logger.logEvent({ provider: 'deepseek-harness', providerModel: 'deepseek-v4-flash', step: 'smoke' }, event);
+    } });
 
     await closeDeepSeekHarnessProcesses();
 
@@ -321,11 +413,56 @@ describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', 
     expect(response.status).toBe('error');
     expect(response.content).not.toContain(STORE_KEY);
     expect(response.content).toMatch(/credential|auth/iu);
+    expect(JSON.stringify(events)).not.toContain(STORE_KEY);
+    expect(await readFile(logger.filepath, 'utf8')).not.toContain(STORE_KEY);
+
+    const timestamp = '2026-09-24T12:00:00.000Z';
+    const report = renderTraceReportFromRecords({
+      tracePath: path.join(root, 'reports', 'trace.md'), workflowName: 'smoke', task: 'Credential echo probe',
+      runSlug: 'credential-echo', status: 'failed', iterations: 1, endTime: timestamp,
+    }, [{
+      type: 'step_complete', step: 'smoke', persona: 'worker', iteration: 1,
+      status: response.status, content: response.content, instruction: 'Trigger the mocked auth rejection.', timestamp,
+    }], [], 'full');
+    expect(report).toContain(response.content);
+    expect(report).not.toContain(STORE_KEY);
 
     const leakedIntoRuntimeStore = collectSecretHits(dshHome, STORE_KEY);
     expect(
       leakedIntoRuntimeStore,
       'the pinned DeepSeek Harness runtime persisted the echoed dummy credential into its session store',
     ).toEqual([]);
+  });
+
+  it('keeps echoed credentials out of raw SDK notifications, stderr and all persisted frames', async () => {
+    endpoint.setMode('auth-echo');
+    const patchPath = path.join(root, 'sdk-echo-patch.json');
+    await writeFile(patchPath, JSON.stringify([
+      { id: 'credentials', config: { path: storePath } },
+      { id: 'llm-deepseek', config: { apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: endpoint.baseUrl } },
+      { id: 'session-telemetry-otel', disabled: true },
+    ]));
+    const script = [
+      'import json, sys',
+      'from deepseek_harness import DeepSeekHarness',
+      'events = []',
+      'h = DeepSeekHarness(provider="deepseek-official", model="deepseek-v4-flash", cwd=sys.argv[1], runtime_cwd=sys.argv[1], dsh_home=sys.argv[2], patches=(sys.argv[3],), initialize_timeout_seconds=10, request_timeout_seconds=10, shutdown_timeout_seconds=2)',
+      'try:',
+      '    result = h.run("Return ok.", on_notification=lambda n: events.append({"method": n.method, "payload": n.payload}))',
+      '    print(json.dumps({"finish": result.finish_reason, "notifications": events}))',
+      'finally:',
+      '    h.close()',
+    ].join('\n');
+    const { stdout, stderr } = await execFileAsync(path.join(managedEnvironmentDir, 'bin', 'python'), [
+      '-c', script, workspace, dshHome, patchPath,
+    ], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024, env: { ...process.env } });
+    expect(endpoint.requests).toHaveLength(1);
+    expect(endpoint.requests[0]?.authorization).toContain(STORE_KEY);
+    const result = JSON.parse(stdout) as { finish: string; notifications: unknown[] };
+    expect(result.finish).toBe('error');
+    expect(result.notifications.length).toBeGreaterThan(0);
+    expect.soft(stdout.includes(STORE_KEY), 'raw SDK notifications contain an echoed credential').toBe(false);
+    expect.soft(stderr.includes(STORE_KEY), 'raw SDK stderr contains an echoed credential').toBe(false);
+    expect.soft(collectSecretHits(dshHome, STORE_KEY), 'persisted runtime frames contain an echoed credential').toEqual([]);
   });
 });

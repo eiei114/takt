@@ -95,7 +95,7 @@ assistant:
 #     default_permission_mode: edit
 
 # API Key configuration (optional)
-# Can be overridden by environment variables TAKT_ANTHROPIC_API_KEY / TAKT_OPENAI_API_KEY / TAKT_OPENCODE_API_KEY / TAKT_CURSOR_API_KEY / TAKT_COPILOT_GITHUB_TOKEN / TAKT_KIRO_API_KEY. DeepSeek Harness uses the official DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL environment variables (not YAML API-key fields).
+# Can be overridden by environment variables TAKT_ANTHROPIC_API_KEY / TAKT_OPENAI_API_KEY / TAKT_OPENCODE_API_KEY / TAKT_CURSOR_API_KEY / TAKT_COPILOT_GITHUB_TOKEN / TAKT_KIRO_API_KEY. DeepSeek Harness uses its official credential store ($DSH_HOME/.credentials.yaml, default ~/.dsh/.credentials.yaml) or DEEPSEEK_API_KEY, with optional DEEPSEEK_BASE_URL (not YAML API-key fields).
 # anthropic_api_key: sk-ant-...  # For Claude (Anthropic)
 # openai_api_key: sk-...         # For Codex (OpenAI)
 # opencode_api_key: ...          # For OpenCode
@@ -507,7 +507,7 @@ Environment variables take precedence over `config.yaml` settings.
 | Codex (OpenAI) | `TAKT_OPENAI_API_KEY` | `openai_api_key` |
 | OpenCode | `TAKT_OPENCODE_API_KEY` | `opencode_api_key` |
 | Pi | Pi SDK credential store or provider-native environment variables | - |
-| DeepSeek Harness | `DEEPSEEK_API_KEY` (optional `DEEPSEEK_BASE_URL`) | - |
+| DeepSeek Harness | Official store `$DSH_HOME/.credentials.yaml` (default `~/.dsh/.credentials.yaml`) or `DEEPSEEK_API_KEY` (optional `DEEPSEEK_BASE_URL`) | - |
 | Cursor Agent | `TAKT_CURSOR_API_KEY` | `cursor_api_key` |
 | GitHub Copilot CLI | `TAKT_COPILOT_GITHUB_TOKEN` | `copilot_github_token` |
 | Kiro CLI | `TAKT_KIRO_API_KEY` (`KIRO_API_KEY` fallback) | `kiro_api_key` |
@@ -1270,7 +1270,8 @@ The install `--python` option and provider `python_path` option were removed bec
 - The credential source home is separate from TAKT's managed dsh-home: the bridge still runs with TAKT's managed home, so TAKT does not create credential files in `$DSH_HOME`, does not scan the managed home for an older store, and provides no migration or compatibility fallback (breaking change). A `.credentials.yaml` written by older TAKT versions inside the managed home is ignored.
 - Credential binding: the source home, reference, and endpoint are part of the bridge process identity. Changing them while a session is alive fails that turn explicitly and asks for a new run instead of silently resetting the conversation.
 - Store updates and deletions are delegated to the official runtime watcher; TAKT adds no separate watcher or credential cache. An updated value is used by later turns of the same session. Deletion is observed with a short delay: the official runtime may complete one more turn from its last-good value, and the turn that reports the missing credential sends no HTTP request.
-- Classified diagnostics omit raw HTTP bodies and absolute credential paths and name the logical source (`DSH_HOME` or the default harness home) plus a repair step. End-to-end credential non-exposure remains blocked by the official runtime issue described above; unclassified runtime errors are not a proven safe path for store-only secrets.
+- **Warning:** malformed live updates are not revocation. With pinned `0.1.5rc1`, a running session continues using the last-good credential after a malformed YAML update, then adopts a valid repaired store on a later turn. Startup with malformed YAML fails instead. An already-sent request retains its original authorization while the store changes; updates apply only to subsequent requests after watcher reload. Do not rely on a corrupt file or a successful turn as proof of revocation or reload, and do not assume the next turn synchronously sees a write.
+- Diagnostics omit raw HTTP bodies and absolute credential paths and name the logical source (`DSH_HOME` or the default harness home) plus a repair step. Unclassified provider/transport failures withhold upstream messages and stderr tails rather than relying on partial redaction. Settings failures distinguish unreadable files, size limits, malformed YAML, invalid references and invalid stored endpoint types. End-to-end credential non-exposure remains blocked by the official runtime persistence issue described above.
 - TAKT does not scan `.env` files. Credentials come from the store, the selected reference's environment variable, or the official runtime's own resolution.
 
 This provider is a developer-preview compatibility surface: use the opt-in live smoke only when you intentionally want to spend DeepSeek API quota; normal unit, integration, and mock E2E suites never call DeepSeek.

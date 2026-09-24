@@ -23,13 +23,16 @@ export interface AssertDeepSeekEndpointConsistencyOptions {
 }
 
 /** Keep the existing provider option, child environment, ambient environment, and default order. */
-export function resolveEffectiveDeepSeekEndpoint(
+export function resolveConfiguredDeepSeekEndpoint(
   options: ResolveEffectiveDeepSeekEndpointOptions,
-): string {
+): string | undefined {
   return options.providerOptions?.baseUrl
     ?? options.childProcessEnv?.DEEPSEEK_BASE_URL
-    ?? options.ambientEnv.DEEPSEEK_BASE_URL
-    ?? DEEPSEEK_HARNESS_PUBLIC_BASE_URL;
+    ?? options.ambientEnv.DEEPSEEK_BASE_URL;
+}
+
+export function resolveEffectiveDeepSeekEndpoint(options: ResolveEffectiveDeepSeekEndpointOptions): string {
+  return resolveConfiguredDeepSeekEndpoint(options) ?? DEEPSEEK_HARNESS_PUBLIC_BASE_URL;
 }
 
 function normalizeEndpoint(value: string, invalidMessage: string): string {

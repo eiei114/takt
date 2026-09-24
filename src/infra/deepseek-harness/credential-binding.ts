@@ -6,6 +6,7 @@ import {
 } from './credential-home.js';
 import {
   readDeepSeekCredentialSelector,
+  DeepSeekCredentialSettingsError,
   type DeepSeekCredentialSelector,
 } from './credential-settings.js';
 import {
@@ -69,8 +70,8 @@ export async function resolveDeepSeekCredentialBinding(
     selector = await readSettings(home.settingsPath);
   } catch (error) {
     throw new DeepSeekCredentialDiagnosticError(
-      'invalid-selector',
-      safeErrorMessage(error),
+      error instanceof DeepSeekCredentialSettingsError ? error.classification : 'invalid-settings',
+      error instanceof DeepSeekCredentialSettingsError ? error.message : 'DeepSeek Harness credentials settings are invalid',
       { sourceHomeOrigin: home.origin },
     );
   }

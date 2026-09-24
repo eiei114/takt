@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createProviderEventLogger } from '../core/logging/providerEventLogger.js';
+import { renderTraceReportFromRecords } from '../features/tasks/execute/traceReport.js';
 import {
   callDeepSeekHarness,
   closeDeepSeekHarnessProcesses,
@@ -226,6 +227,12 @@ class DeepSeekHarness:
             raise RuntimeError(os.environ.get('DEEPSEEK_API_KEY', 'missing-secret'))
         if input == 'fail-custom-ref':
             raise RuntimeError(os.environ.get('CUSTOM_DSH_KEY', 'missing-custom-ref'))
+        if input == 'unknown-store-failure':
+            print('stderr-only-store-secret', file=sys.stderr, flush=True)
+            raise RuntimeError('unclassified-store-secret nested-cause-secret')
+        if input == 'unknown-store-exit':
+            print('stderr-only-store-secret', file=sys.stderr, flush=True)
+            os._exit(23)
         if input == 'malformed-json':
             print('not-json', flush=True)
         if input == 'jsonrpc-failure':
@@ -702,7 +709,7 @@ sys.implementation = types.SimpleNamespace(
       'enoent-model',
       'ENOENT: SDK model not found "enoent-model"',
     ],
-  ] as const)('reports the original reference and bridge/SDK failure for %s', async (reference, provider, modelId, sdkFailure) => {
+  ] as const)('withholds unclassified bridge/SDK details for %s', async (reference, provider, modelId, sdkFailure) => {
     const events: Array<{ type: string; data: Record<string, unknown> }> = [];
     const response = await callDeepSeekHarness('worker', 'hello', {
       cwd: root,
@@ -717,10 +724,8 @@ sys.implementation = types.SimpleNamespace(
 
     expect(response.status).toBe('error');
     expect(configuration).toMatchObject({ provider, model: modelId });
-    expect(response.content).toContain(reference);
-    expect(response.content).toContain(provider);
-    expect(response.content).toContain(modelId);
-    expect(response.content).toContain(sdkFailure);
+    expect(response.content).toContain('Upstream error details are withheld');
+    expect(response.content).not.toContain(sdkFailure);
     expect(events).toEqual(expect.arrayContaining([
       { type: 'error', data: { message: response.content, raw: response.content } },
       expect.objectContaining({
@@ -737,9 +742,6 @@ sys.implementation = types.SimpleNamespace(
 
   it('sanitizes terminal control sequences in provider errors and stream events', async () => {
     const reference = '\u009d52;c;X\u007fterminal-route/terminal-diagnostic-model';
-    const sanitizedReference = `DeepSeek Harness model reference ${JSON.stringify(reference)}`
-      .replace('\u009d', '\\x9d')
-      .replace('\u007f', '\\x7f');
     const events: Array<{ type: string; data: Record<string, unknown> }> = [];
     const response = await callDeepSeekHarness('worker', 'hello', {
       cwd: root,
@@ -749,10 +751,8 @@ sys.implementation = types.SimpleNamespace(
     });
 
     expect(response.status).toBe('error');
-    expect(response.content).toContain(sanitizedReference);
-    expect(response.content).toContain('SDK diagnostic');
-    expect(response.content).toContain('raw');
-    expect(response.content).toContain('\\x01');
+    expect(response.content).toContain('Upstream error details are withheld');
+    expect(response.content).not.toContain('SDK diagnostic');
     expect(response.content).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/u);
 
     const streamedFailureEvents = events.filter((event) => event.type === 'error' || event.type === 'result');
@@ -763,8 +763,8 @@ sys.implementation = types.SimpleNamespace(
     for (const message of streamedMessages) {
       expect(message).not.toMatch(/[\u0000-\u001f\u007f-\u009f]/u);
     }
-    expect(streamedMessages.some((message) => message.includes(sanitizedReference))).toBe(true);
-    expect(streamedMessages.some((message) => message.includes('SDK diagnostic'))).toBe(true);
+    expect(streamedMessages.some((message) => message.includes('Upstream error details are withheld'))).toBe(true);
+    expect(streamedMessages.some((message) => message.includes('SDK diagnostic'))).toBe(false);
   });
 
   it('preserves runtime setup diagnostics for a routed model', async () => {
@@ -807,7 +807,7 @@ sys.implementation = types.SimpleNamespace(
 
     expect(response.status).toBe('error');
     expect(response.content).not.toContain(secret);
-    expect(response.content).toContain('[REDACTED]');
+    expect(response.content).toContain('Upstream error details are withheld');
   });
 
   it('redacts credentials from text, thinking, tool payloads, final output, and provider event logs', async () => {
@@ -1043,7 +1043,7 @@ sys.implementation = types.SimpleNamespace(
     ['blocked', 'blocked', 'blocked'],
     ['max-tokens', 'error', 'maximum token limit'],
     ['interrupted', 'error', 'interrupted'],
-    ['error', 'error', 'provider failure'],
+    ['error', 'error', 'Upstream error details are withheld'],
   ] as const)('maps the official %s finish reason without reporting success', async (reason, status, message) => {
     const response = await callDeepSeekHarness('worker', `reason:${reason}`, {
       cwd: root,
@@ -1087,7 +1087,7 @@ sys.implementation = types.SimpleNamespace(
   it.each([
     ['my-gateway/org/custom-model', 'my-gateway/org/custom-model'],
     [undefined, 'deepseek-v4-flash'],
-  ] as const)('preserves structured provider error context for model %s', async (model, modelReference) => {
+  ] as const)('preserves structured provider error status for model %s', async (model, _modelReference) => {
     const events: Array<{ type: string; data: Record<string, unknown> }> = [];
     const response = await callDeepSeekHarness('worker', 'reason:error', {
       cwd: root,
@@ -1101,9 +1101,8 @@ sys.implementation = types.SimpleNamespace(
       failureCategory: 'provider_error',
       error: response.content,
     });
-    expect(response.content).toContain(modelReference);
     expect(response.content).toContain('provider bridge/SDK');
-    expect(response.content).toContain('FAKE: provider failure');
+    expect(response.content).not.toContain('FAKE: provider failure');
     expect(events).toEqual(expect.arrayContaining([
       { type: 'error', data: { message: response.content, raw: response.content } },
       expect.objectContaining({
@@ -1153,7 +1152,7 @@ sys.implementation = types.SimpleNamespace(
 
     expect(response.status).toBe('error');
     expect(response.failureCategory).toBe('provider_error');
-    expect(response.content).toContain('startup failure');
+    expect(response.content).toContain('Upstream error details are withheld');
   });
 
   it('keeps SDK stdout noise off the bridge protocol stream', async () => {
@@ -1255,7 +1254,7 @@ sys.implementation = types.SimpleNamespace(
 
     expect(response.status).toBe('error');
     expect(response.failureCategory).toBe('provider_error');
-    expect(response.content).toContain('jsonrpc failure');
+    expect(response.content).toContain('Upstream error details are withheld');
   });
 
   it('does not let protocol-error cleanup race with the next queued session turn', async () => {
@@ -1302,7 +1301,7 @@ sys.implementation = types.SimpleNamespace(
 
     expect(response.status).toBe('error');
     expect(response.failureCategory).toBe('provider_error');
-    expect(response.content).toMatch(/process exited|stdout closed/u);
+    expect(response.content).toContain('Upstream error details are withheld');
   });
 
   it.each(['', '.', '..', '../outside', 'nested/session', 'C:\\outside'] as const)(
@@ -1485,7 +1484,7 @@ sys.implementation = types.SimpleNamespace(
 
     expect(first.status).toBe('done');
     expect(failed.status).toBe('error');
-    expect(failed.content).toContain('reasoning effort process startup failure');
+    expect(failed.content).toContain('Upstream error details are withheld');
     expect(third.status).toBe('done');
     const configurations = (await readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8'))
       .trim()
@@ -1681,7 +1680,7 @@ sys.implementation = types.SimpleNamespace(
 
     expect(response.status).toBe('error');
     expect(response.content).not.toContain(secret);
-    expect(response.content).toContain('[REDACTED]');
+    expect(response.content).toContain('Upstream error details are withheld');
   });
 
   it('does not substitute an unselected DEEPSEEK_API_KEY for another selected reference', async () => {
@@ -1695,10 +1694,44 @@ sys.implementation = types.SimpleNamespace(
     const patches = await readBridgePatches(root);
 
     expect(response.status).toBe('error');
-    expect(response.content).toContain('missing-secret');
+    expect(response.content).toContain('Upstream error details are withheld');
     expect(response.content).not.toContain(unselected);
     expect(patches[0]?.content).toContain('apiKeyEnv: CUSTOM_DSH_KEY');
   });
+
+  it.each(['unknown-store-failure', 'unknown-store-exit'])(
+    'withholds unknown store errors and stderr from output, notifications and persisted logs: %s', async (prompt) => {
+      await mkdir(path.join(root, 'safe-error-logs'));
+      const logger = createProviderEventLogger({
+        logsDir: path.join(root, 'safe-error-logs'), sessionId: prompt, runId: 'safe-error', enabled: true,
+      });
+      const events: unknown[] = [];
+      const response = await callDeepSeekHarness('worker', prompt, {
+        cwd: root,
+        providerOptions: { requestTimeoutMs: 10_000 },
+        onStream: (event) => {
+          events.push(event);
+          logger.logEvent({ provider: 'deepseek-harness', providerModel: 'deepseek-v4-flash', step: 'smoke' }, event);
+        },
+      });
+      expect(response.status).toBe('error');
+      expect(response.content).toContain('Upstream error details are withheld');
+      const timestamp = '2026-09-24T12:00:00.000Z';
+      const report = renderTraceReportFromRecords({
+        tracePath: path.join(root, 'trace.md'), workflowName: 'smoke', task: prompt,
+        runSlug: 'safe-error', status: 'failed', iterations: 1, endTime: timestamp,
+      }, [{
+        type: 'step_complete', step: 'smoke', persona: 'worker', iteration: 1,
+        status: response.status, content: response.content, instruction: prompt, timestamp,
+      }], [], 'full');
+      expect(report).toContain('Upstream error details are withheld');
+      for (const surface of [JSON.stringify(response), JSON.stringify(events), await readFile(logger.filepath, 'utf8'), report!]) {
+        for (const secret of ['unclassified-store-secret', 'nested-cause-secret', 'stderr-only-store-secret']) {
+          expect(surface).not.toContain(secret);
+        }
+      }
+    },
+  );
 
   it('uses the default harness home when neither environment defines DSH_HOME', async () => {
     const userHome = path.join(root, 'user-home');

@@ -46,6 +46,7 @@ import { assertSupportedDeepSeekHarnessPlatform } from './platform.js';
 import { validateDeepSeekHarnessRuntime } from './runtime.js';
 import { parseDeepSeekHarnessModelReference } from './model-reference.js';
 import { type DeepSeekCredentialHomeOrigin } from './credential-home.js';
+import { resolveConfiguredDeepSeekEndpoint } from './endpoint-consistency.js';
 import {
   resolveDeepSeekCredentialBinding,
   type DeepSeekCredentialBinding,
@@ -340,23 +341,6 @@ function resolveBridgeConfiguration(
   };
 }
 
-function resolveUrlUserinfoSecrets(baseUrl: string | undefined): readonly string[] {
-  if (baseUrl === undefined) {
-    return [];
-  }
-  let parsed: URL;
-  try {
-    parsed = new URL(baseUrl);
-  } catch (error) {
-    throw new Error('DeepSeek Harness baseUrl must be a valid URL', { cause: error });
-  }
-  const encodedValues = [parsed.username, parsed.password].filter((value) => value.length > 0);
-  return [...new Set(encodedValues.flatMap((value) => {
-    const decoded = decodeURIComponent(value);
-    return decoded === value ? [value] : [value, decoded];
-  }))];
-}
-
 interface ConfiguredDeepSeekCredential {
   referenceValue: string | undefined;
   baseUrl: string | undefined;
@@ -369,9 +353,7 @@ function resolveConfiguredDeepSeekCredential(
 ): ConfiguredDeepSeekCredential {
   return {
     referenceValue: childProcessEnv?.[reference] ?? process.env[reference],
-    baseUrl: providerOptions?.baseUrl
-      ?? childProcessEnv?.DEEPSEEK_BASE_URL
-      ?? process.env.DEEPSEEK_BASE_URL,
+    baseUrl: resolveConfiguredDeepSeekEndpoint({ providerOptions, childProcessEnv, ambientEnv: process.env }),
   };
 }
 
@@ -381,13 +363,9 @@ function resolveKnownSecrets(
   reference: string,
 ): Record<string, string> {
   const configured = resolveConfiguredDeepSeekCredential(providerOptions, childProcessEnv, reference);
-  const urlUserinfoSecrets = resolveUrlUserinfoSecrets(configured.baseUrl);
   return {
     ...(configured.referenceValue === undefined ? {} : { [reference]: configured.referenceValue }),
     ...(configured.baseUrl === undefined ? {} : { DEEPSEEK_BASE_URL: configured.baseUrl }),
-    ...Object.fromEntries(
-      urlUserinfoSecrets.map((value, index) => [`DEEPSEEK_URL_CREDENTIAL_${index}`, value]),
-    ),
   };
 }
 
@@ -444,9 +422,7 @@ function resolveProcessEnvironment(
   // Only the selected reference is propagated: an unselected credential variable must
   // never stand in for the reference the settings selector chose.
   const referenceValue = childProcessEnv?.[credentialReference] ?? process.env[credentialReference];
-  const configuredBaseUrl = providerOptions?.baseUrl
-    ?? childProcessEnv?.DEEPSEEK_BASE_URL
-    ?? process.env.DEEPSEEK_BASE_URL;
+  const configuredBaseUrl = resolveConfiguredDeepSeekEndpoint({ providerOptions, childProcessEnv, ambientEnv: process.env });
   if (configuredBaseUrl !== undefined) {
     env.DEEPSEEK_BASE_URL = configuredBaseUrl;
   }
@@ -1097,7 +1073,7 @@ class DeepSeekHarnessProcess {
     private readonly managedEnvironmentDir: string,
     private readonly pythonPath: string,
     private readonly environment: ProcessEnvironmentResolution,
-    private readonly credentialPatch: DeepSeekCredentialPatch | undefined,
+    private readonly credentialPatch: DeepSeekCredentialPatch,
   ) {}
 
   get isClosed(): boolean {
@@ -1207,9 +1183,7 @@ class DeepSeekHarnessProcess {
           type: 'start',
           protocolVersion: DEEPSEEK_HARNESS_BRIDGE_PROTOCOL_VERSION,
           id: this.nextRequestId(),
-          config: this.credentialPatch === undefined
-            ? this.configuration
-            : { ...this.configuration, patches: [this.credentialPatch.path] },
+          config: { ...this.configuration, patches: [this.credentialPatch.path] },
         },
         undefined,
         this.configuration.requestTimeoutMs < DEEPSEEK_HARNESS_STARTUP_TIMEOUT_MS
@@ -1642,7 +1616,7 @@ class DeepSeekHarnessProcess {
 
   private async disposeCredentialPatch(): Promise<void> {
     try {
-      await this.credentialPatch?.dispose();
+      await this.credentialPatch.dispose();
     } catch {
       // Cleanup of a non-secret temporary patch must not mask bridge termination.
     }
@@ -1650,7 +1624,7 @@ class DeepSeekHarnessProcess {
 
   disposeCredentialPatchForExit(): void {
     try {
-      this.credentialPatch?.disposeSync();
+      this.credentialPatch.disposeSync();
     } catch {
       // The exit hook cannot report cleanup failures.
     }
@@ -1814,19 +1788,6 @@ async function getOrCreateProcess(
   return processRecord;
 }
 
-function formatProviderBridgeFailure(
-  error: Error,
-  options: DeepSeekHarnessCallOptions,
-  knownSecrets: Record<string, string>,
-): AgentFailureDetail {
-  const modelReference = options.model ?? DEEPSEEK_HARNESS_DEFAULT_MODEL;
-  const reason = `DeepSeek Harness model reference ${JSON.stringify(modelReference)} `
-    + `failed at the provider bridge/SDK: ${getErrorMessage(error)}`;
-  return createProviderErrorFailure(
-    safeMessage(reason, knownSecrets),
-  );
-}
-
 function credentialDiagnosticDetail(
   classification: DeepSeekCredentialFailureClassification,
   errorContext: { sourceHomeOrigin?: DeepSeekCredentialHomeOrigin; reference?: string },
@@ -1883,7 +1844,10 @@ function failureDetail(
         return diagnostic;
       }
     }
-    return formatProviderBridgeFailure(error, options, knownSecrets);
+    // Store-only values are deliberately unknown to TAKT. Never expose an
+    // unclassified upstream message or stderr tail based on partial redaction.
+    return credentialDiagnosticDetail('runtime-failure', {}, credentialFailureContext)
+      ?? createProviderErrorFailure('DeepSeek Harness runtime failed; verify credentials and endpoint, then retry.');
   }
   const reason = safeMessage(error, knownSecrets);
   return createProviderErrorFailure(reason);

@@ -20,29 +20,19 @@ export interface DeepSeekCredentialPatch {
   disposeSync: () => void;
 }
 
-export interface CreateDeepSeekCredentialPatchOptions {
-  /** Internal test seam. Production always uses an OS temporary directory owned by this patch. */
-  patchDirectory?: string;
-}
-
 /**
  * Build the process-owned patch that hands the official runtime the credential store
  * path and the reference name. The patch never contains a credential value.
  */
 export async function createDeepSeekCredentialPatch(
   binding: DeepSeekCredentialBinding,
-  options: CreateDeepSeekCredentialPatchOptions = {},
 ): Promise<DeepSeekCredentialPatch> {
-  const ownsDirectory = options.patchDirectory === undefined;
-  let patchDirectory = options.patchDirectory;
-  if (patchDirectory === undefined) {
-    try {
-      patchDirectory = await mkdtemp(path.join(os.tmpdir(), PATCH_DIRECTORY_PREFIX));
-    } catch (error) {
-      throw new Error(PATCH_CREATION_FAILURE_MESSAGE, { cause: error });
-    }
+  let patchDirectoryPath: string;
+  try {
+    patchDirectoryPath = await mkdtemp(path.join(os.tmpdir(), PATCH_DIRECTORY_PREFIX));
+  } catch (error) {
+    throw new Error(PATCH_CREATION_FAILURE_MESSAGE, { cause: error });
   }
-  const patchDirectoryPath: string = patchDirectory;
   try {
     const patchPath = path.join(patchDirectoryPath, PATCH_FILE_NAME);
     const document = [
@@ -60,9 +50,7 @@ export async function createDeepSeekCredentialPatch(
         }
         disposed = true;
         await rm(patchPath, { force: true });
-        if (ownsDirectory) {
-          await rm(patchDirectoryPath, { recursive: true, force: true });
-        }
+        await rm(patchDirectoryPath, { recursive: true, force: true });
       },
       disposeSync: (): void => {
         if (disposed) {
@@ -70,15 +58,11 @@ export async function createDeepSeekCredentialPatch(
         }
         disposed = true;
         rmSync(patchPath, { force: true });
-        if (ownsDirectory) {
-          rmSync(patchDirectoryPath, { recursive: true, force: true });
-        }
+        rmSync(patchDirectoryPath, { recursive: true, force: true });
       },
     };
   } catch (error) {
-    if (ownsDirectory) {
-      await rm(patchDirectoryPath, { recursive: true, force: true });
-    }
+    await rm(patchDirectoryPath, { recursive: true, force: true });
     throw new Error(PATCH_CREATION_FAILURE_MESSAGE, { cause: error });
   }
 }

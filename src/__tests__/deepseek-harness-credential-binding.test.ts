@@ -6,6 +6,7 @@ import {
   type DeepSeekCredentialBinding,
 } from '../infra/deepseek-harness/credential-binding.js';
 import type { DeepSeekHarnessProviderOptions } from '../core/models/workflow-types.js';
+import { DeepSeekCredentialSettingsError } from '../infra/deepseek-harness/credential-settings.js';
 
 const DEFAULT_REF = 'DEEPSEEK_API_KEY';
 const USER_HOME = path.join(tmpdir(), 'takt-deepseek-binding-user-home');
@@ -94,6 +95,20 @@ describe('DeepSeek Harness credential binding resolution', () => {
     const second = await resolveBinding({ childProcessEnv: { DSH_HOME: SOURCE_HOME_A } });
 
     expect(first.binding.fingerprint).toBe(second.binding.fingerprint);
+  });
+
+  it.each(['settings-unreadable', 'settings-too-large', 'invalid-settings', 'invalid-stored-endpoint'] as const)(
+    'preserves the safe settings cause through binding resolution: %s', async (classification) => {
+      await expect(resolveBinding({ readSettings: async () => {
+        throw new DeepSeekCredentialSettingsError(classification, 'Safe settings diagnostic');
+      } })).rejects.toMatchObject({ classification });
+    },
+  );
+
+  it('does not forward an unexpected settings reader error body', async () => {
+    await expect(resolveBinding({ readSettings: async () => {
+      throw new Error('untrusted-secret-from-reader');
+    } })).rejects.toMatchObject({ classification: 'invalid-settings', message: 'DeepSeek Harness credentials settings are invalid' });
   });
 
   it('changes the fingerprint when the source home changes', async () => {
