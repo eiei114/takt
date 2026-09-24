@@ -1002,8 +1002,11 @@ sys.implementation = types.SimpleNamespace(
     });
 
     expect(response.status).toBe('error');
-    // Endpoint validation rejects userinfo before a session can be created.
-    expect(response.content).toMatch(/credential|endpoint/iu);
+    // Invalid effective URLs must not suggest repairing nonexistent stored settings.
+    expect(response.content).toContain('Correct DEEPSEEK_BASE_URL');
+    expect(response.content).toContain('without userinfo');
+    expect(response.content).not.toContain('stored');
+    expect(response.content).not.toContain('llm-deepseek.baseURL');
     expect(response.content).not.toContain(embeddedSecret);
     expect(response.sessionId).toBeUndefined();
   });

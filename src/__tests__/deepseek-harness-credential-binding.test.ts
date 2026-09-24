@@ -1,153 +1,114 @@
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   resolveDeepSeekCredentialBinding,
-  type DeepSeekCredentialBinding,
+  type ResolveDeepSeekCredentialBindingOptions,
 } from '../infra/deepseek-harness/credential-binding.js';
-import type { DeepSeekHarnessProviderOptions } from '../core/models/workflow-types.js';
-import { DeepSeekCredentialSettingsError } from '../infra/deepseek-harness/credential-settings.js';
-
-const DEFAULT_REF = 'DEEPSEEK_API_KEY';
-const USER_HOME = path.join(tmpdir(), 'takt-deepseek-binding-user-home');
-const SOURCE_HOME_A = path.join(tmpdir(), 'takt-deepseek-binding-home-a');
-const SOURCE_HOME_B = path.join(tmpdir(), 'takt-deepseek-binding-home-b');
-
-interface BindingOverrides {
-  childProcessEnv?: Readonly<Record<string, string>>;
-  ambientEnv?: Readonly<Record<string, string | undefined>>;
-  userHome?: string;
-  providerOptions?: DeepSeekHarnessProviderOptions;
-  readSettings?: (settingsPath: string) => Promise<{ ref: string; storedBaseUrl?: string }>;
-}
-
-async function resolveBinding(overrides: BindingOverrides = {}): Promise<{
-  binding: DeepSeekCredentialBinding;
-  readSettings: ReturnType<typeof vi.fn> | undefined;
-}> {
-  const readSettings = overrides.readSettings === undefined
-    ? undefined
-    : vi.fn(overrides.readSettings);
-  const binding = await resolveDeepSeekCredentialBinding({
-    childProcessEnv: overrides.childProcessEnv,
-    ambientEnv: overrides.ambientEnv ?? {},
-    userHome: overrides.userHome ?? USER_HOME,
-    providerOptions: overrides.providerOptions,
-    ...(readSettings === undefined ? {} : { readSettings }),
-  });
-  return { binding, readSettings };
-}
 
 describe('DeepSeek Harness credential binding resolution', () => {
-  it('binds the source home, default reference, and effective endpoint', async () => {
-    const { binding } = await resolveBinding({
-      childProcessEnv: { DSH_HOME: SOURCE_HOME_A },
-    });
+  let root: string;
+  let sourceHome: string;
+  let settingsPath: string;
 
+  beforeEach(async () => {
+    root = await mkdtemp(path.join(tmpdir(), 'takt-binding-'));
+    sourceHome = path.join(root, '.dsh');
+    await mkdir(sourceHome);
+    settingsPath = path.join(sourceHome, 'settings.yaml');
+  });
+  afterEach(async () => { await rm(root, { recursive: true, force: true }); });
+
+  function resolve(overrides: Partial<ResolveDeepSeekCredentialBindingOptions> = {}) {
+    return resolveDeepSeekCredentialBinding({ userHome: root, ambientEnv: {}, ...overrides });
+  }
+
+  it('binds an explicit source home, default reference and endpoint with missing settings', async () => {
+    const binding = await resolve({ childProcessEnv: { DSH_HOME: sourceHome } });
     expect(binding.home.origin).toBe('child-process-env');
-    expect(binding.home.homePath).toBe(SOURCE_HOME_A);
-    expect(binding.home.credentialsPath).toBe(path.join(SOURCE_HOME_A, '.credentials.yaml'));
-    expect(binding.ref).toBe(DEFAULT_REF);
+    expect(binding.home.homePath).toBe(sourceHome);
+    expect(binding.home.credentialsPath).toBe(path.join(sourceHome, '.credentials.yaml'));
+    expect(binding.ref).toBe('DEEPSEEK_API_KEY');
     expect(binding.endpoint).toBe('https://api.deepseek.com');
     expect(binding.fingerprint.length).toBeGreaterThan(0);
   });
 
-  it('reads the selector from the settings path derived from the source home', async () => {
-    const { binding, readSettings } = await resolveBinding({
-      childProcessEnv: { DSH_HOME: SOURCE_HOME_A },
-      readSettings: async () => ({ ref: 'CUSTOM_KEY' }),
-    });
-
-    expect(readSettings).toHaveBeenCalledWith(path.join(SOURCE_HOME_A, 'settings.yaml'));
+  it('reads the actual settings file from the selected source home', async () => {
+    await writeFile(settingsPath, 'llm-deepseek:\n  apiKeyEnv: CUSTOM_KEY\n');
+    const binding = await resolve({ childProcessEnv: { DSH_HOME: sourceHome } });
     expect(binding.ref).toBe('CUSTOM_KEY');
   });
 
-  it('uses the provider option endpoint and rejects a stored endpoint mismatch', async () => {
-    const matched = await resolveBinding({
-      childProcessEnv: { DSH_HOME: SOURCE_HOME_A },
-      providerOptions: { baseUrl: 'https://api.deepseek.com/v1' },
-      readSettings: async () => ({ ref: 'CUSTOM_KEY', storedBaseUrl: 'https://api.deepseek.com/v1' }),
-    });
-    expect(matched.binding.endpoint).toBe('https://api.deepseek.com/v1');
-
-    await expect(resolveDeepSeekCredentialBinding({
-      childProcessEnv: { DSH_HOME: SOURCE_HOME_A },
-      ambientEnv: {},
-      userHome: USER_HOME,
-      providerOptions: { baseUrl: 'https://api.deepseek.com/v1' },
-      readSettings: async () => ({ ref: 'CUSTOM_KEY', storedBaseUrl: 'https://other.example/v1' }),
-    })).rejects.toThrow(/endpoint|baseURL/iu);
+  it('accepts a matching stored endpoint and classifies a mismatch', async () => {
+    await writeFile(settingsPath, 'llm-deepseek:\n  baseURL: https://api.deepseek.com/v1\n');
+    const options = { providerOptions: { baseUrl: 'https://api.deepseek.com/v1' } };
+    expect((await resolve(options)).endpoint).toBe(options.providerOptions.baseUrl);
+    await writeFile(settingsPath, 'llm-deepseek:\n  baseURL: https://other.example/v1\n');
+    await expect(resolve(options)).rejects.toMatchObject({ classification: 'endpoint-mismatch' });
   });
 
-  it('propagates a settings reader failure instead of continuing with a default reference', async () => {
-    await expect(resolveDeepSeekCredentialBinding({
-      childProcessEnv: { DSH_HOME: SOURCE_HOME_A },
-      ambientEnv: {},
-      userHome: USER_HOME,
-      readSettings: async () => {
-        throw new Error('DeepSeek Harness credentials settings are invalid');
-      },
-    })).rejects.toThrow('DeepSeek Harness credentials settings are invalid');
+  it.each([
+    ['invalid-settings', 'llm-deepseek: [untrusted-secret'],
+    ['invalid-selector', 'llm-deepseek:\n  apiKeyEnv: 1INVALID\n'],
+    ['invalid-stored-endpoint', 'llm-deepseek:\n  baseURL: 123\n'],
+    ['settings-too-large', '#'.repeat(1024 * 1024 + 1)],
+  ])('preserves the safe settings classification: %s', async (classification, content) => {
+    await writeFile(settingsPath, content);
+    await expect(resolve()).rejects.toMatchObject({ classification });
+    await expect(resolve()).rejects.not.toThrow('untrusted-secret');
   });
 
-  it('keeps one fingerprint for identical non-secret inputs', async () => {
-    const first = await resolveBinding({ childProcessEnv: { DSH_HOME: SOURCE_HOME_A } });
-    const second = await resolveBinding({ childProcessEnv: { DSH_HOME: SOURCE_HOME_A } });
-
-    expect(first.binding.fingerprint).toBe(second.binding.fingerprint);
+  it('classifies a non-regular settings file as unreadable', async () => {
+    await mkdir(settingsPath);
+    await expect(resolve()).rejects.toMatchObject({ classification: 'settings-unreadable' });
   });
 
-  it.each(['settings-unreadable', 'settings-too-large', 'invalid-settings', 'invalid-stored-endpoint'] as const)(
-    'preserves the safe settings cause through binding resolution: %s', async (classification) => {
-      await expect(resolveBinding({ readSettings: async () => {
-        throw new DeepSeekCredentialSettingsError(classification, 'Safe settings diagnostic');
-      } })).rejects.toMatchObject({ classification });
+  it.each(['not-a-url', 'ftp://example.com', 'https://user:dummy-secret@example.com'])(
+    'classifies invalid effective endpoints without stored settings: %s', async (baseUrl) => {
+      await expect(resolve({ providerOptions: { baseUrl } })).rejects.toMatchObject({
+        classification: 'invalid-effective-endpoint',
+      });
     },
   );
 
-  it('does not forward an unexpected settings reader error body', async () => {
-    await expect(resolveBinding({ readSettings: async () => {
-      throw new Error('untrusted-secret-from-reader');
-    } })).rejects.toMatchObject({ classification: 'invalid-settings', message: 'DeepSeek Harness credentials settings are invalid' });
+  it.each(['not-a-url', 'ftp://example.com', 'https://user:dummy-secret@example.com'])(
+    'classifies malformed stored endpoints separately: %s', async (baseUrl) => {
+      await writeFile(settingsPath, `llm-deepseek:\n  baseURL: ${baseUrl}\n`);
+      await expect(resolve()).rejects.toMatchObject({ classification: 'invalid-stored-endpoint' });
+      await expect(resolve()).rejects.not.toThrow('dummy-secret');
+    },
+  );
+
+  it('keeps one fingerprint for identical non-secret inputs', async () => {
+    expect((await resolve()).fingerprint).toBe((await resolve()).fingerprint);
   });
 
   it('changes the fingerprint when the source home changes', async () => {
-    const first = await resolveBinding({ childProcessEnv: { DSH_HOME: SOURCE_HOME_A } });
-    const second = await resolveBinding({ childProcessEnv: { DSH_HOME: SOURCE_HOME_B } });
-
-    expect(first.binding.fingerprint).not.toBe(second.binding.fingerprint);
+    const first = await resolve();
+    const second = await resolve({ childProcessEnv: { DSH_HOME: path.join(root, 'other') } });
+    expect(first.fingerprint).not.toBe(second.fingerprint);
   });
 
   it('changes the fingerprint when the selected reference changes', async () => {
-    const first = await resolveBinding({ readSettings: async () => ({ ref: 'FIRST_KEY' }) });
-    const second = await resolveBinding({ readSettings: async () => ({ ref: 'SECOND_KEY' }) });
-
-    expect(first.binding.fingerprint).not.toBe(second.binding.fingerprint);
+    await writeFile(settingsPath, 'llm-deepseek:\n  apiKeyEnv: FIRST_KEY\n');
+    const first = await resolve();
+    await writeFile(settingsPath, 'llm-deepseek:\n  apiKeyEnv: SECOND_KEY\n');
+    expect(first.fingerprint).not.toBe((await resolve()).fingerprint);
   });
 
-  it('changes the fingerprint when the effective endpoint changes', async () => {
-    const first = await resolveBinding({
-      providerOptions: { baseUrl: 'https://first.example/v1' },
-    });
-    const second = await resolveBinding({
-      providerOptions: { baseUrl: 'https://second.example/v1' },
-    });
-
-    expect(first.binding.fingerprint).not.toBe(second.binding.fingerprint);
+  it('changes the fingerprint when the endpoint changes', async () => {
+    const first = await resolve({ providerOptions: { baseUrl: 'https://first.example/v1' } });
+    const second = await resolve({ providerOptions: { baseUrl: 'https://second.example/v1' } });
+    expect(first.fingerprint).not.toBe(second.fingerprint);
   });
 
-  it('does not include the selected reference environment value in the fingerprint', async () => {
-    const first = await resolveBinding({
-      childProcessEnv: { CUSTOM_KEY: 'first-secret-value' },
-      readSettings: async () => ({ ref: 'CUSTOM_KEY' }),
-    });
-    const second = await resolveBinding({
-      childProcessEnv: { CUSTOM_KEY: 'second-secret-value' },
-      readSettings: async () => ({ ref: 'CUSTOM_KEY' }),
-    });
-
-    expect(first.binding.fingerprint).toBe(second.binding.fingerprint);
-    expect(first.binding.fingerprint).not.toContain('first-secret-value');
-    expect(first.binding.fingerprint).not.toContain('second-secret-value');
+  it('does not include selected environment credential values in the fingerprint', async () => {
+    await writeFile(settingsPath, 'llm-deepseek:\n  apiKeyEnv: CUSTOM_KEY\n');
+    const first = await resolve({ childProcessEnv: { CUSTOM_KEY: 'first-secret-value' } });
+    const second = await resolve({ childProcessEnv: { CUSTOM_KEY: 'second-secret-value' } });
+    expect(first.fingerprint).toBe(second.fingerprint);
+    expect(first.fingerprint).not.toContain('first-secret-value');
+    expect(first.fingerprint).not.toContain('second-secret-value');
   });
 });

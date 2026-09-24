@@ -22,6 +22,16 @@ export interface AssertDeepSeekEndpointConsistencyOptions {
   effectiveBaseUrl: string;
 }
 
+export class DeepSeekEndpointError extends Error {
+  constructor(
+    readonly classification: 'invalid-effective-endpoint' | 'invalid-stored-endpoint' | 'endpoint-mismatch',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'DeepSeekEndpointError';
+  }
+}
+
 /** Keep the existing provider option, child environment, ambient environment, and default order. */
 export function resolveConfiguredDeepSeekEndpoint(
   options: ResolveEffectiveDeepSeekEndpointOptions,
@@ -35,15 +45,15 @@ export function resolveEffectiveDeepSeekEndpoint(options: ResolveEffectiveDeepSe
   return resolveConfiguredDeepSeekEndpoint(options) ?? DEEPSEEK_HARNESS_PUBLIC_BASE_URL;
 }
 
-function normalizeEndpoint(value: string, invalidMessage: string): string {
+function normalizeEndpoint(value: string, invalidMessage: string, classification: 'invalid-effective-endpoint' | 'invalid-stored-endpoint'): string {
   let url: URL;
   try {
     url = new URL(value);
   } catch {
-    throw new Error(invalidMessage);
+    throw new DeepSeekEndpointError(classification, invalidMessage);
   }
   if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username || url.password) {
-    throw new Error(invalidMessage);
+    throw new DeepSeekEndpointError(classification, invalidMessage);
   }
   // The URL parser already folds scheme/host case and default ports; a trailing
   // slash is the only base-URL form this comparison treats as equivalent.
@@ -56,12 +66,12 @@ function normalizeStoredEndpoint(storedBaseUrl: string): string {
   try {
     url = new URL(storedBaseUrl);
   } catch {
-    throw new Error(INVALID_STORED_ENDPOINT_MESSAGE);
+    throw new DeepSeekEndpointError('invalid-stored-endpoint', INVALID_STORED_ENDPOINT_MESSAGE);
   }
   if (url.username.length > 0 || url.password.length > 0) {
-    throw new Error(USERINFO_STORED_ENDPOINT_MESSAGE);
+    throw new DeepSeekEndpointError('invalid-stored-endpoint', USERINFO_STORED_ENDPOINT_MESSAGE);
   }
-  return normalizeEndpoint(storedBaseUrl, INVALID_STORED_ENDPOINT_MESSAGE);
+  return normalizeEndpoint(storedBaseUrl, INVALID_STORED_ENDPOINT_MESSAGE, 'invalid-stored-endpoint');
 }
 
 /**
@@ -71,12 +81,12 @@ function normalizeStoredEndpoint(storedBaseUrl: string): string {
 export function assertDeepSeekEndpointConsistency(
   options: AssertDeepSeekEndpointConsistencyOptions,
 ): void {
-  const effective = normalizeEndpoint(options.effectiveBaseUrl, INVALID_EFFECTIVE_ENDPOINT_MESSAGE);
+  const effective = normalizeEndpoint(options.effectiveBaseUrl, INVALID_EFFECTIVE_ENDPOINT_MESSAGE, 'invalid-effective-endpoint');
   if (options.storedBaseUrl === undefined) {
     return;
   }
   const stored = normalizeStoredEndpoint(options.storedBaseUrl);
   if (stored !== effective) {
-    throw new Error(ENDPOINT_MISMATCH_MESSAGE);
+    throw new DeepSeekEndpointError('endpoint-mismatch', ENDPOINT_MISMATCH_MESSAGE);
   }
 }

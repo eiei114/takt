@@ -7,6 +7,7 @@ export type DeepSeekCredentialFailureClassification =
   | 'invalid-store'
   | 'invalid-selector'
   | 'endpoint-mismatch'
+  | 'invalid-effective-endpoint'
   | 'auth-rejected'
   | 'binding-changed'
   | 'runtime-failure'
@@ -26,6 +27,7 @@ export const DEEPSEEK_CREDENTIAL_DIAGNOSTIC_CLASSIFICATIONS: readonly DeepSeekCr
   'invalid-store',
   'invalid-selector',
   'endpoint-mismatch',
+  'invalid-effective-endpoint',
   'auth-rejected',
   'binding-changed',
   'runtime-failure',
@@ -64,7 +66,9 @@ const CLASSIFICATION_DETAILS: Record<
   'settings-too-large': () => 'The settings.yaml file exceeds 1 MiB. Reduce its size before retrying.',
   'invalid-settings': () => 'The settings.yaml document is invalid. Correct its YAML syntax, types, '
     + 'duplicate keys or unsupported tags before retrying.',
-  'invalid-stored-endpoint': () => 'The settings.yaml llm-deepseek.baseURL must be a non-empty URL string. '
+  'invalid-effective-endpoint': () => 'The effective endpoint must be an absolute http(s) URL without userinfo. '
+    + 'Correct DEEPSEEK_BASE_URL or the deepseek_harness provider option base_url.',
+  'invalid-stored-endpoint': () => 'The settings.yaml llm-deepseek.baseURL must be an absolute http(s) URL without userinfo. '
     + 'Correct or remove that field before retrying.',
 };
 

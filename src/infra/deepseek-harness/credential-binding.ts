@@ -11,6 +11,7 @@ import {
 } from './credential-settings.js';
 import {
   assertDeepSeekEndpointConsistency,
+  DeepSeekEndpointError,
   resolveEffectiveDeepSeekEndpoint,
 } from './endpoint-consistency.js';
 import { DeepSeekCredentialDiagnosticError } from './credential-diagnostics.js';
@@ -27,13 +28,6 @@ export interface ResolveDeepSeekCredentialBindingOptions {
   ambientEnv: Readonly<Record<string, string | undefined>>;
   userHome: string;
   providerOptions?: DeepSeekHarnessProviderOptions | undefined;
-  readSettings?: (settingsPath: string) => Promise<DeepSeekCredentialSelector>;
-}
-
-function safeErrorMessage(error: unknown): string {
-  return error instanceof Error && error.message.length > 0
-    ? error.message
-    : 'DeepSeek Harness credentials settings are invalid';
 }
 
 function createFingerprint(
@@ -64,10 +58,9 @@ export async function resolveDeepSeekCredentialBinding(
     ambientEnv: options.ambientEnv,
     userHome: options.userHome,
   });
-  const readSettings = options.readSettings ?? readDeepSeekCredentialSelector;
   let selector: DeepSeekCredentialSelector;
   try {
-    selector = await readSettings(home.settingsPath);
+    selector = await readDeepSeekCredentialSelector(home.settingsPath);
   } catch (error) {
     throw new DeepSeekCredentialDiagnosticError(
       error instanceof DeepSeekCredentialSettingsError ? error.classification : 'invalid-settings',
@@ -87,8 +80,8 @@ export async function resolveDeepSeekCredentialBinding(
     });
   } catch (error) {
     throw new DeepSeekCredentialDiagnosticError(
-      'endpoint-mismatch',
-      safeErrorMessage(error),
+      error instanceof DeepSeekEndpointError ? error.classification : 'runtime-failure',
+      error instanceof DeepSeekEndpointError ? error.message : 'DeepSeek Harness endpoint validation failed',
       { sourceHomeOrigin: home.origin, reference: selector.ref },
     );
   }
