@@ -1,6 +1,5 @@
 import { describeDeepSeekCredentialHomeOrigin, type DeepSeekCredentialHomeOrigin } from './credential-home.js';
 import { isValidDeepSeekCredentialReference } from './credential-settings.js';
-import { DEEPSEEK_HARNESS_DEFAULT_CREDENTIAL_REFERENCE } from './constants.js';
 
 export type DeepSeekCredentialFailureClassification =
   | 'missing-credential'
@@ -40,14 +39,16 @@ export const DEEPSEEK_CREDENTIAL_DIAGNOSTIC_CLASSIFICATIONS: readonly DeepSeekCr
 export interface DeepSeekCredentialDiagnosticContext {
   classification: DeepSeekCredentialFailureClassification;
   sourceHomeOrigin: DeepSeekCredentialHomeOrigin;
-  reference: string;
+  reference?: string | undefined;
 }
 
 const CLASSIFICATION_DETAILS: Record<
   DeepSeekCredentialFailureClassification,
-  (reference: string) => string
+  (reference: string | undefined) => string
 > = {
-  'missing-credential': (reference) => 'No stored credential resolved for this reference: save the key '
+  'missing-credential': (reference) => reference === undefined
+    ? 'Resolve the settings.yaml credential selector before configuring its store entry or environment variable.'
+    : 'No stored credential resolved for this reference: save the key '
     + 'in the DeepSeek Harness Settings Models page (the credentials service writes it) '
     + `or export ${reference} in the launching environment.`,
   'invalid-store': () => 'The credential store for this reference could not be read: '
@@ -72,10 +73,10 @@ const CLASSIFICATION_DETAILS: Record<
     + 'Correct or remove that field before retrying.',
 };
 
-function safeReference(reference: string): string {
+function safeReference(reference: string | undefined): string | undefined {
   return isValidDeepSeekCredentialReference(reference)
     ? reference
-    : DEEPSEEK_HARNESS_DEFAULT_CREDENTIAL_REFERENCE;
+    : undefined;
 }
 
 /** Build a classified, secret-free diagnostic in the existing provider error format. */
@@ -84,7 +85,7 @@ export function buildCredentialDiagnostic(context: DeepSeekCredentialDiagnosticC
   const origin = describeDeepSeekCredentialHomeOrigin(context.sourceHomeOrigin);
   const detail = CLASSIFICATION_DETAILS[context.classification](reference);
   return `DeepSeek Harness credential resolution failed. Credential source: ${origin}. `
-    + `Reference: ${reference}. ${detail}`;
+    + `Reference: ${reference ?? 'unresolved (settings.yaml could not be applied)'}. ${detail}`;
 }
 
 /**

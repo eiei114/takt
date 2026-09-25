@@ -57,6 +57,32 @@ describe('DeepSeek Harness runtime credential failure classification', () => {
 });
 
 describe('DeepSeek Harness credential diagnostics', () => {
+  it.each(['settings-unreadable', 'settings-too-large', 'invalid-settings', 'invalid-selector', 'invalid-stored-endpoint'] as const)(
+    'marks the reference unresolved after %s before selector resolution', (classification) => {
+      const message = buildCredentialDiagnostic({ classification, sourceHomeOrigin: 'environment' });
+      expect(message).toContain('Reference: unresolved');
+      expect(message).not.toContain('DEEPSEEK_API_KEY');
+      expectSafeDiagnostic(message);
+    },
+  );
+
+  it('does not recommend exporting an invented reference when unresolved', () => {
+    const message = buildCredentialDiagnostic({ classification: 'missing-credential', sourceHomeOrigin: 'default' });
+    expect(message).toContain('Reference: unresolved');
+    expect(message).not.toContain('export');
+    expect(message).not.toContain('DEEPSEEK_API_KEY');
+  });
+
+  it('does not invent a default reference for an invalid selector', () => {
+    const message = buildCredentialDiagnostic(createContext({
+      classification: 'invalid-selector', reference: 'invalid-secret\nselector',
+    }));
+    expect(message).toContain('Reference: unresolved');
+    expect(message).not.toContain('DEEPSEEK_API_KEY');
+    expect(message).not.toContain('invalid-secret');
+    expectSafeDiagnostic(message);
+  });
+
   it.each([...DEEPSEEK_CREDENTIAL_DIAGNOSTIC_CLASSIFICATIONS])(
     'builds a safe diagnostic for the %s classification',
     (classification) => {

@@ -1797,9 +1797,7 @@ function credentialDiagnosticDetail(
   if (sourceHomeOrigin === undefined) {
     return undefined;
   }
-  const reference = errorContext.reference
-    ?? failureContext.reference
-    ?? DEEPSEEK_HARNESS_DEFAULT_CREDENTIAL_REFERENCE;
+  const reference = errorContext.reference ?? failureContext.reference;
   return createProviderErrorFailure(buildCredentialDiagnostic({
     classification,
     sourceHomeOrigin,

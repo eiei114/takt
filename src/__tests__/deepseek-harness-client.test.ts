@@ -1654,9 +1654,10 @@ sys.implementation = types.SimpleNamespace(
 
   it('reads the custom reference from the source home settings without touching the credential store', async () => {
     await writeSourceSettings(sourceHome, 'llm-deepseek:\n  apiKeyEnv: CUSTOM_DSH_KEY\n');
+    const unselected = 'unselected-reference-secret';
     const response = await callDeepSeekHarness('worker', 'inspect-env', {
       cwd: root,
-      childProcessEnv: { CUSTOM_DSH_KEY: 'custom-source-secret' },
+      childProcessEnv: { CUSTOM_DSH_KEY: 'custom-source-secret', DEEPSEEK_API_KEY: unselected },
       providerOptions: { requestTimeoutMs: 10_000 },
     });
     const bridgeEnvironment = JSON.parse(await readFile(path.join(root, 'bridge-env.json'), 'utf8')) as Record<string, string>;
@@ -1665,6 +1666,7 @@ sys.implementation = types.SimpleNamespace(
     expect(response.status).toBe('done');
     expect(bridgeEnvironment.CUSTOM_DSH_KEY).toBe('custom-source-secret');
     expect(Object.prototype.hasOwnProperty.call(bridgeEnvironment, 'DEEPSEEK_API_KEY')).toBe(false);
+    expect(Object.values(bridgeEnvironment)).not.toContain(unselected);
     expect(patches[0]?.content).toContain('apiKeyEnv: CUSTOM_DSH_KEY');
     expect(patches[0]?.content).toContain(path.join(sourceHome, '.credentials.yaml'));
     expect(await readdir(sourceHome)).toEqual(['settings.yaml']);
@@ -1781,6 +1783,8 @@ sys.implementation = types.SimpleNamespace(
 
     expect(response.status).toBe('error');
     expect(response.content).not.toContain(fragment);
+    expect(response.content).toContain('Reference: unresolved');
+    expect(response.content).not.toContain('Reference: DEEPSEEK_API_KEY');
     await expect(readFile(path.join(root, 'bridge-start-configs.jsonl'), 'utf8'))
       .rejects.toMatchObject({ code: 'ENOENT' });
   });
