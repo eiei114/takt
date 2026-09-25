@@ -135,6 +135,7 @@
     "src/__tests__/parallel-runner-terminal-status.test.ts",
     "src/__tests__/pathText.test.ts",
     "src/__tests__/phase1-empty-recovery.test.ts",
+    "src/__tests__/pi-builtin-override.integration.test.ts",
     "src/__tests__/pi-client-cache.test.ts",
     "src/__tests__/previewPrompts.test.ts",
     "src/__tests__/private-file.test.ts",
