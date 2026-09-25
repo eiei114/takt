@@ -83,13 +83,13 @@ const REQUEST_REJECTION_MARKERS = [
   'does not support',
 ];
 
-// "Unsupported parameter: '<name>'" call out a single rejected parameter, so unlike
-// the co-occurrence markers above, this one only counts when <name> is itself a
-// format parameter — otherwise a message like "Unsupported parameter: 'seed'.
-// Valid parameters include ... response_format, tool_choice ..." would false-positive
-// on the parameter names that happen to appear later in the same message.
-const UNSUPPORTED_FORMAT_PARAMETER_PATTERN =
-  /unsupported parameter:\s*['"`]?(response_format|tool_choice|json_schema)\b/i;
+// "Unsupported parameter: '<name>'" names the single rejected parameter explicitly.
+// It takes precedence over the co-occurrence check below: when a message says which
+// parameter was rejected, that name — not the mere presence of a format-parameter
+// substring elsewhere in the message (e.g. in a "valid parameters" list) — decides
+// the verdict. Otherwise a message like "Unsupported parameter: 'seed'. Valid
+// parameters include ... response_format, tool_choice ..." would false-positive.
+const UNSUPPORTED_PARAMETER_PATTERN = /unsupported parameter:\s*['"`]?([\w.]+)/i;
 
 /**
  * native format の要求そのものが失敗したことを示すエラー文言の判定。
@@ -107,14 +107,21 @@ export function isNativeStructuredOutputFailureMessage(message: string): boolean
  * パラメータ名だけではファイルパスやツール名にも現れうるため、
  * リクエスト拒否を示す文言が併記されている場合に限る。
  * "Unsupported parameter: '<name>'" 形式は拒否対象そのものを明示するので、
- * <name> が format パラメータの場合のみ判定する。
+ * その判定を co-occurrence チェックより優先する: <name> が format パラメータで
+ * なければ、メッセージ中に response_format 等の文言が別の理由（有効なパラメータ
+ * 一覧など）で同居していても false を返す。
  */
 export function isNativeFormatRejectionMessage(message: string): boolean {
+  const named = UNSUPPORTED_PARAMETER_PATTERN.exec(message)?.[1]?.toLowerCase();
+  if (named !== undefined) {
+    return NATIVE_FORMAT_PARAMETER_NAMES.includes(named);
+  }
+
   const lower = message.toLowerCase();
   return (
     NATIVE_FORMAT_PARAMETER_NAMES.some((name) => lower.includes(name))
     && REQUEST_REJECTION_MARKERS.some((marker) => lower.includes(marker))
-  ) || UNSUPPORTED_FORMAT_PARAMETER_PATTERN.test(message);
+  );
 }
 
 /**

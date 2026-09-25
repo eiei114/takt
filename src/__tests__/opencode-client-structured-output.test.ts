@@ -849,12 +849,22 @@ describe('OpenCodeClient structured output', () => {
     expect(promptAsync).toHaveBeenCalledTimes(1);
   });
 
-  it('should not degrade when "unsupported parameter" names a non-format parameter', async () => {
+  it.each([
+    [
+      'plain list of valid parameters',
+      "Unsupported parameter: 'seed'. Valid parameters include model, response_format, tool_choice, stream, max_tokens.",
+    ],
+    [
+      // co-occurrence bait: both a format parameter and a request-rejection marker
+      // (invalid_request_error) appear in the message, but the parameter actually
+      // named as rejected is 'seed', not a format parameter.
+      'invalid_request_error co-occurring with a format parameter name',
+      "{\"type\":\"invalid_request_error\",\"message\":\"Unsupported parameter: 'seed'. Valid parameters include response_format, tool_choice\"}",
+    ],
+  ])('should not degrade when "unsupported parameter" names a non-format parameter: %s', async (_label, errorMessage) => {
     const { OpenCodeClient } = await import('../infra/opencode/client.js');
     const schema = { type: 'object', required: ['records'], properties: { records: { type: 'array' } } };
-    const { promptAsync } = formatRejectionMock(
-      "Unsupported parameter: 'seed'. Valid parameters include model, response_format, tool_choice, stream, max_tokens.",
-    );
+    const { promptAsync } = formatRejectionMock(errorMessage);
 
     const result = await new OpenCodeClient().call('reviewer', 'review it', {
       cwd: '/tmp',
