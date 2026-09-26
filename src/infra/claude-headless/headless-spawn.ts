@@ -188,7 +188,9 @@ export function runHeadlessCli(
     const flushLines = (final = false): void => {
       const parts = lineBuffer.split('\n');
       lineBuffer = final ? '' : (parts.pop() ?? '');
-      if (!options.onStream) return;
+      // stdout can keep arriving after the call has settled (the listener stays
+      // attached until close): keep trimming lineBuffer, but deliver no more events.
+      if (!options.onStream || settled) return;
 
       try {
         for (const line of parts) {

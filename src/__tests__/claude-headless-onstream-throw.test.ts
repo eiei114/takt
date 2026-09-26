@@ -55,6 +55,28 @@ describe('runHeadlessCli onStream failure', () => {
     expect(proc.kill).toHaveBeenCalledWith('SIGTERM');
   });
 
+  it('does not call onStream for stdout that arrives after the call has been rejected', async () => {
+    const { proc, stdout } = stubSpawn();
+    const failure = new Error('onStream exploded');
+    const onStream = vi.fn((_event: StreamEvent) => {
+      throw failure;
+    });
+    const options: ClaudeHeadlessCallOptions = { cwd: '/tmp', onStream };
+
+    const promise = runHeadlessCli(['-p', '--', 'prompt'], options);
+    stdout.write(`${TEXT_LINE}\n`);
+    await expect(promise).rejects.toBe(failure);
+
+    // The stdout listener stays attached until the child closes, so this late
+    // chunk still reaches flushLines after the rejection.
+    stdout.write(`${TEXT_LINE}\n`);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    proc.emit('close', null, 'SIGTERM');
+
+    expect(onStream).toHaveBeenCalledTimes(1);
+    await expect(promise).rejects.toBe(failure);
+  });
+
   it('wraps a non-Error throwable into an Error', async () => {
     const { proc, stdout } = stubSpawn();
     const options: ClaudeHeadlessCallOptions = {
