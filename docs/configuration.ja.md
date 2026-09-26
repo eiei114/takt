@@ -95,7 +95,7 @@ assistant:
 #     default_permission_mode: edit
 
 # API キー設定（省略可）
-# 環境変数 TAKT_ANTHROPIC_API_KEY / TAKT_OPENAI_API_KEY / TAKT_OPENCODE_API_KEY / TAKT_CURSOR_API_KEY / TAKT_COPILOT_GITHUB_TOKEN / TAKT_KIRO_API_KEY で上書き可能。DeepSeek Harness は公式の DEEPSEEK_API_KEY / DEEPSEEK_BASE_URL 環境変数を使います（YAML の API キー項目はありません）。
+# 環境変数 TAKT_ANTHROPIC_API_KEY / TAKT_OPENAI_API_KEY / TAKT_OPENCODE_API_KEY / TAKT_CURSOR_API_KEY / TAKT_COPILOT_GITHUB_TOKEN / TAKT_KIRO_API_KEY で上書き可能。DeepSeek Harness は公式store（$DSH_HOME/.credentials.yaml、既定 ~/.dsh/.credentials.yaml）または DEEPSEEK_API_KEY と任意の DEEPSEEK_BASE_URL を使います（YAML の API キー項目はありません）。
 # anthropic_api_key: sk-ant-...  # Claude（Anthropic）用
 # openai_api_key: sk-...         # Codex（OpenAI）用
 # opencode_api_key: ...          # OpenCode 用
@@ -447,7 +447,7 @@ validation に失敗します。
 
 ## API キー設定
 
-TAKT は Claude、Codex、OpenCode、Pi、公式 DeepSeek Harness SDK、Cursor、Copilot、Kiro provider をサポートしています。Claude/Codex/OpenCode は各 SDK の認証情報、Pi は Pi SDK の credential store または provider 環境変数、DeepSeek Harness は公式の `DEEPSEEK_API_KEY` 環境変数、Kiro は API キーを使い、Cursor は API キーまたは `cursor-agent login` セッションで認証でき、Copilot は GitHub トークンを使います。
+TAKT は Claude、Codex、OpenCode、Pi、公式 DeepSeek Harness SDK、Cursor、Copilot、Kiro provider をサポートしています。Claude/Codex/OpenCode は各 SDK の認証情報、Pi は Pi SDK の credential store または provider 環境変数、DeepSeek Harness は公式store（`$DSH_HOME/.credentials.yaml`、既定 `~/.dsh/.credentials.yaml`）または `DEEPSEEK_API_KEY` 環境変数、Kiro は API キーを使い、Cursor は API キーまたは `cursor-agent login` セッションで認証でき、Copilot は GitHub トークンを使います。
 
 グローバル設定 schema には現在トップレベル provider として選択できない一部の legacy または provider integration 用 API key フィールドも残っています。これらのフィールドだけでは provider は有効になりません。選択した provider について、以下に記載した認証用の環境変数または設定キーを使用してください。
 
@@ -502,7 +502,7 @@ kiro_api_key: ...              # Kiro CLI 用
 | Codex (OpenAI) | `TAKT_OPENAI_API_KEY` | `openai_api_key` |
 | OpenCode | `TAKT_OPENCODE_API_KEY` | `opencode_api_key` |
 | Pi | Pi SDK credential store または provider-native 環境変数 | - |
-| DeepSeek Harness | `DEEPSEEK_API_KEY`（任意で `DEEPSEEK_BASE_URL`） | - |
+| DeepSeek Harness | 公式store `$DSH_HOME/.credentials.yaml`（既定 `~/.dsh/.credentials.yaml`）または `DEEPSEEK_API_KEY`（任意で `DEEPSEEK_BASE_URL`） | - |
 | Cursor Agent | `TAKT_CURSOR_API_KEY` | `cursor_api_key` |
 | GitHub Copilot CLI | `TAKT_COPILOT_GITHUB_TOKEN` | `copilot_github_token` |
 | Kiro CLI | `TAKT_KIRO_API_KEY`（`KIRO_API_KEY` フォールバック） | `kiro_api_key` |
@@ -1192,14 +1192,31 @@ managed environment は uv-managed CPython 3.12 と、同梱の `pyproject.toml`
 
 以前 `pip` で package index を設定していた場合は、uv 標準の `UV_INDEX_URL`、proxy、certificate 環境変数へ移行してください。`uv sync --locked` は配布された lock を依存関係の正本として使います。
 
-install の `--python` オプションと provider の `python_path` オプションは、managed interpreter だけを使用するため削除されています。認証情報は引き続き環境変数だけで渡します: `DEEPSEEK_API_KEY` と、任意の `DEEPSEEK_BASE_URL` を設定してください。API key は workflow/config や command argument に書き込みません。
+install の `--python` オプションと provider の `python_path` オプションは、managed interpreter だけを使用するため削除されています。API key は workflow/config や command argument に書き込みません。認証は公式 DeepSeek Harness credential store または選択された参照の環境変数を使います。詳細は以下の credential 節を参照してください。
+
+##### Credential store の再利用
+
+`deepseek-harness` は公式 DeepSeek Harness credential store から credential を解決します。TAKT は `.credentials.yaml` を読み取・解析・コピー・再保存しません。公式 runtime へ store の path と credential 参照名だけを渡し、値の解決は runtime が行います。
+
+- credential store: `$DSH_HOME/.credentials.yaml`。`DSH_HOME` 未指定時は公式の既定値 `~/.dsh/.credentials.yaml` を使います。
+- 明示した `DSH_HOME` は shell 展開なしの絶対 path である必要があります。空、相対 path、`~` 付き、制御文字を含む値は bridge 起動前に失敗し、TAKT は shell 構文を展開せず、`~/.dsh` へ黙って fallback しません。
+- credential 参照は `$DSH_HOME/settings.yaml` の `llm-deepseek.apiKeyEnv` から読みます。ファイル、節、`apiKeyEnv` のいずれかが無い場合は公式の既定 `DEEPSEEK_API_KEY` を使います。TAKT が読むのはこの selector と `llm-deepseek.baseURL` だけで、その他の設定・model catalog・生成パラメータは取り込みません。不正な文書、重複 key、custom tag、不正な参照名は bridge 起動前に、文書内容を含まない message で失敗します。
+- 優先順位は公式 runtime の挙動に従います。選択された参照の環境変数（例: `DEEPSEEK_API_KEY`）を export すると runtime へ渡り、保存 credential より優先されます。毎回 export したくない場合は DeepSeek Harness の Settings → Models で credential を保存してください。
+- 伝播するのは選択された参照だけです。`settings.yaml` が custom 参照を選んだ場合、未選択の `DEEPSEEK_API_KEY` はその参照の代用として渡されません。
+- endpoint 整合: `llm-deepseek.baseURL` が保存されている場合、URL の scheme・host・port・path・query を正規化した上で有効な endpoint と一致する必要があります（末尾 slash は等価）。不一致、userinfo 付き URL、非 http(s) URL は HTTP 要求の前に失敗し、保存 credential が別の送信先へ送られることはありません。`provider_options.deepseek_harness.base_url`、`DEEPSEEK_BASE_URL`、公開既定値の優先順位は従来どおりです。
+- credential source home は TAKT の managed dsh-home と分離されています。bridge は従来どおり TAKT の managed home で起動するため、TAKT は `$DSH_HOME` に credential file を作らず、managed home 内の旧 store を探索せず、移行や互換 fallback も提供しません（破壊的変更）。旧版の TAKT が managed home 内に書いた `.credentials.yaml` は無視されます。
+- credential binding: source home、参照、endpoint は bridge process の同一性に含まれます。session 存続中にこれらが変わると該当 turn は明示的に失敗し、会話を黙って reset せず、新しい run を案内します。
+- store の更新・削除は公式 runtime の watcher へ委譲し、TAKT は独自 watcher や credential cache を追加しません。更新は同一 session の後続 turn から使われます。削除の反映には短い遅延があり、公式 runtime が last-good の値で 1 turn 完了してから、credential 不足を報告する turn は HTTP 要求を送りません。
+- **注意:** 実行中にstoreを破損させてもcredentialの失効にはなりません。固定版 `0.1.5rc1` では、不正YAMLへの更新後も既存sessionはlast-good値を使い、正常なstoreへ修復すると後続turnで更新を取り込みました。起動時の不正YAMLは失敗します。送信済みrequestはstore更新中も開始時のAuthorizationを維持し、更新はwatcherのreload後のrequestから適用されます。破損ファイルやturn成功を失効・reload完了の証拠とせず、書換直後の次turnへ同期反映されるとも扱わないでください。
+- 診断は raw HTTP body や絶対 credential path を省き、論理的な探索元（`DSH_HOME` または既定 harness home）と修復手順を示します。未分類のprovider/transport失敗では、部分的なredactionに頼らず上流messageとstderr tailを非表示にします。settingsの読取不可、容量超過、不正YAML、参照名不正、保存endpointの型不正を区別します。ただし、公式 runtime 側の既知の問題として、固定版 `0.1.5rc1` ではエラー本文に含まれた credential が runtime の通知や保存 session に残ることがあり、runtime が保存した値を TAKT 側の redaction では除去できません。再現検証はdummy credentialとローカルmockだけを使い、実キーを反射させないでください。
+- TAKT は `.env` を走査しません。credential は store、選択された参照の環境変数、または公式 runtime 自身の解決経路から得られます。
 
 この provider は developer preview の互換性境界です。DeepSeek API quota を意図的に消費するときだけ live smoke を実行してください。通常の unit、integration、mock E2E suite は DeepSeek を呼び出しません。
 
-opt-in live smoke（対応する Linux/macOS のみ）:
+opt-in live smoke（対応する Linux/macOS のみ）。`$DSH_HOME/.credentials.yaml`（または `~/.dsh/.credentials.yaml`）がある場合は store-only の Flash/Pro 確認も実行し、無い場合は skip します:
 
 ```bash
-export DEEPSEEK_API_KEY=your-key
+export DEEPSEEK_API_KEY=your-key   # 保存 credential がある場合は任意
 export TAKT_DEEPSEEK_HARNESS_LIVE=1
 npm run test:deepseek-harness:live
 ```
