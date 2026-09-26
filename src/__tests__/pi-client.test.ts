@@ -2,6 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+import type { CreateAgentSessionOptions, DefaultPackageManager, ResolvedPaths } from '@earendil-works/pi-coding-agent';
+
+type MockResolvedPaths = {
+  [Kind in keyof ResolvedPaths]: Array<Pick<ResolvedPaths[Kind][number], 'path' | 'enabled'>>;
+};
 
 const TRUSTED_EXTENSION_PATH = '/private/tmp/takt-trusted-extension.ts';
 const AMBIENT_EXTENSION_PATH = '/private/tmp/takt-ambient-extension.ts';
@@ -19,6 +24,9 @@ const mocks = vi.hoisted(() => {
   let latestExtensionRuntime: {
     refreshTools: () => void;
     setActiveTools: (toolNames: string[]) => void;
+    pendingProviderRegistrations: typeof pendingProviderRegistrations;
+    pendingNativeProviderRegistrations: unknown[];
+    invalidate: () => void;
   } | undefined;
   const createSourceInfo = (sourcePath: string, source: string) => ({
     path: sourcePath,
@@ -95,7 +103,7 @@ const mocks = vi.hoisted(() => {
   };
 
   const modelRuntime = {
-    getModel: vi.fn((provider: string, modelId: string) => ({
+    getModel: vi.fn((provider: string, modelId: string): { provider: string; id: string } | undefined => ({
       provider,
       id: modelId,
     })),
@@ -105,11 +113,13 @@ const mocks = vi.hoisted(() => {
   };
 
   const packageManager = {
-    getInstalledPath: vi.fn(() => undefined as string | undefined),
-    resolveExtensionSources: vi.fn(async () => ({ extensions: [], skills: [], prompts: [], themes: [] })),
+    getInstalledPath: vi.fn<DefaultPackageManager['getInstalledPath']>(() => undefined),
+    resolveExtensionSources: vi.fn(async (
+      ..._args: Parameters<DefaultPackageManager['resolveExtensionSources']>
+    ): Promise<MockResolvedPaths> => ({ extensions: [], skills: [], prompts: [], themes: [] })),
   };
   const projectPackageLookup = {
-    getInstalledPath: vi.fn(() => undefined as string | undefined),
+    getInstalledPath: vi.fn<DefaultPackageManager['getInstalledPath']>(() => undefined),
   };
   const sessionManager = {
     inMemory: vi.fn(() => ({ newSession: vi.fn() })),
@@ -135,7 +145,7 @@ const mocks = vi.hoisted(() => {
     modelRuntime,
     packageManager,
     projectPackageLookup,
-    createAgentSession: vi.fn(async () => {
+    createAgentSession: vi.fn(async (_options?: CreateAgentSessionOptions) => {
       session.sessionId = `sdk-session-${++sessionSequence}`;
       return { session, extensionsResult: extensionResult() };
     }),
@@ -917,8 +927,8 @@ export default function registerLifecycleTool(pi) {
     expect(mocks.extensionRuntimeInvalidate).not.toHaveBeenCalled();
     expect(mocks.getLoaderOptions()).toMatchObject({
       additionalExtensionPaths: [
-        firstSource.extensions[0].path,
-        secondSource.extensions[0].path,
+        firstSource.extensions[0]!.path,
+        secondSource.extensions[0]!.path,
       ],
     });
   });
@@ -2265,7 +2275,7 @@ export default function registerLifecycleTool(pi) {
     ]);
   });
 
-  it('unions a boundary override with a nonempty readonly allowlist that does not name it', async () => {
+  it('keeps a builtin override excluded by the readonly allowlist inactive after refresh', async () => {
     mocks.resetTransient();
     configureExplicitExtensions([{
       source: './mutating-extension.ts',
@@ -2289,7 +2299,11 @@ export default function registerLifecycleTool(pi) {
       providerOptions: { extensions: ['./mutating-extension.ts'] },
     });
 
-    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith(['grep', 'read']);
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith(['grep']);
+    mocks.triggerRuntimeRefreshTools();
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith(['grep']);
+    mocks.triggerRuntimeSetActiveTools(['read', 'grep']);
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith(['grep']);
   });
 
   it('keeps an ambient read shadow inactive while explicit extensions are trusted', async () => {

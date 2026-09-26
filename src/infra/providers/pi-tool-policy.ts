@@ -53,14 +53,10 @@ export function keepsPiToolWithoutEdit(tool: string): boolean {
   return normalized !== undefined && PI_READONLY_TOOL_SET.has(normalized);
 }
 
-/**
- * Selects explicitly trusted extension tools. A builtin name is selectable only
- * inside the branch's effective boundary; other names stay selectable everywhere.
- */
+/** Selects explicitly trusted extension tools, including builtin overrides. */
 function explicitExtensionToolNames(
   allTools: readonly PiToolInfo[],
   explicitExtensionPaths: readonly string[],
-  builtinBoundary: ReadonlySet<string>,
 ): string[] {
   if (explicitExtensionPaths.length === 0) {
     return [];
@@ -70,7 +66,6 @@ function explicitExtensionToolNames(
     .filter((tool) => (
       tool.sourcePath !== undefined
       && explicitPaths.has(tool.sourcePath)
-      && (!PI_BUILTIN_TOOLS.has(tool.name) || builtinBoundary.has(tool.name))
     ))
     .map((tool) => tool.name);
 }
@@ -78,9 +73,9 @@ function explicitExtensionToolNames(
 /**
  * Combines builtin permissions with extension-wide grants in readonly/edit modes.
  * An empty allowlist always denies all tools; outside those two modes an explicit
- * allowlist remains authoritative. A trusted explicit extension replaces a builtin
- * name only inside the branch's effective builtin boundary. Callers must validate
- * extension provenance.
+ * allowlist remains authoritative. Builtin overrides must satisfy both the mode
+ * and any explicit allowlist; only non-builtin extension names receive the
+ * extension-wide grant. Callers must validate extension provenance.
  */
 export function resolvePiActiveTools(
   permissionMode: PermissionMode | undefined,
@@ -89,11 +84,7 @@ export function resolvePiActiveTools(
   explicitExtensionPaths: readonly string[] = [],
 ): string[] {
   const allToolNames = allTools.map((tool) => tool.name);
-  const normalizedAllowlist = allowedTools === undefined
-    ? undefined
-    : [...new Set(allowedTools
-        .map((tool) => normalizePiToolName(tool) ?? tool.trim())
-        .filter((tool) => tool.length > 0))];
+  const explicitTools = explicitExtensionToolNames(allTools, explicitExtensionPaths);
   const permissionTools: readonly string[] | undefined = permissionMode === 'readonly'
     ? PI_READONLY_TOOLS
     : permissionMode === 'edit'
@@ -101,25 +92,27 @@ export function resolvePiActiveTools(
       : undefined;
 
   let activeTools: string[];
-  let builtinBoundary: ReadonlySet<string>;
-  if (normalizedAllowlist === undefined) {
+  if (allowedTools === undefined) {
     if (permissionTools !== undefined) {
       activeTools = [...permissionTools];
-      builtinBoundary = new Set(permissionTools);
     } else if (permissionMode === 'full') {
       activeTools = allToolNames;
-      builtinBoundary = new Set(allToolNames);
     } else {
       const extensionTools = allToolNames.filter((tool) => !PI_BUILTIN_TOOLS.has(tool));
       activeTools = [...new Set([...PI_DEFAULT_TOOLS, ...extensionTools])];
-      builtinBoundary = new Set(allToolNames);
     }
-  } else if (permissionTools === undefined) {
-    activeTools = normalizedAllowlist;
-    builtinBoundary = new Set(normalizedAllowlist);
   } else {
-    activeTools = normalizedAllowlist.filter((tool) => permissionTools.includes(tool));
-    builtinBoundary = new Set(permissionTools);
+    const normalized = [...new Set(allowedTools
+      .map((tool) => normalizePiToolName(tool) ?? tool.trim())
+      .filter((tool) => tool.length > 0))];
+    activeTools = permissionTools === undefined
+      ? normalized
+      : normalized.filter((tool) => permissionTools.includes(tool));
+  }
+
+  if (permissionTools !== undefined && (allowedTools === undefined || allowedTools.length > 0)) {
+    const nonBuiltinExtensionTools = explicitTools.filter((tool) => !PI_BUILTIN_TOOLS.has(tool));
+    activeTools = [...new Set([...activeTools, ...nonBuiltinExtensionTools])];
   }
 
   const enforcesBuiltinProvenance = permissionMode === 'readonly'
@@ -130,15 +123,6 @@ export function resolvePiActiveTools(
     return activeTools;
   }
 
-  const explicitTools = explicitExtensionToolNames(
-    allTools,
-    explicitExtensionPaths,
-    builtinBoundary,
-  );
-
-  if (permissionTools !== undefined && (allowedTools === undefined || allowedTools.length > 0)) {
-    activeTools = [...new Set([...activeTools, ...explicitTools])];
-  }
   const builtinTools = new Set(allTools
     .filter((tool) => tool.source === 'builtin')
     .map((tool) => tool.name));

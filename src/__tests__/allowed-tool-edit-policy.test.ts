@@ -359,7 +359,7 @@ describe('allowed-tool-edit-policy', () => {
       )).toEqual(branch.expectedOverride);
     });
 
-    it('unions a boundary override with a nonempty allowlist that does not name it', () => {
+    it('does not reactivate builtin overrides excluded by a nonempty allowlist', () => {
       const readonlyTools = [
         { name: 'read', source: 'extension', sourcePath: '/trusted.ts' },
         { name: 'grep', source: 'builtin' },
@@ -367,7 +367,9 @@ describe('allowed-tool-edit-policy', () => {
         { name: 'ls', source: 'builtin' },
       ];
       expect(resolvePiActiveTools('readonly', ['grep'], readonlyTools, ['/trusted.ts']))
-        .toEqual(['grep', 'read']);
+        .toEqual(['grep']);
+      expect(resolvePiActiveTools('readonly', ['Read'], readonlyTools, ['/trusted.ts']))
+        .toEqual(['read']);
       expect(resolvePiActiveTools('readonly', ['grep'], readonlyTools, []))
         .toEqual(['grep']);
 
@@ -376,10 +378,25 @@ describe('allowed-tool-edit-policy', () => {
         { name: 'bash', source: 'extension', sourcePath: '/trusted.ts' },
       ];
       expect(resolvePiActiveTools('edit', ['read'], editTools, ['/trusted.ts']))
-        .toEqual(['read', 'bash']);
+        .toEqual(['read']);
+      expect(resolvePiActiveTools('edit', ['Bash'], editTools, ['/trusted.ts']))
+        .toEqual(['bash']);
       expect(resolvePiActiveTools('edit', ['read'], editTools, []))
         .toEqual(['read']);
     });
+
+    it.each(['readonly', 'edit'] as const)(
+      'still grants non-builtin extension tools in %s without reviving excluded builtin names',
+      (mode) => {
+        const tools = [
+          ...overrideRegistry('/trusted.ts', 'extension'),
+          { name: 'custom_read', source: 'extension', sourcePath: '/trusted.ts' },
+        ];
+        expect(resolvePiActiveTools(mode, ['Grep'], tools, ['/trusted.ts']))
+          .toEqual(['grep', 'custom_read']);
+        expect(resolvePiActiveTools(mode, [], tools, ['/trusted.ts'])).toEqual([]);
+      },
+    );
   });
 
   it('should intersect Pi edit permissions with a read-only allowlist', () => {
