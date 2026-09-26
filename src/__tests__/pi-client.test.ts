@@ -2099,19 +2099,30 @@ export default function registerLifecycleTool(pi) {
     ]);
   });
 
-  it('keeps deny-all after an extension directly sets active tools', async () => {
+  it.each([
+    { permissionMode: 'readonly', label: 'empty', allowedTools: [] },
+    { permissionMode: 'readonly', label: 'whitespace-only', allowedTools: [' \t '] },
+    { permissionMode: 'edit', label: 'empty', allowedTools: [] },
+    { permissionMode: 'edit', label: 'whitespace-only', allowedTools: [' \t '] },
+  ] as const)('keeps $label deny-all in $permissionMode after extension tool changes', async ({ permissionMode, label, allowedTools }) => {
     mocks.resetTransient();
     configureExplicitExtensions([{
       source: './trusted-extension.ts',
       path: TRUSTED_EXTENSION_PATH,
     }]);
 
-    await callPi('worker', 'deny tools before direct selection', {
-      ...sessionOptions('pi-sdk-direct-set-deny-all'),
-      permissionMode: 'edit',
-      allowedTools: [],
+    const response = await callPi('worker', 'deny tools before direct selection', {
+      ...sessionOptions(`pi-sdk-direct-set-deny-all-${permissionMode}-${label}`),
+      permissionMode,
+      allowedTools: [...allowedTools],
       providerOptions: { extensions: ['./trusted-extension.ts'] },
     });
+    expect(response.status).toBe('done');
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
+
+    mocks.triggerRuntimeRefreshTools();
+    expect(mocks.session.setActiveToolsByName).toHaveBeenLastCalledWith([]);
+
     const ambientToolName = 'ambient_tool_added_after_direct_set';
     mocks.addToolDefinition(piTool(ambientToolName, AMBIENT_EXTENSION_PATH, 'npm:ambient-extension'));
 

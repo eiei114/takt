@@ -322,6 +322,16 @@ describe('allowed-tool-edit-policy', () => {
     )).toEqual([]);
   });
 
+  it.each(['readonly', 'edit'] as const)('denies all tools for normalized-empty allowlists in %s', (mode) => {
+    const tools = [
+      ...overrideRegistry('/trusted.ts', 'extension'),
+      { name: 'custom_read', source: 'extension', sourcePath: '/trusted.ts' },
+    ];
+    for (const allowedTools of [[''], ['  '], [' \t\r\n '], [' ', '', '\t']]) {
+      expect(resolvePiActiveTools(mode, allowedTools, tools, ['/trusted.ts'])).toEqual([]);
+    }
+  });
+
   describe('trusted builtin override', () => {
     it.each(OVERRIDE_BRANCHES)('activates the explicit extension tool inside the $label boundary', (branch) => {
       expect(resolvePiActiveTools(
@@ -394,6 +404,10 @@ describe('allowed-tool-edit-policy', () => {
         ];
         expect(resolvePiActiveTools(mode, ['Grep'], tools, ['/trusted.ts']))
           .toEqual(['grep', 'custom_read']);
+        expect(resolvePiActiveTools(mode, [' ', ' Grep ', ''], tools, ['/trusted.ts']))
+          .toEqual(['grep', 'custom_read']);
+        expect(resolvePiActiveTools(mode, ['powershell'], tools, ['/trusted.ts']))
+          .toEqual(['custom_read']);
         expect(resolvePiActiveTools(mode, [], tools, ['/trusted.ts'])).toEqual([]);
       },
     );
