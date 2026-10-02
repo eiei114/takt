@@ -627,7 +627,10 @@ async function runSingleReportAttempt(
 
   if (
     response.status !== 'done'
-    && response.failureCategory === AGENT_FAILURE_CATEGORIES.PROVIDER_STREAM_PARSE_ERROR
+    && (
+      response.failureCategory === AGENT_FAILURE_CATEGORIES.PROVIDER_STREAM_PARSE_ERROR
+      || response.failureCategory === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED
+    )
   ) {
     const errorMessage = resolveAgentErrorMessage(response.errorKind, response.error || response.content);
     ctx.onPhaseComplete?.(step, 2, 'report', '', response.status, errorMessage, phaseExecutionId, ctx.iteration);
@@ -728,7 +731,10 @@ function classifyRetryableFailure(
     return undefined;
   }
   if (response.status !== 'done') {
-    if (response.failureCategory === AGENT_FAILURE_CATEGORIES.PROVIDER_STREAM_PARSE_ERROR) {
+    if (
+      response.failureCategory === AGENT_FAILURE_CATEGORIES.PROVIDER_STREAM_PARSE_ERROR
+      || response.failureCategory === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED
+    ) {
       return undefined;
     }
     return {

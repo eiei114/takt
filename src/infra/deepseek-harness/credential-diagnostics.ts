@@ -75,7 +75,7 @@ const CLASSIFICATION_DETAILS: Record<
     + 'verify the saved credential and the endpoint, then save a valid key.',
   'binding-changed': () => 'The credential binding (DSH_HOME source home, reference, or endpoint) '
     + 'changed during this session: start a new run or session to use the changed binding.',
-  'runtime-failure': () => 'The provider bridge/SDK failed. Verify the selected credential, endpoint, '
+  'runtime-failure': () => 'The provider SDK/runtime failed. Verify the selected credential, endpoint, '
     + 'runtime installation and connectivity, then retry. Upstream error details are withheld.',
   'settings-unreadable': () => 'The settings.yaml file could not be read. Check its permissions and file type.',
   'settings-too-large': () => 'The settings.yaml file exceeds 1 MiB. Reduce its size before retrying.',
@@ -197,7 +197,7 @@ export function buildDeepSeekRuntimeFailureDiagnostic(
     + (upstreamMessage === undefined ? '' : ` Upstream message: ${upstreamMessage}`);
 }
 
-/** SDK exception type is mapped to a bridge-owned code; its message and cause remain untrusted. */
+/** SDK exception type is mapped to a provider-owned code; its message and cause remain untrusted. */
 export function buildDeepSeekSdkFailureDiagnostic(code: string | undefined): string | undefined {
   switch (code) {
     case 'jsonrpc-error':

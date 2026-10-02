@@ -238,7 +238,8 @@ function isEmptyPhase1Response(response: AgentResponse): boolean {
 function isProviderErrorEligibleForFreshRetry(response: AgentResponse): boolean {
   return response.status === 'error'
     && response.errorKind !== 'rate_limit'
-    && response.failureCategory !== AGENT_FAILURE_CATEGORIES.EXTERNAL_ABORT;
+    && response.failureCategory !== AGENT_FAILURE_CATEGORIES.EXTERNAL_ABORT
+    && response.failureCategory !== AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED;
 }
 
 function withEffectiveSession(

@@ -23,9 +23,12 @@ export interface DeepSeekCredentialPatch {
 /**
  * Build the process-owned patch that hands the official runtime the credential store
  * path and the reference name. The patch never contains a credential value.
+ * Durable runtime logs are disabled because provider failures can echo credentials;
+ * TAKT keeps only its own non-secret used-session markers.
  */
 export async function createDeepSeekCredentialPatch(
   binding: DeepSeekCredentialBinding,
+  systemPrompt?: string,
 ): Promise<DeepSeekCredentialPatch> {
   let patchDirectoryPath: string;
   try {
@@ -36,8 +39,28 @@ export async function createDeepSeekCredentialPatch(
   try {
     const patchPath = path.join(patchDirectoryPath, PATCH_FILE_NAME);
     const document = [
+      // The sdk profile's read tool can read the credential source path. Keep model-callable
+      // local file and command access, including delegated execution, out of this composition.
+      { id: 'tool-bash', disabled: true },
+      { id: 'tool-pwsh', disabled: true },
+      { id: 'tool-fs', disabled: true },
+      { id: 'tool-fs-search', disabled: true },
+      { id: 'tool-subagent', disabled: true },
+      { id: 'tool-subagent-fork', disabled: true },
+      { id: 'tool-workflow', disabled: true },
       { id: 'credentials', config: { path: binding.home.credentialsPath } },
       { id: 'llm-deepseek', config: { apiKeyEnv: binding.ref } },
+      { id: 'session-persistence-jsonl', disabled: true },
+      ...(systemPrompt === undefined
+        ? []
+        : [{
+          insert: [{
+            id: 'takt-system-prompt',
+            name: new URL('./system-prompt-plugin.mjs', import.meta.url).href,
+            inject: ['systemPrompt'],
+            config: { prompt: systemPrompt },
+          }],
+        }]),
     ];
     ensurePrivateDirectory(patchDirectoryPath);
     writeNewPrivateFileWithMode(patchPath, stringifyYaml(document), PATCH_FILE_MODE);

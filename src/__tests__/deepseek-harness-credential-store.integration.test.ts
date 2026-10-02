@@ -1,7 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -11,19 +9,14 @@ import {
   callDeepSeekHarness,
   closeDeepSeekHarnessProcesses,
 } from '../infra/deepseek-harness/index.js';
-import { getGlobalConfigDir } from '../infra/config/paths.js';
 import { createProviderEventLogger } from '../core/logging/providerEventLogger.js';
 import { renderTraceReportFromRecords } from '../features/tasks/execute/traceReport.js';
-import type { StreamCallback } from '../shared/types/provider.js';
+import type { StreamCallback, StreamEvent } from '../shared/types/provider.js';
 
-const liveEnabled = process.env.TAKT_DEEPSEEK_HARNESS_LIVE === '1';
 const supportedRuntime = (
   (process.platform === 'linux' && (process.arch === 'x64' || process.arch === 'arm64'))
   || (process.platform === 'darwin' && process.arch === 'arm64')
 );
-const managedEnvironmentDir = path.join(getGlobalConfigDir(), 'deepseek-harness', 'venv');
-const managedEnvironmentAvailable = existsSync(managedEnvironmentDir);
-const suiteEnabled = liveEnabled && supportedRuntime && managedEnvironmentAvailable;
 
 const STORE_KEY = 'dummy-store-credential-1487';
 const UPDATED_STORE_KEY = 'dummy-updated-credential-1487';
@@ -31,14 +24,14 @@ const ENV_KEY = 'dummy-env-credential-1487';
 const REQUEST_TIMEOUT_MS = 120_000;
 const WATCHER_TIMEOUT_MS = 20_000;
 const WATCHER_POLL_INTERVAL_MS = 500;
-const execFileAsync = promisify(execFile);
 
 interface RecordedRequest {
-  authorization: string | undefined;
-  body: string;
+  apiKey: string | undefined;
+  toolNames: string[];
+  toolResultContainsStoreKey: boolean;
 }
 
-type MockMode = 'ok' | 'auth-echo';
+type MockMode = 'ok' | 'auth-echo' | 'credential-read' | 'assistant-message-reasoning' | 'assistant-message-text-only';
 
 interface MockEndpoint {
   baseUrl: string;
@@ -48,37 +41,104 @@ interface MockEndpoint {
   close: () => Promise<void>;
 }
 
-function writeEventStream(response: import('node:http').ServerResponse): void {
-  response.writeHead(200, { 'Content-Type': 'text/event-stream' });
-  for (const [delta, finish] of [
-    [{ role: 'assistant', content: 'confirmed' }, null],
-    [{}, 'stop'],
-  ] as const) {
-    response.write(`data: ${JSON.stringify({
-      id: 'mock',
-      object: 'chat.completion.chunk',
-      created: 0,
-      model: 'deepseek-v4-flash',
-      choices: [{ index: 0, delta, finish_reason: finish }],
-    })}\n\n`);
+function writeEventStream(
+  response: import('node:http').ServerResponse,
+  options: { mode: MockMode; readSourcePath?: string; sequence: number; exposeReadTool: boolean },
+): void {
+  const write = (event: string, data: unknown): void => {
+    response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+  response.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache' });
+  write('message_start', {
+    type: 'message_start',
+    message: {
+      id: 'credential-store-mock', type: 'message', role: 'assistant', model: 'deepseek-v4-flash',
+      content: [], stop_reason: null, stop_sequence: null,
+      usage: { input_tokens: 2, output_tokens: 0 },
+    },
+  });
+  if (options.readSourcePath !== undefined && options.sequence === 1 && options.exposeReadTool) {
+    write('content_block_start', {
+      type: 'content_block_start',
+      index: 0,
+      content_block: { type: 'tool_use', id: 'toolu_read_dummy_store', name: 'read', input: {} },
+    });
+    write('content_block_delta', {
+      type: 'content_block_delta',
+      index: 0,
+      delta: {
+        type: 'input_json_delta',
+        partial_json: JSON.stringify({ file_path: options.readSourcePath }),
+      },
+    });
+    write('content_block_stop', { type: 'content_block_stop', index: 0 });
+    write('message_delta', {
+      type: 'message_delta',
+      delta: { stop_reason: 'tool_use', stop_sequence: null },
+      usage: { output_tokens: 2 },
+    });
+    write('message_stop', { type: 'message_stop' });
+    response.end();
+    return;
   }
-  response.write('data: [DONE]\n\n');
+  if (options.mode === 'assistant-message-reasoning') {
+    write('content_block_start', {
+      type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' },
+    });
+    write('content_block_delta', {
+      type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'local mock reasoning' },
+    });
+    write('content_block_stop', { type: 'content_block_stop', index: 0 });
+    write('content_block_start', {
+      type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' },
+    });
+    write('content_block_delta', {
+      type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'confirmed' },
+    });
+    write('content_block_stop', { type: 'content_block_stop', index: 1 });
+  } else {
+    write('content_block_start', {
+      type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' },
+    });
+    write('content_block_delta', {
+      type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'confirmed' },
+    });
+    write('content_block_stop', { type: 'content_block_stop', index: 0 });
+  }
+  write('message_delta', {
+    type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null },
+    usage: { output_tokens: 2 },
+  });
+  write('message_stop', { type: 'message_stop' });
   response.end();
 }
 
-async function startMockEndpoint(): Promise<MockEndpoint> {
+async function startMockEndpoint(readSourcePath: string): Promise<MockEndpoint> {
   const requests: RecordedRequest[] = [];
   let mode: MockMode = 'ok';
   let hold: { received: () => void; ready: Promise<void> } | undefined;
   let releaseHeld: (() => void) | undefined;
   const server: Server = createServer((request, response) => {
-    let body = '';
-    request.setEncoding('utf8');
-    request.on('data', (chunk: string) => {
-      body += chunk;
+    const chunks: Buffer[] = [];
+    request.on('data', (chunk: Buffer | string) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
     request.on('end', async () => {
-      requests.push({ authorization: request.headers.authorization, body });
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>;
+      const tools = Array.isArray(body.tools) ? body.tools : [];
+      const toolNames = tools.flatMap((tool) => (
+        tool !== null && typeof tool === 'object' && 'name' in tool && typeof tool.name === 'string'
+          ? [tool.name]
+          : []
+      ));
+      const bodyText = JSON.stringify(body);
+      const apiKeyHeader = request.headers['x-api-key'];
+      requests.push({
+        apiKey: Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader,
+        toolNames,
+        toolResultContainsStoreKey: bodyText.includes(STORE_KEY),
+      });
+      const sequence = requests.length;
       const currentHold = hold;
       hold = undefined;
       if (currentHold) {
@@ -87,12 +147,18 @@ async function startMockEndpoint(): Promise<MockEndpoint> {
       }
       if (mode === 'auth-echo') {
         response.writeHead(401, { 'Content-Type': 'application/json' });
-        response.end(JSON.stringify({ error: {
-          message: `rejected ${STORE_KEY}`, cause: { message: `nested ${STORE_KEY}` },
-        } }));
+        response.end(JSON.stringify({
+          type: 'error',
+          error: { type: 'authentication_error', message: `rejected ${STORE_KEY}` },
+        }));
         return;
       }
-      writeEventStream(response);
+      writeEventStream(response, {
+        mode,
+        ...(mode === 'credential-read' ? { readSourcePath } : {}),
+        sequence,
+        exposeReadTool: toolNames.includes('read'),
+      });
     });
   });
   await new Promise<void>((resolve, reject) => {
@@ -183,7 +249,7 @@ function collectSecretHits(directory: string, secret: string): string[] {
   return hits;
 }
 
-describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', () => {
+describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integration', () => {
   let root: string;
   let workspace: string;
   let sourceHome: string;
@@ -234,8 +300,7 @@ describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', 
     await mkdir(workspace, { recursive: true });
     await mkdir(sourceHome, { recursive: true });
     await mkdir(dshHome, { recursive: true });
-    await symlink(managedEnvironmentDir, path.join(managedRoot, 'venv'));
-    endpoint = await startMockEndpoint();
+    endpoint = await startMockEndpoint(storePath);
     await writeStore(`version: 1\nrefs:\n  DEEPSEEK_API_KEY: ${STORE_KEY}\n`);
     await writeSettings(endpoint.baseUrl);
     vi.stubEnv('TAKT_CONFIG_DIR', path.join(root, 'config'));
@@ -259,20 +324,58 @@ describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', 
 
     expect(response.status).toBe('done');
     expect(endpoint.requests).toHaveLength(1);
-    expect(endpoint.requests[0]?.authorization).toContain(STORE_KEY);
+    expect(endpoint.requests[0]?.apiKey).toContain(STORE_KEY);
     expect(response.content).not.toContain(STORE_KEY);
     expect(await readFile(storePath)).toEqual(storeBefore);
     expect((await stat(storePath)).mode & 0o777).toBe(modeBefore);
-    expect(existsSync(path.join(dshHome, 'sessions'))).toBe(true);
+    expect(existsSync(path.join(dshHome, 'sessions'))).toBe(false);
     expect(existsSync(path.join(dshHome, '.credentials.yaml'))).toBe(false);
+  });
+
+  it('does not expose the credential source to model-callable local tools', async () => {
+    endpoint.setMode('credential-read');
+
+    const response = await runTurn({ prompt: 'Read the requested local file.' });
+
+    expect(response.status).toBe('done');
+    const toolNames = endpoint.requests[0]?.toolNames ?? [];
+    for (const tool of [
+      'bash', 'pwsh', 'read', 'write', 'edit', 'read_image', 'glob', 'grep',
+      'subagent', 'subagent_fork', 'workflow',
+    ]) {
+      expect(toolNames).not.toContain(tool);
+    }
+    expect(endpoint.requests).toHaveLength(1);
+    expect(endpoint.requests.some((request) => request.toolResultContainsStoreKey)).toBe(false);
+    expect(response.content).not.toContain(STORE_KEY);
+  });
+
+  it('maps real SDK assistant/message reasoning to thinking and text-only content to text', async () => {
+    const sessionId = 'assistant-message-stream-session';
+    endpoint.setMode('assistant-message-reasoning');
+    const reasoningEvents: StreamEvent[] = [];
+    const reasoning = await runTurn({ sessionId, onStream: (event) => reasoningEvents.push(event) });
+
+    expect(reasoning.status).toBe('done');
+    expect(reasoningEvents.some((event) => event.type === 'thinking' && event.data.thinking === 'local mock reasoning'))
+      .toBe(true);
+    expect(reasoningEvents.some((event) => event.type === 'text' && event.data.text === 'confirmed')).toBe(true);
+
+    endpoint.setMode('assistant-message-text-only');
+    const textEvents: StreamEvent[] = [];
+    const textOnly = await runTurn({ sessionId, onStream: (event) => textEvents.push(event) });
+
+    expect(textOnly.status).toBe('done');
+    expect(textEvents.some((event) => event.type === 'text' && event.data.text === 'confirmed')).toBe(true);
+    expect(textEvents.some((event) => event.type === 'thinking')).toBe(false);
   });
 
   it('prefers a same-reference launch environment value over the store', async () => {
     const response = await runTurn({ childProcessEnv: { DEEPSEEK_API_KEY: ENV_KEY } });
 
     expect(response.status).toBe('done');
-    expect(endpoint.requests.at(-1)?.authorization).toContain(ENV_KEY);
-    expect(endpoint.requests.at(-1)?.authorization).not.toContain(STORE_KEY);
+    expect(endpoint.requests.at(-1)?.apiKey).toContain(ENV_KEY);
+    expect(endpoint.requests.at(-1)?.apiKey).not.toContain(STORE_KEY);
   });
 
   it('does not substitute a different reference for the selected reference', async () => {
@@ -289,7 +392,7 @@ describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', 
   it('reflects a store update on a later turn of the same session', async () => {
     const first = await runTurn({ sessionId: 'store-update-session', prompt: 'First turn.' });
     expect(first.status).toBe('done');
-    expect(endpoint.requests.at(-1)?.authorization).toContain(STORE_KEY);
+    expect(endpoint.requests.at(-1)?.apiKey).toContain(STORE_KEY);
 
     await writeStore(`version: 1\nrefs:\n  DEEPSEEK_API_KEY: ${UPDATED_STORE_KEY}\n`);
 
@@ -298,8 +401,30 @@ describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', 
       attempts += 1;
       const turn = await runTurn({ sessionId: 'store-update-session', prompt: `Reload check ${attempts}.` });
       expect(turn.status).toBe('done');
-      expect(endpoint.requests.at(-1)?.authorization).toContain(UPDATED_STORE_KEY);
+      expect(endpoint.requests.at(-1)?.apiKey).toContain(UPDATED_STORE_KEY);
     }, { timeout: WATCHER_TIMEOUT_MS, interval: WATCHER_POLL_INTERVAL_MS });
+  });
+
+  it('refuses a changed credential binding for an active session without another request', async () => {
+    const sessionId = 'credential-binding-change-session';
+    const first = await runTurn({ sessionId, prompt: 'Start with the original binding.' });
+    expect(first.status).toBe('done');
+    expect(endpoint.requests).toHaveLength(1);
+
+    await writeSettings(endpoint.baseUrl, 'CUSTOM_DSH_KEY');
+    const changed = await runTurn({
+      sessionId,
+      prompt: 'Do not run with the new binding in the old session.',
+      childProcessEnv: { CUSTOM_DSH_KEY: 'dummy-changed-binding-credential' },
+    });
+
+    expect(changed).toMatchObject({
+      status: 'error',
+      sessionId,
+      failureCategory: 'session_continuation_unsupported',
+    });
+    expect(changed.content).toContain('changed during this session');
+    expect(endpoint.requests).toHaveLength(1);
   });
 
   it('fails a later turn after the store entry is deleted without sending another request', async () => {
@@ -367,7 +492,7 @@ describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', 
       ]);
       await writeStore(`version: 1\nrefs:\n  DEEPSEEK_API_KEY: ${UPDATED_STORE_KEY}\n`);
       expect(endpoint.requests).toHaveLength(1);
-      expect(endpoint.requests[0]?.authorization).toContain(STORE_KEY);
+      expect(endpoint.requests[0]?.apiKey).toContain(STORE_KEY);
     } finally {
       held.release();
     }
@@ -375,7 +500,7 @@ describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', 
     expect(endpoint.requests).toHaveLength(1);
     await vi.waitFor(async () => {
       expect((await runTurn({ sessionId: 'snapshot-session' })).status).toBe('done');
-      expect(endpoint.requests.at(-1)?.authorization).toContain(UPDATED_STORE_KEY);
+      expect(endpoint.requests.at(-1)?.apiKey).toContain(UPDATED_STORE_KEY);
     }, { timeout: WATCHER_TIMEOUT_MS, interval: WATCHER_POLL_INTERVAL_MS });
   });
 
@@ -386,11 +511,11 @@ describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', 
     await new Promise((resolve) => setTimeout(resolve, 1500));
     const afterCorruption = await runTurn({ sessionId: 'malformed-reload' });
     expect(afterCorruption.status).toBe('done');
-    expect(endpoint.requests.at(-1)?.authorization).toContain(STORE_KEY);
+    expect(endpoint.requests.at(-1)?.apiKey).toContain(STORE_KEY);
     await writeStore(`version: 1\nrefs:\n  DEEPSEEK_API_KEY: ${UPDATED_STORE_KEY}\n`);
     await vi.waitFor(async () => {
       expect((await runTurn({ sessionId: 'malformed-reload' })).status).toBe('done');
-      expect(endpoint.requests.at(-1)?.authorization).toContain(UPDATED_STORE_KEY);
+      expect(endpoint.requests.at(-1)?.apiKey).toContain(UPDATED_STORE_KEY);
     }, { timeout: WATCHER_TIMEOUT_MS, interval: WATCHER_POLL_INTERVAL_MS });
   });
 
@@ -409,7 +534,7 @@ describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', 
     await closeDeepSeekHarnessProcesses();
 
     expect(endpoint.requests).toHaveLength(1);
-    expect(endpoint.requests[0]?.authorization).toContain(STORE_KEY);
+    expect(endpoint.requests[0]?.apiKey).toContain(STORE_KEY);
     expect(response.status).toBe('error');
     expect(response.content).not.toContain(STORE_KEY);
     expect(response.content).toMatch(/credential|auth/iu);
@@ -432,37 +557,5 @@ describe.skipIf(!suiteEnabled)('DeepSeek Harness credential store integration', 
       leakedIntoRuntimeStore,
       'the pinned DeepSeek Harness runtime persisted the echoed dummy credential into its session store',
     ).toEqual([]);
-  });
-
-  it('keeps echoed credentials out of raw SDK notifications, stderr and all persisted frames', async () => {
-    endpoint.setMode('auth-echo');
-    const patchPath = path.join(root, 'sdk-echo-patch.json');
-    await writeFile(patchPath, JSON.stringify([
-      { id: 'credentials', config: { path: storePath } },
-      { id: 'llm-deepseek', config: { apiKeyEnv: 'DEEPSEEK_API_KEY', baseURL: endpoint.baseUrl } },
-      { id: 'session-telemetry-otel', disabled: true },
-    ]));
-    const script = [
-      'import json, sys',
-      'from deepseek_harness import DeepSeekHarness',
-      'events = []',
-      'h = DeepSeekHarness(provider="deepseek-official", model="deepseek-v4-flash", cwd=sys.argv[1], runtime_cwd=sys.argv[1], dsh_home=sys.argv[2], patches=(sys.argv[3],), initialize_timeout_seconds=10, request_timeout_seconds=10, shutdown_timeout_seconds=2)',
-      'try:',
-      '    result = h.run("Return ok.", on_notification=lambda n: events.append({"method": n.method, "payload": n.payload}))',
-      '    print(json.dumps({"finish": result.finish_reason, "notifications": events}))',
-      'finally:',
-      '    h.close()',
-    ].join('\n');
-    const { stdout, stderr } = await execFileAsync(path.join(managedEnvironmentDir, 'bin', 'python'), [
-      '-c', script, workspace, dshHome, patchPath,
-    ], { timeout: 30_000, maxBuffer: 2 * 1024 * 1024, env: { ...process.env } });
-    expect(endpoint.requests).toHaveLength(1);
-    expect(endpoint.requests[0]?.authorization).toContain(STORE_KEY);
-    const result = JSON.parse(stdout) as { finish: string; notifications: unknown[] };
-    expect(result.finish).toBe('error');
-    expect(result.notifications.length).toBeGreaterThan(0);
-    expect.soft(stdout.includes(STORE_KEY), 'raw SDK notifications contain an echoed credential').toBe(false);
-    expect.soft(stderr.includes(STORE_KEY), 'raw SDK stderr contains an echoed credential').toBe(false);
-    expect.soft(collectSecretHits(dshHome, STORE_KEY), 'persisted runtime frames contain an echoed credential').toEqual([]);
   });
 });

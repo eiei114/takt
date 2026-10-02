@@ -2,6 +2,7 @@ export const AGENT_FAILURE_CATEGORIES = {
   EXTERNAL_ABORT: 'external_abort',
   PART_TIMEOUT: 'part_timeout',
   PROVIDER_ERROR: 'provider_error',
+  SESSION_CONTINUATION_UNSUPPORTED: 'session_continuation_unsupported',
   PROVIDER_STREAM_PARSE_ERROR: 'provider_stream_parse_error',
   STREAM_IDLE_TIMEOUT: 'stream_idle_timeout',
 } as const;
@@ -35,6 +36,7 @@ const FAILURE_CATEGORY_PREFIX: Record<AgentFailureCategory, string> = {
   [AGENT_FAILURE_CATEGORIES.EXTERNAL_ABORT]: 'external abort',
   [AGENT_FAILURE_CATEGORIES.PART_TIMEOUT]: 'part timeout',
   [AGENT_FAILURE_CATEGORIES.PROVIDER_ERROR]: 'provider error',
+  [AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED]: 'session continuation unsupported',
   [AGENT_FAILURE_CATEGORIES.PROVIDER_STREAM_PARSE_ERROR]: 'provider stream parse error',
   [AGENT_FAILURE_CATEGORIES.STREAM_IDLE_TIMEOUT]: 'stream idle timeout',
 };
@@ -101,6 +103,14 @@ export function createProviderErrorFailure(reason: unknown): AgentFailureDetail 
     AGENT_FAILURE_CATEGORIES.PROVIDER_ERROR,
     reason,
     'Codex execution failed',
+  );
+}
+
+export function createSessionContinuationUnsupportedFailure(reason: unknown): AgentFailureDetail {
+  return createFailureDetail(
+    AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED,
+    reason,
+    'Start a new session or run to continue with the current settings',
   );
 }
 

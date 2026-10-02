@@ -66,6 +66,17 @@ export function assertNoRemovedProviderOptionConfigurationValues(
   );
 }
 
+export function assertNoRemovedProviderOptionEnvironmentVariables(
+  environment: NodeJS.ProcessEnv = process.env,
+): void {
+  const removedName = 'TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_RUNTIME_MODE';
+  if (environment[removedName] !== undefined) {
+    throw new Error(
+      `Configuration error: ${removedName} was removed; unset this environment variable.`,
+    );
+  }
+}
+
 const PROVIDER_OPTIONS_ENV_SPEC_ENTRIES = [
   { path: 'provider_options', type: 'json' },
   { path: 'provider_options.codex.base_url', type: 'string' },
@@ -106,7 +117,6 @@ const PROVIDER_OPTIONS_ENV_SPEC_ENTRIES = [
   { path: 'provider_options.deepseek_harness.max_tokens', type: 'number' },
   { path: 'provider_options.deepseek_harness.request_timeout_ms', type: 'number' },
   { path: 'provider_options.deepseek_harness.shutdown_timeout_ms', type: 'number' },
-  { path: 'provider_options.deepseek_harness.runtime_mode', type: 'string' },
   { path: 'provider_options.deepseek_harness.reasoning_effort', type: 'string' },
   { path: 'provider_options.pi.extensions', type: 'json' },
   { path: 'provider_options.pi.thinking_level', type: 'string' },
@@ -177,7 +187,6 @@ const PROVIDER_OPTIONS_TRACE_PATH_ENTRIES = [
   'provider_options.deepseek_harness.max_tokens',
   'provider_options.deepseek_harness.request_timeout_ms',
   'provider_options.deepseek_harness.shutdown_timeout_ms',
-  'provider_options.deepseek_harness.runtime_mode',
   'provider_options.deepseek_harness.reasoning_effort',
   'provider_options.pi',
   'provider_options.pi.guards',
@@ -237,7 +246,6 @@ const PROVIDER_OPTIONS_INTERNAL_PATH_ENTRIES = [
   'deepseekHarness.maxTokens',
   'deepseekHarness.requestTimeoutMs',
   'deepseekHarness.shutdownTimeoutMs',
-  'deepseekHarness.runtimeMode',
   'deepseekHarness.reasoningEffort',
   'pi.extensions',
   'pi.thinkingLevel',

@@ -384,7 +384,6 @@ describe('compileRuntimeProviderEnvironment (profile options)', () => {
   });
 
   it.each([
-    { runtime_mode: 'invalid' },
     { request_timeout_ms: 'slow' },
     { reasoning_effort: 'medium' },
     { reasoning_effort: '' },

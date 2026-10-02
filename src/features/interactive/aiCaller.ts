@@ -13,6 +13,7 @@ import { createLogger, getErrorMessage } from '../../shared/utils/index.js';
 import { info, error, blankLine, StreamDisplay } from '../../shared/ui/index.js';
 import { getLabel } from '../../shared/i18n/index.js';
 import { EXIT_SIGINT } from '../../shared/exitCodes.js';
+import { AGENT_FAILURE_CATEGORIES } from '../../shared/types/agent-failure.js';
 import type { ProviderType } from '../../infra/providers/index.js';
 import { getProvider } from '../../infra/providers/index.js';
 import { createMcpAdapter, type PreparedProviderMcp, type ResolvedMcpServers } from '../../infra/providers/mcp/index.js';
@@ -319,11 +320,13 @@ export async function callAIWithRetry(
       : ctx.mcpServers === ctx.taskStateMcpServers
         ? resolveTrustedTaskStateMcpAllowedTools(ctx.taskStateMcpServers)
         : undefined;
-    const allowedToolsForProvider = providerSupportsAllowedTools(ctx.providerType) === false
-      ? undefined
-      : taskStateMcpTools === undefined
-        ? allowedTools
-        : [...new Set([...allowedTools, ...taskStateMcpTools])];
+    const allowedToolsForProvider = ctx.providerType === 'deepseek-harness'
+      ? (allowedTools.length === 0 ? undefined : allowedTools)
+      : providerSupportsAllowedTools(ctx.providerType) === false
+        ? undefined
+        : taskStateMcpTools === undefined
+          ? allowedTools
+          : [...new Set([...allowedTools, ...taskStateMcpTools])];
     // Per-call permissionMode is used for operations with a dedicated constraint; a session-level
     // mode is resolved user configuration and must still reach the provider for explicit-constraint errors.
     const permissionModeForProvider = providerSupportsPermissionControls(ctx.providerType) === false
@@ -438,6 +441,7 @@ export async function callAIWithRetry(
       && !forceExitRequested
       && !success
       && sessionId
+      && response.failureCategory !== AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED
       && ctx.effort === undefined
       && ctx.disableSessionRetry !== true) {
       log.info('Session invalid, retrying without session');

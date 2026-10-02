@@ -196,6 +196,19 @@ describe('config traced env overrides', () => {
     expect(() => loadProjectConfig(projectDir)).toThrow(/reasoning_effort.*medium/iu);
   });
 
+  it.each(['project', 'global'] as const)('rejects the removed DeepSeek runtime_mode environment variable in %s config', (scope) => {
+    const projectDir = join(testRoot, 'project-runtime-mode-removed');
+    const configDir = scope === 'project' ? getProjectConfigDir(projectDir) : globalTaktDir;
+    mkdirSync(configDir, { recursive: true });
+    writeFileSync(join(configDir, 'config.yaml'), 'provider: deepseek-harness\n', 'utf-8');
+    process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_RUNTIME_MODE = 'node';
+    invalidateGlobalConfigCache();
+
+    expect(() => scope === 'project' ? loadProjectConfig(projectDir) : loadGlobalConfig()).toThrow(
+      'Configuration error: TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_RUNTIME_MODE was removed; unset this environment variable.',
+    );
+  });
+
   it('project config rejects DeepSeek reasoning_effort in legacy YAML provider_options', () => {
     const projectDir = join(testRoot, 'project-deepseek-reasoning-effort-legacy-yaml');
     const configDir = getProjectConfigDir(projectDir);
