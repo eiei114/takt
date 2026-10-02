@@ -39,15 +39,9 @@ export async function createDeepSeekCredentialPatch(
   try {
     const patchPath = path.join(patchDirectoryPath, PATCH_FILE_NAME);
     const document = [
-      // The sdk profile's read tool can read the credential source path. Keep model-callable
-      // local file and command access, including delegated execution, out of this composition.
-      { id: 'tool-bash', disabled: true },
-      { id: 'tool-pwsh', disabled: true },
-      { id: 'tool-fs', disabled: true },
-      { id: 'tool-fs-search', disabled: true },
-      { id: 'tool-subagent', disabled: true },
-      { id: 'tool-subagent-fork', disabled: true },
-      { id: 'tool-workflow', disabled: true },
+      // Keep the official coding tools. As with other local coding providers,
+      // this composition requires a trusted workspace; a credential reference
+      // is not an OS-level read-isolation boundary for model-callable tools.
       { id: 'credentials', config: { path: binding.home.credentialsPath } },
       { id: 'llm-deepseek', config: { apiKeyEnv: binding.ref } },
       { id: 'session-persistence-jsonl', disabled: true },

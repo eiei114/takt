@@ -31,7 +31,7 @@ interface RecordedRequest {
   toolResultContainsStoreKey: boolean;
 }
 
-type MockMode = 'ok' | 'auth-echo' | 'credential-read' | 'assistant-message-reasoning' | 'assistant-message-text-only';
+type MockMode = 'ok' | 'auth-echo' | 'workspace-tools' | 'held-tool' | 'assistant-message-reasoning' | 'assistant-message-text-only';
 
 interface MockEndpoint {
   baseUrl: string;
@@ -57,18 +57,28 @@ function writeEventStream(
       usage: { input_tokens: 2, output_tokens: 0 },
     },
   });
-  if (options.readSourcePath !== undefined && options.sequence === 1 && options.exposeReadTool) {
+  const toolActions = [
+    { name: 'read', input: { file_path: options.readSourcePath } },
+    { name: 'write', input: { file_path: 'generated.ts', content: 'export const value = 1;\n' } },
+    { name: 'edit', input: { file_path: 'generated.ts', old_string: 'value = 1', new_string: 'value = 2' } },
+    { name: 'bash', input: { command: "printf 'shell-ok' > shell.txt", description: 'Write the bounded shell fixture' } },
+  ];
+  const action = options.mode === 'held-tool'
+    ? { name: 'bash', input: { command: 'node -e "require(\'node:fs\').writeFileSync(\'child.pid\',String(process.pid));setInterval(()=>{},1000)"', description: 'Start the bounded child cleanup fixture' } }
+    : toolActions[options.sequence - 1];
+  if (action !== undefined && options.readSourcePath !== undefined && options.exposeReadTool
+    && (options.mode === 'workspace-tools' || (options.mode === 'held-tool' && options.sequence === 1))) {
     write('content_block_start', {
       type: 'content_block_start',
       index: 0,
-      content_block: { type: 'tool_use', id: 'toolu_read_dummy_store', name: 'read', input: {} },
+      content_block: { type: 'tool_use', id: `toolu_workspace_${options.sequence}`, name: action.name, input: {} },
     });
     write('content_block_delta', {
       type: 'content_block_delta',
       index: 0,
       delta: {
         type: 'input_json_delta',
-        partial_json: JSON.stringify({ file_path: options.readSourcePath }),
+        partial_json: JSON.stringify(action.input),
       },
     });
     write('content_block_stop', { type: 'content_block_stop', index: 0 });
@@ -155,7 +165,7 @@ async function startMockEndpoint(readSourcePath: string): Promise<MockEndpoint> 
       }
       writeEventStream(response, {
         mode,
-        ...(mode === 'credential-read' ? { readSourcePath } : {}),
+        ...((mode === 'workspace-tools' || mode === 'held-tool') ? { readSourcePath } : {}),
         sequence,
         exposeReadTool: toolNames.includes('read'),
       });
@@ -278,9 +288,11 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     model?: string;
     childProcessEnv?: Readonly<Record<string, string>>;
     onStream?: StreamCallback;
+    abortSignal?: AbortSignal;
   } = {}): Promise<Awaited<ReturnType<typeof callDeepSeekHarness>>> {
     return callDeepSeekHarness('live-smoke', options.prompt ?? 'Return ok.', {
       cwd: workspace,
+      ...(options.abortSignal === undefined ? {} : { abortSignal: options.abortSignal }),
       ...(options.onStream === undefined ? {} : { onStream: options.onStream }),
       ...(options.sessionId === undefined ? {} : { sessionId: options.sessionId }),
       ...(options.childProcessEnv === undefined ? {} : { childProcessEnv: options.childProcessEnv }),
@@ -300,7 +312,8 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     await mkdir(workspace, { recursive: true });
     await mkdir(sourceHome, { recursive: true });
     await mkdir(dshHome, { recursive: true });
-    endpoint = await startMockEndpoint(storePath);
+    endpoint = await startMockEndpoint(path.join(workspace, 'source.ts'));
+    await writeFile(path.join(workspace, 'source.ts'), 'export const source = true;\n');
     await writeStore(`version: 1\nrefs:\n  DEEPSEEK_API_KEY: ${STORE_KEY}\n`);
     await writeSettings(endpoint.baseUrl);
     vi.stubEnv('TAKT_CONFIG_DIR', path.join(root, 'config'));
@@ -332,22 +345,51 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     expect(existsSync(path.join(dshHome, '.credentials.yaml'))).toBe(false);
   });
 
-  it('does not expose the credential source to model-callable local tools', async () => {
-    endpoint.setMode('credential-read');
+  it('executes standard coding tools in a trusted workspace without copying the credential source', async () => {
+    endpoint.setMode('workspace-tools');
+    const events: StreamEvent[] = [];
+    const storeBefore = await readFile(storePath);
 
-    const response = await runTurn({ prompt: 'Read the requested local file.' });
+    const response = await runTurn({ prompt: 'Read, write, edit and run the workspace fixture.', onStream: (event) => events.push(event) });
 
     expect(response.status).toBe('done');
     const toolNames = endpoint.requests[0]?.toolNames ?? [];
-    for (const tool of [
-      'bash', 'pwsh', 'read', 'write', 'edit', 'read_image', 'glob', 'grep',
-      'subagent', 'subagent_fork', 'workflow',
-    ]) {
-      expect(toolNames).not.toContain(tool);
-    }
-    expect(endpoint.requests).toHaveLength(1);
+    expect(toolNames).toEqual(expect.arrayContaining(['read', 'write', 'edit', 'bash', 'glob', 'grep', 'subagent', 'workflow']));
+    expect(endpoint.requests).toHaveLength(5);
+    expect(await readFile(path.join(workspace, 'generated.ts'), 'utf8')).toBe('export const value = 2;\n');
+    expect(await readFile(path.join(workspace, 'shell.txt'), 'utf8')).toBe('shell-ok');
+    expect(events.filter((event) => event.type === 'tool_use')).toHaveLength(4);
+    expect(events.filter((event) => event.type === 'tool_result')).toHaveLength(4);
     expect(endpoint.requests.some((request) => request.toolResultContainsStoreKey)).toBe(false);
     expect(response.content).not.toContain(STORE_KEY);
+    expect(await readFile(storePath)).toEqual(storeBefore);
+    expect(existsSync(path.join(dshHome, '.credentials.yaml'))).toBe(false);
+  });
+
+  it('terminates a real coding-tool child on abort before allowing another runtime', async () => {
+    endpoint.setMode('held-tool');
+    const controller = new AbortController();
+    const turn = runTurn({ sessionId: 'coding-tool-abort', abortSignal: controller.signal });
+    let childPid: number | undefined;
+    try {
+      await vi.waitFor(async () => {
+        childPid = Number(await readFile(path.join(workspace, 'child.pid'), 'utf8'));
+        expect(childPid).toBeGreaterThan(0);
+      }, { timeout: 10_000, interval: 50 });
+      controller.abort();
+      expect((await turn).status).not.toBe('done');
+      await vi.waitFor(() => {
+        expect(() => process.kill(childPid!, 0)).toThrow();
+      }, { timeout: 5_000, interval: 50 });
+      endpoint.setMode('ok');
+      expect((await runTurn({ sessionId: 'after-coding-child-exit' })).status).toBe('done');
+    } finally {
+      controller.abort();
+      await turn;
+      if (childPid !== undefined) {
+        try { process.kill(childPid, 'SIGKILL'); } catch { /* Child already exited. */ }
+      }
+    }
   });
 
   it('maps real SDK assistant/message reasoning to thinking and text-only content to text', async () => {

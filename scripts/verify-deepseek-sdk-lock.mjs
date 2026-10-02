@@ -36,4 +36,22 @@ for (const name of ['@deepseek-ai/dsh-llm', '@deepseek-ai/dsh-session', '@deepse
 if (sdkPeers?.['@deepseek-ai/cordis'] !== '~4.0.4') {
   throw new Error('DeepSeek SDK Cordis peer range changed; review compatibility before migration');
 }
+// npm omits peer-only packages from a dependency bundle unless explicitly
+// bundled. The runtime loads these public services from its stock profile.
+for (const [name, version] of Object.entries(packageManifest.dependencies)) {
+  if (!name.startsWith('@deepseek-ai/')) continue;
+  if (!packageManifest.bundleDependencies?.includes(name)
+    || lock.packages[`node_modules/${name}`]?.version !== version
+    || lock.packages[''].dependencies?.[name] !== version) {
+    throw new Error(`${name} publish dependency must be pinned, locked and bundled`);
+  }
+}
+for (const [path, entry] of Object.entries(lock.packages)) {
+  if (!path.startsWith('node_modules/@deepseek-ai/') || !entry.peer) continue;
+  const name = path.slice('node_modules/'.length);
+  if (!packageManifest.bundleDependencies?.includes(name)
+    || packageManifest.dependencies?.[name] !== entry.version) {
+    throw new Error(`${name} runtime peer must be explicitly pinned and bundled`);
+  }
+}
 console.log(`DeepSeek TypeScript SDK/runtime lock verified at ${expectedVersion}`);

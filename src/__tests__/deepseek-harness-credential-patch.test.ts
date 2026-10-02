@@ -8,15 +8,6 @@ import { createDeepSeekCredentialPatch } from '../infra/deepseek-harness/credent
 import type { DeepSeekCredentialBinding } from '../infra/deepseek-harness/credential-binding.js';
 
 const PATCH_FILE_NAME = 'credentials.patch.yml';
-const TOOL_ACCESS_FENCE = [
-  { id: 'tool-bash', disabled: true },
-  { id: 'tool-pwsh', disabled: true },
-  { id: 'tool-fs', disabled: true },
-  { id: 'tool-fs-search', disabled: true },
-  { id: 'tool-subagent', disabled: true },
-  { id: 'tool-subagent-fork', disabled: true },
-  { id: 'tool-workflow', disabled: true },
-] as const;
 
 function createBinding(credentialsPath: string, ref: string): DeepSeekCredentialBinding {
   const homePath = path.dirname(credentialsPath);
@@ -55,7 +46,6 @@ describe('DeepSeek Harness credential patch', () => {
       expect(existsSync(patch.path)).toBe(true);
       expect(path.basename(patch.path)).toBe(PATCH_FILE_NAME);
       expect(await readPatchDocument(patch.path)).toEqual([
-        ...TOOL_ACCESS_FENCE,
         { id: 'credentials', config: { path: credentialsPath } },
         { id: 'llm-deepseek', config: { apiKeyEnv: 'CUSTOM_KEY' } },
         { id: 'session-persistence-jsonl', disabled: true },
@@ -77,7 +67,7 @@ describe('DeepSeek Harness credential patch', () => {
     );
     try {
       const document = await readPatchDocument(patch.path) as Array<Record<string, unknown>>;
-      expect(document.slice(0, TOOL_ACCESS_FENCE.length)).toEqual(TOOL_ACCESS_FENCE);
+      expect(document.some((row) => String(row.id).startsWith('tool-'))).toBe(false);
       expect(document).toContainEqual({ id: 'session-persistence-jsonl', disabled: true });
       const pluginPatch = document.at(-1);
       expect(pluginPatch).toMatchObject({
@@ -128,13 +118,11 @@ describe('DeepSeek Harness credential patch', () => {
 
     expect(first.path).not.toBe(second.path);
     expect(await readPatchDocument(first.path)).toEqual([
-      ...TOOL_ACCESS_FENCE,
       { id: 'credentials', config: { path: path.join(root, 'first-home', '.credentials.yaml') } },
       { id: 'llm-deepseek', config: { apiKeyEnv: 'FIRST_KEY' } },
       { id: 'session-persistence-jsonl', disabled: true },
     ]);
     expect(await readPatchDocument(second.path)).toEqual([
-      ...TOOL_ACCESS_FENCE,
       { id: 'credentials', config: { path: path.join(root, 'second-home', '.credentials.yaml') } },
       { id: 'llm-deepseek', config: { apiKeyEnv: 'SECOND_KEY' } },
       { id: 'session-persistence-jsonl', disabled: true },
