@@ -79,7 +79,7 @@ takt run
 takt list
 ```
 
-首次运行时，请在 `~/.takt/config.yaml` 中配置 provider，或使用[配置](#配置)中列出的 API key 环境变量。`claude-sdk`、`codex`、`opencode` 和 `pi` 等 SDK provider 可在 Node.js 中运行；`deepseek-harness` 还需要在支持平台上由 `takt deepseek-harness install` 创建的 uv-managed environment。CLI provider 还需要对应的外部 CLI。
+首次运行时，请在 `~/.takt/config.yaml` 中配置 provider，或使用[配置](#配置)中列出的 API key 环境变量。`claude-sdk`、`codex`、`opencode`、`pi` 和 `deepseek-harness` 等 SDK provider 可在 Node.js 中运行；DeepSeek 固定版本的 SDK/runtime 已包含在 TAKT 的 npm production dependency 中。CLI provider 还需要对应的外部 CLI。
 
 ### 视频教程
 
@@ -112,13 +112,15 @@ TAKT 需要 Node.js `>=22.22.0`。
 - `opencode` — `@opencode-ai/sdk`
 - `pi` — `@earendil-works/pi-coding-agent`
 
-`deepseek-harness` 使用 TAKT 通过 `uv` 构建的 managed environment，并通过私有 JSON-RPC bridge 运行官方 Python SDK。在支持的平台上，首次使用前请运行一次 `takt deepseek-harness install`。npm install 和 npm lifecycle hook 不会构建环境；install 期间启动 provider 不受支持，因为 provider 不会等待 installer lock。
+`deepseek-harness` 在 Node.js 中通过官方 TypeScript SDK 和对应的 DeepSeek Harness runtime 运行。SDK（`@deepseek-ai/dsh-sdk-client`）与 runtime（`@deepseek-ai/dsh`）作为 TAKT 的 production dependency 固定为 `0.2.0-rc.2`，常规 npm 安装会一并安装；不再提供 provider 专用安装命令。支持 glibc `>= 2.28` 的 Linux x64/arm64 和 macOS arm64 `>= 14.0`。无需安装 Python、uv 或系统 Python。
 
-managed environment 使用 uv-managed CPython 3.12，以及同捆 `pyproject.toml` / `uv.lock` 中固定的 SDK/runtime 版本。支持 glibc `>= 2.28` 的 Linux x64/arm64 和 macOS arm64 `>= 14.0`；Windows、macOS x64、Linux musl、旧版 Linux glibc 和旧版 macOS 会快速失败，TAKT 不会静默切换到其他 provider，也不需要准备 system Python。若 package index 需要 proxy、证书或认证，请设置 `UV_INDEX_URL` 及 uv 标准的 proxy / certificate 环境变量；TAKT 会将这些设置传给 install，而 `--locked` 会让同捆 lock 保持权威。install preflight 要求 `uv >= 0.11.0`；未安装、无法解析版本或版本过低时，会在删除现有 managed environment 之前停止。
+runtime 保持运行且配置不变时，多个 turn 会按 FIFO 顺序串行执行。SDK 无法在 runtime 重启或 teardown 后恢复已保存的历史，也无法在保留该历史的同时替换 runtime 配置。此时 TAKT 会通过固定诊断拒绝旧 session。要使用新配置，请用新的 session identity 启动一个新的 TAKT session/run。这是有意的破坏性变更；跨 runtime 的历史保留延期支持。TAKT 不会自动删除旧 Python/uv 安装的文件；如需清理，请检查旧 managed environment 后手动处理。现有 credential 文件归用户所有，不会迁移或删除。
 
-如果之前通过 `pip` 配置 package index，请迁移到 uv 标准的 `UV_INDEX_URL`、proxy 和 certificate 环境变量；`uv sync --locked` 将同捆 lock 作为依赖来源。
+为避免 provider 错误回显 credential 后被写入 session 文件，TAKT 会禁用 runtime 的 JSONL session-persistence plugin。同一 runtime 内仍可继续多个 turn。TAKT 不读取或删除已有的 DeepSeek session 文件，会保留这些文件。
 
-install 的 `--python` 选项和 provider 的 `python_path` 选项已删除，因为只支持 managed environment。认证使用官方 DeepSeek Harness credential store（`$DSH_HOME/.credentials.yaml`，默认 `~/.dsh/.credentials.yaml`），或所选参照对应的环境变量，例如 `DEEPSEEK_API_KEY`；TAKT 不读取或改写保存的 credential。`DEEPSEEK_BASE_URL` 为可选设置。这是 developer-preview 兼容性边界；使用新的 SDK/runtime 组合前，请阅读[配置指南](./configuration.zh-CN.md)中的 credential store 限制并执行 opt-in live smoke。固定版 runtime `0.1.5rc1` 仍有错误中反射的 credential 被写入通知和保存 session 的问题，成功调用不代表该问题已解决。
+当前 DeepSeek 配置还禁用了本地文件操作、shell 和委派执行工具，以防止模型通过工具读取 credential source。代码编辑或命令执行请使用其他 provider。本次 SDK 迁移不提供与其他 coding agent 等效的执行能力。
+
+认证使用官方 store `$DSH_HOME/.credentials.yaml`（默认 `~/.dsh/.credentials.yaml`），或所选环境变量（例如 `DEEPSEEK_API_KEY`）。TAKT 将 credential source 与自身管理的 runtime home 分开，绝不读取、复制或改写已保存的 secret 值。配置和 session 限制请参阅[配置指南](./configuration.zh-CN.md#deepseek-harness-deepseek-harness)。
 
 以下 provider 需要外部 CLI：
 
@@ -360,7 +362,7 @@ auto_routing:
 
 更完整的配置、provider profile、model 解析和 `runtime.yaml` 说明请参阅[配置指南](./configuration.zh-CN.md)。
 
-TAKT 也可以直接使用 provider 凭据（claude-sdk、Codex、OpenCode 和 Pi 不需要安装 CLI；DeepSeek Harness 仍需先运行 `takt deepseek-harness install` 创建 uv-managed environment）：
+TAKT 也可以直接使用 provider 凭据（claude-sdk、Codex、Pi 和 DeepSeek Harness 不需要安装 CLI；OpenCode 仍需安装其 CLI）。DeepSeek SDK/runtime 已包含在 TAKT 的 npm production dependency 中：
 
 ```bash
 export TAKT_ANTHROPIC_API_KEY=sk-ant-...   # Anthropic（Claude）

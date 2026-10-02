@@ -79,7 +79,7 @@ takt run
 takt list
 ```
 
-初回実行時は `~/.takt/config.yaml` で provider を設定するか、[設定](#設定) にある API キー用の環境変数を使います。`claude-sdk`、`codex`、`pi` などの SDK 経由 provider は Node.js と認証情報で動きます。`deepseek-harness` は対応 platform で `takt deepseek-harness install` が作成する uv-managed environment も必要です。CLI 経由 provider を使う場合は対応する外部 CLI が必要です。
+初回実行時は `~/.takt/config.yaml` で provider を設定するか、[設定](#設定) にある API キー用の環境変数を使います。SDK 経由 provider の `claude-sdk`、`codex`、`pi`、`deepseek-harness` は Node.js で動き、DeepSeek SDK/runtime は TAKT の npm production dependency に含まれます。CLI 経由 provider には対応する外部 CLI が必要です。
 
 ## CodeRabbit レビューループ
 
@@ -117,13 +117,15 @@ TAKT の実行には Node.js `>=22.22.0` が必要です。
 - `codex` — `@openai/codex-sdk`
 - `pi` — `@earendil-works/pi-coding-agent`
 
-`deepseek-harness` は TAKT が `uv` で用意する managed environment を、非公開 JSON-RPC bridge 経由で使用します。対応 platform では初回利用前に `takt deepseek-harness install` を一度実行してください。npm install と npm lifecycle hook は環境を構築せず、install 中に provider を起動する場合は installer lock を待たないため未対応です。
+`deepseek-harness` は Node.js 上で公式 TypeScript SDK と対応する DeepSeek Harness runtime を実行します。SDK（`@deepseek-ai/dsh-sdk-client`）と runtime（`@deepseek-ai/dsh`）は `0.2.0-rc.2` に固定した TAKT の production dependency で、通常の npm install に含まれます。provider 専用の install command はありません。対応 platform は glibc `>= 2.28` の Linux x64/arm64 と macOS arm64 `>= 14.0` です。Python、uv、system Python の準備は不要です。
 
-managed environment は uv-managed CPython 3.12 と、同梱の `pyproject.toml` / `uv.lock` に固定された SDK/runtime を使用します。対応 platform は glibc `>= 2.28` の Linux x64/arm64 と macOS arm64 `>= 14.0` です。Windows、macOS x64、Linux musl、古い Linux glibc、古い macOS は fail fast し、別 provider へ暗黙 fallback しません。system Python の準備は不要です。package index への接続に proxy、証明書、認証などが必要な場合は `UV_INDEX_URL` や uv 標準の proxy / certificate 環境変数を設定してください。TAKT はそれらを install に渡しますが、`--locked` により同梱 lock を正本として扱います。install の preflight は `uv >= 0.11.0` を要求し、uv が未導入、版を解析できない、または古い場合は既存 managed environment を削除せず停止します。
+runtime が稼働し、対応設定が同じ間は、複数 turn を FIFO で直列化して実行できます。SDK は runtime の再起動・終了後に保存済み履歴を復元したり、履歴を保ったまま runtime 設定を交換したりできません。その場合、TAKT は固定診断で旧 session を拒否します。新しい設定を使うには、新しい session identity で TAKT の session/run を開始してください。これは意図的な破壊的変更であり、runtime をまたぐ履歴保持は後続対応です。以前の Python/uv installation の file は TAKT が自動削除しません。必要なら旧 managed environment を確認して手動で整理してください。credential file は利用者所有のままで、移行・削除しません。
 
-以前 `pip` で package index を設定していた場合は、uv 標準の `UV_INDEX_URL`、proxy、certificate 環境変数へ移行してください。`uv sync --locked` は同梱 lock を依存関係の正本として使います。
+credential を含む provider error が session file に残ることを防ぐため、TAKT は runtime の JSONL session-persistence plugin を無効にします。同一 runtime 内の turn は引き続き利用できます。既存の DeepSeek session file は読み込み・削除せず、そのまま残します。
 
-install の `--python` オプションと provider の `python_path` オプションは、managed environment だけを使用する契約のため削除されています。credential は公式 DeepSeek Harness credential store（`$DSH_HOME/.credentials.yaml`、既定は `~/.dsh/.credentials.yaml`）または選択された参照（`DEEPSEEK_API_KEY` など）の環境変数から解決され、TAKT が保存済み credential を読み取・再保存することはありません。この provider は developer preview の互換性境界であり、新しい SDK/runtime の組み合わせを使う前に configuration guide の opt-in live smoke を実行してください。
+現在のDeepSeek構成では、モデルがcredential sourceを読み取らないよう、ローカルファイル操作・shell・委任実行toolも無効にしています。コード編集やコマンド実行には別providerを使ってください。このSDK移行では、他のcoding agentと同等の実行機能は提供しません。
+
+credential は公式 store `$DSH_HOME/.credentials.yaml`（既定 `~/.dsh/.credentials.yaml`）または選択された `DEEPSEEK_API_KEY` などの環境変数を使います。TAKT は credential source と管理 runtime home を分離し、保存済み secret 値を読み取り・複写・書き換えません。設定と session 制約は[設定ガイド](./configuration.ja.md#deepseek-harness-deepseek-harness)を参照してください。
 
 次のプロバイダーを使う場合は外部 CLI のインストールが必要です:
 
@@ -320,7 +322,7 @@ run metadata、session、trace、report などの run artifact は `.takt/runs/<
 
 最小設定に加えて `config.yaml`（legacy モード）では内部エージェントの上書き（`takt_providers`）と候補プールから step ごとに provider/model を選択する `auto_routing`（`cost` / `balanced` / `performance` 戦略）を設定できます。オートルーティングの決定は `.takt/events/` に NDJSON としてローカル記録できます。記録はオプトイン（`takt telemetry enable` または `telemetry.routing_decisions`）で、TAKT がルーティング決定をアップロードすることはありません。runtime モードでは provider/model/options と routing を `runtime.yaml` に置きます（後述）。
 
-provider の認証情報を直接使う場合は CLI のインストールは不要です（Claude SDK、Codex、Pi が対象。OpenCode は外部 CLI も必要）。`deepseek-harness` は対応 platform で `takt deepseek-harness install` を実行した managed environment を必要とします。
+provider の認証情報を直接使う場合は CLI のインストールは不要です（Claude SDK、Codex、Pi、DeepSeek Harness が対象。OpenCode は外部 CLI も必要です）。DeepSeek SDK/runtime は TAKT の npm production dependency に含まれます。
 
 ```bash
 export TAKT_ANTHROPIC_API_KEY=sk-ant-...   # Anthropic (Claude)
