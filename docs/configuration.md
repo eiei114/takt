@@ -1292,7 +1292,7 @@ Workflow and project config can use `base_url` for local proxies only. Non-loopb
 
 TAKT runs the official TypeScript SDK (`@deepseek-ai/dsh-sdk-client`) with the matching runtime (`@deepseek-ai/dsh`), both pinned to `0.2.0-rc.2` as production dependencies. The normal npm installation includes them; there is no `takt deepseek-harness install` command, Python bridge, Python interpreter, or uv-managed environment. Supported platforms are Linux x64/arm64 with glibc `>= 2.28` and macOS arm64 `>= 14.0`; other platforms fail before runtime creation.
 
-**Unresolved distribution risk:** a clean production-only installation of the packed package still installs vulnerable `fflate` through the runtime's office dependencies ([GHSA-px8p-9vwx-vf98](https://github.com/advisories/GHSA-px8p-9vwx-vf98), malformed ZIP64 denial of service). The repository's `fflate` override applies to this checkout, not to a consuming application's installation. A successful runtime smoke test does not resolve that advisory; distribution requires a separate dependency-safety decision or an upstream fix.
+**Distribution dependency resolution:** the pinned SDK/runtime and required runtime peers are shipped as npm bundled dependencies, including patched `fflate@0.8.3` for [GHSA-px8p-9vwx-vf98](https://github.com/advisories/GHSA-px8p-9vwx-vf98). The prepack guard verifies the resolved version and adjusts only the bundled `@deepseek-ai/libreoffice-kit@0.1.5` manifest's `fflate` declaration to match it. SDK/runtime code is unchanged. This delivers the fixed resolution to normal consumers rather than relying on a checkout-only override. `npm ci` restores the upstream toolkit metadata in a source checkout; packaging prepares it again. This addresses the listed fflate advisory, not every dependency advisory.
 
 Example provider configuration:
 
@@ -1315,7 +1315,7 @@ A live runtime accepts multiple turns with the same supported configuration. TAK
 
 TAKT disables the runtime's JSONL session-persistence plugin because a provider error body can echo a credential into a newly written session file. Same-runtime turns remain available in memory. TAKT does not read or delete existing DeepSeek session files.
 
-Local file tools (including search and image reads), shell tools, subagent/fork tools, and workflow execution are disabled in this composition so model-callable tools cannot read the credential source or selected environment secret. Use another provider for code editing or command execution; this is a limited generation provider, not an equivalent coding-agent runtime.
+The official SDK's file/search, shell, subagent/fork, and workflow tools remain enabled. This follows the trusted-workspace model of other local coding providers, not a guarantee that model-callable tools cannot read credentials. The SDK's workspace-write boundary governs writes, not secret-file confidentiality. Authentication configuration still passes only a store path/reference and keeps credential binding separate from runtime home. Unsupported explicit TAKT controls continue to fail before startup; they are never silently ignored.
 
 Initialization, turn, and shutdown use separate timeouts. The SDK runtime is launched under a supervisor that discards runtime stderr and tracks its process group. If cleanup cannot be confirmed, a persistent barrier blocks every later runtime start, including a new session, until the old process group exits. SDK errors are converted to fixed diagnostics; raw exception messages, causes, data, and stderr are not displayed or used for classification.
 

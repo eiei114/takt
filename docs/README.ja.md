@@ -123,7 +123,7 @@ runtime が稼働し、対応設定が同じ間は、複数 turn を FIFO で直
 
 credential を含む provider error が session file に残ることを防ぐため、TAKT は runtime の JSONL session-persistence plugin を無効にします。同一 runtime 内の turn は引き続き利用できます。既存の DeepSeek session file は読み込み・削除せず、そのまま残します。
 
-現在のDeepSeek構成では、モデルがcredential sourceを読み取らないよう、ローカルファイル操作・shell・委任実行toolも無効にしています。コード編集やコマンド実行には別providerを使ってください。このSDK移行では、他のcoding agentと同等の実行機能は提供しません。
+コード編集にはSDK標準のファイル操作・検索・shell・委任実行toolを使えます。他のローカルcoding providerと同じく、信頼するworkspaceとpromptで実行してください。credential referenceはOS上の読み取り隔離ではなく、toolはhostとSDK policyで許されたfileや環境変数へアクセスできます。
 
 credential は公式 store `$DSH_HOME/.credentials.yaml`（既定 `~/.dsh/.credentials.yaml`）または選択された `DEEPSEEK_API_KEY` などの環境変数を使います。TAKT は credential source と管理 runtime home を分離し、保存済み secret 値を読み取り・複写・書き換えません。設定と session 制約は[設定ガイド](./configuration.ja.md#deepseek-harness-deepseek-harness)を参照してください。
 

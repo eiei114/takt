@@ -11,7 +11,8 @@ All notable changes to this project will be documented in this file.
 - Replaced the DeepSeek Harness Python/uv bridge with the official TypeScript SDK and matching runtime `0.2.0-rc.2`, pinned as production npm dependencies. The `takt deepseek-harness install` command, Python bridge, uv-managed environment, and Python/uv-only settings have been removed. Existing old managed files are left untouched; inspect and remove them manually if desired.
 - DeepSeek Harness supports multiple FIFO turns only while the same runtime remains alive with the same supported configuration. It refuses same-ID continuation after runtime restart/teardown or a configuration change that requires runtime replacement. Start a new TAKT session/run with a new session identity to use new settings. Cross-runtime session-history preservation is deferred.
 - TAKT disables the runtime's JSONL session-persistence plugin because a provider error can echo a credential into a newly written session file. Same-runtime turns remain available in memory, and existing DeepSeek session files are left untouched.
-- DeepSeek's local file, shell, and delegated-execution tools are disabled to protect the credential source. Use another provider for code editing or command execution. Abandoned runtime-state locks require manual recovery after confirming all previous runtimes have exited.
+- DeepSeek uses the standard SDK coding tools in trusted workspaces. Credential references are not secret-read isolation boundaries. Abandoned runtime-state locks require manual recovery after confirming all previous runtimes have exited.
+- The pinned DeepSeek SDK/runtime are npm bundled dependencies with patched `fflate@0.8.3`. Packaging adjusts the office toolkit's dependency declaration, without changing SDK/runtime code, so normal consumers receive the fixed dependency instead of needing their own override.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 

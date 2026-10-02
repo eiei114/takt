@@ -919,7 +919,7 @@ provider_options:
 
 TAKT 使用官方 TypeScript SDK（`@deepseek-ai/dsh-sdk-client`）及对应 runtime（`@deepseek-ai/dsh`）。两者均作为 production dependency 固定为 `0.2.0-rc.2`，常规 npm 安装会一并安装。不再提供 `takt deepseek-harness install`、Python bridge、Python interpreter 或 uv-managed environment。支持 glibc `>= 2.28` 的 Linux x64/arm64 和 macOS arm64 `>= 14.0`；其他平台会在启动 runtime 前被拒绝。
 
-**发布前尚未解决的风险：** packed package 的全新 production-only 安装仍会经由 runtime 的 office 依赖安装存在漏洞的 `fflate`（[GHSA-px8p-9vwx-vf98](https://github.com/advisories/GHSA-px8p-9vwx-vf98)，畸形 ZIP64 导致 DoS）。repo 内的 `fflate` override 只影响本 checkout，不会传递到使用者的安装中。runtime smoke 成功不代表该漏洞已修复；发布需要单独的依赖安全决策或上游修复。
+**发布依赖固定：** SDK/runtime 及必要的 runtime peer 以 npm bundled dependency 发布，包含 [GHSA-px8p-9vwx-vf98](https://github.com/advisories/GHSA-px8p-9vwx-vf98) 修复版 `fflate@0.8.3`。prepack guard 验证实际解析版本，并仅将 bundle 中 `@deepseek-ai/libreoffice-kit@0.1.5` manifest 的 `fflate` 声明调整为该版本；SDK/runtime 代码不变。普通使用者安装即可获得修复版，无须继承 checkout 的 override。source checkout 执行 `npm ci` 后恢复上游 toolkit metadata，打包时重新准备发布声明。这里只修复所列 fflate advisory，不代表所有依赖 advisory 都已消除。
 
 配置示例：
 
@@ -942,7 +942,7 @@ runtime 在运行且支持的配置未改变时，可在同一 session 中执行
 
 为避免 provider 错误正文回显 credential 后写入新 session 文件，TAKT 会禁用 runtime 的 JSONL session-persistence plugin。同一 runtime 内的 turn 仍保存在内存中并可继续执行。TAKT 不读取或删除已有的 DeepSeek session 文件。
 
-为防止模型通过工具读取 credential source 或所选环境变量中的 secret，当前配置禁用了本地文件工具（包括搜索和图片读取）、shell、subagent/fork 和 workflow 执行。代码编辑或命令执行请使用其他 provider。当前配置是能力受限的生成 provider，不具备与其他 coding agent 等效的执行能力。
+官方 SDK 的文件操作、搜索、shell、subagent/fork 和 workflow 工具保持启用。与其他本地 coding provider 一样，只应在可信 workspace 中运行；这不保证模型工具无法读取 credential。SDK 的 workspace-write 边界控制写入，而不是 secret 文件读取隔离。认证配置仍只传递 store path/reference，并将 credential binding 与 runtime home 分开。显式要求但不支持的 TAKT 控制仍在启动前拒绝，绝不静默忽略。
 
 初始化、turn、shutdown 使用不同的 timeout。SDK runtime 在 supervisor 下启动，该 supervisor 丢弃 stderr 并跟踪 process group。若无法确认 cleanup，所有后续 runtime 启动（包括新 session）都会被阻止，直到旧 process group 确认退出。SDK error 转换为固定诊断；不显示或分类 raw exception message、cause、data 或 stderr。
 

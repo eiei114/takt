@@ -123,7 +123,7 @@ A session supports multiple FIFO-serialized turns while its runtime stays alive 
 
 TAKT disables the runtime's JSONL session-persistence plugin so newly written session logs cannot retain provider errors that echo credentials. Multiple turns still work in the live runtime; TAKT leaves existing DeepSeek session files untouched.
 
-The current DeepSeek composition also disables local file, shell, and delegated-execution tools to prevent model-callable tools from reading the credential source. Use another provider for code editing or command execution. This SDK migration does not provide equivalent coding-agent capabilities.
+The standard SDK file/search, shell, and delegated-execution tools are enabled for coding. As with other local coding providers, use trusted workspaces and prompts. A credential reference is not an OS-level read-isolation boundary: local tools may access files and environment variables permitted by the host and SDK policy.
 
 Credentials use the official store at `$DSH_HOME/.credentials.yaml` (default `~/.dsh/.credentials.yaml`) or the selected environment variable such as `DEEPSEEK_API_KEY`. TAKT keeps that credential source separate from its managed runtime home and never reads, copies, or rewrites stored secret values. See the [Configuration Guide](./docs/configuration.md#deepseek-harness-deepseek-harness) for settings and session limits.
 

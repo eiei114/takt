@@ -1231,7 +1231,7 @@ workflow と project config での `base_url` は local proxy 用に限定され
 
 TAKT は公式 TypeScript SDK（`@deepseek-ai/dsh-sdk-client`）と対応 runtime（`@deepseek-ai/dsh`）を使用します。両方とも `0.2.0-rc.2` に固定した production dependency で、通常の npm install に含まれます。`takt deepseek-harness install`、Python bridge、Python interpreter、uv-managed environment はありません。対応 platform は glibc `>= 2.28` の Linux x64/arm64 と macOS arm64 `>= 14.0` です。それ以外は runtime 起動前に拒否されます。
 
-**配布前の未解決事項:** packed packageのproduction-only installでは、runtimeのoffice依存を経由して脆弱な`fflate`が導入されます（[GHSA-px8p-9vwx-vf98](https://github.com/advisories/GHSA-px8p-9vwx-vf98)、不正なZIP64によるDoS）。repo内の`fflate` overrideはこのcheckoutにだけ適用され、利用者側のinstallには引き継がれません。起動smokeが通っても、このadvisoryは解消したとは扱えません。配布には依存の安全性に関する別途の判断、または上流修正が必要です。
+**配布する依存の固定:** SDK/runtimeと必要なruntime peerはnpm bundled dependencyとして、[GHSA-px8p-9vwx-vf98](https://github.com/advisories/GHSA-px8p-9vwx-vf98)修正版の`fflate@0.8.3`と一緒に配布します。prepack guardが実際の解決版を確認し、bundle内の`@deepseek-ai/libreoffice-kit@0.1.5`の`fflate`依存宣言だけを同版へ合わせます。SDK/runtimeのコードは変更しません。checkoutのoverrideだけに頼らず、通常の利用者installへ修正版を届けます。source checkoutで`npm ci`を行うとtoolkitの上流metadataに戻り、pack時に再び配布用の宣言を準備します。対応したのは記載したfflate advisoryであり、依存全体のadvisoryが解消したという意味ではありません。
 
 設定例:
 
@@ -1254,7 +1254,7 @@ runtime が稼働し、対応設定が同じ間は複数 turn を同一 session 
 
 provider error が credential を含んで session file に保存されることを防ぐため、TAKT は runtime の JSONL session-persistence plugin を無効にします。同一 runtime 内の turn はメモリ上で引き続き利用できます。既存の DeepSeek session file は読み込み・削除しません。
 
-モデルがcredential sourceや選択された環境変数のsecretを読み取らないよう、ローカルファイルtool（検索・画像読み込みを含む）、shell、subagent/fork、workflow実行を無効にしています。コード編集やコマンド実行には別providerを使ってください。現在の構成は生成用の限定providerであり、他のcoding agentと同等の実行能力はありません。
+公式SDKのファイル操作・検索・shell・subagent/fork・workflow toolは有効です。他のローカルcoding providerと同じ、信頼するworkspaceでの実行を前提にします。モデルのtoolからcredentialを絶対に読めない保証ではありません。SDKのworkspace-write境界は書き込みを制御しますが、secret fileの読み取り隔離ではありません。認証設定は引き続きstore path/referenceだけを渡し、credential bindingとruntime homeを分離します。明示された未対応のTAKT制約は起動前に拒否し、黙って無視しません。
 
 初期化、turn、shutdown の timeout は別々に扱います。SDK runtime は stderr を破棄し process group を監視する supervisor の下で起動します。cleanup を確認できない場合は、別 session を含むすべての次回 runtime 起動を、旧 process group の終了が確認できるまで拒否します。SDK error は固定診断へ変換し、raw exception message、cause、data、stderr は表示・分類に使いません。
 

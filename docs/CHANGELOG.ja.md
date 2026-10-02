@@ -11,7 +11,8 @@
 - DeepSeek Harness の Python/uv bridge を公式 TypeScript SDK と対応 runtime `0.2.0-rc.2` に置き換え、npm production dependency として固定しました。`takt deepseek-harness install`、Python bridge、uv-managed environment、Python/uv 専用設定を削除しました。旧 managed file は残り、自動削除されません。必要な場合は確認後に手動で整理してください。
 - DeepSeek Harness は同一 runtime が稼働し、対応設定が変わらない間だけ FIFO の複数 turn をサポートします。runtime 再起動・終了後、または runtime 交換を要する設定変更後の同一 ID 継続は拒否されます。新設定には新しい session identity の TAKT session/run を開始してください。runtime をまたぐ session 履歴保持は後続対応です。
 - provider error が credential を session file へ保存する可能性があるため、TAKT は runtime の JSONL session-persistence plugin を無効にします。同一 runtime 内の turn は引き続き利用でき、既存の DeepSeek session file はそのまま残します。
-- credential source保護のため、DeepSeekのローカルファイル・shell・委任実行toolを無効にします。コード編集やコマンド実行には別providerを使ってください。強制終了後に残るruntime-state lockは、旧runtimeの終了確認後に手動で復旧する必要があります。
+- DeepSeekは信頼するworkspaceでSDK標準のcoding toolを使います。credential referenceはsecretの読み取り隔離ではありません。強制終了後に残るruntime-state lockは、旧runtimeの終了確認後に手動で復旧する必要があります。
+- 固定したDeepSeek SDK/runtimeを修正版`fflate@0.8.3`と一緒にnpm bundleで配布します。pack時にoffice toolkitの依存宣言だけを調整し、SDK/runtimeのコードは変更しません。利用者自身のoverrideなしで修正版を導入できます。
 
 フォーマットは [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) に基づいています。
 

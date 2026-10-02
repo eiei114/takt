@@ -118,7 +118,7 @@ runtime 保持运行且配置不变时，多个 turn 会按 FIFO 顺序串行执
 
 为避免 provider 错误回显 credential 后被写入 session 文件，TAKT 会禁用 runtime 的 JSONL session-persistence plugin。同一 runtime 内仍可继续多个 turn。TAKT 不读取或删除已有的 DeepSeek session 文件，会保留这些文件。
 
-当前 DeepSeek 配置还禁用了本地文件操作、shell 和委派执行工具，以防止模型通过工具读取 credential source。代码编辑或命令执行请使用其他 provider。本次 SDK 迁移不提供与其他 coding agent 等效的执行能力。
+代码编辑可使用 SDK 标准文件操作、搜索、shell 和委派执行工具。与其他本地 coding provider 一样，请仅运行可信 workspace 和 prompt。credential reference 不构成操作系统级读取隔离；工具可以访问 host 和 SDK policy 允许的文件与环境变量。
 
 认证使用官方 store `$DSH_HOME/.credentials.yaml`（默认 `~/.dsh/.credentials.yaml`），或所选环境变量（例如 `DEEPSEEK_API_KEY`）。TAKT 将 credential source 与自身管理的 runtime home 分开，绝不读取、复制或改写已保存的 secret 值。配置和 session 限制请参阅[配置指南](./configuration.zh-CN.md#deepseek-harness-deepseek-harness)。
 
