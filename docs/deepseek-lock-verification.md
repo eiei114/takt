@@ -1074,6 +1074,20 @@ All canonical lock entries under the DeepSeek namespace, including bundled neste
 
 ## Independently visible clean install
 
+### Supported Node range and executed versions
+
+TAKT's unchanged `package.json` engine range is **Node.js `>=22.22.0`**. The [CI configuration](https://github.com/nrslib/takt/blob/f3cd83fb/.github/workflows/ci.yml) uses **22.22.0** for the dedicated real-SDK mock jobs and **24** for the main unit/integration/E2E jobs. [Current adapter CI 37124973437](https://github.com/nrslib/takt/actions/runs/37124973437) passed; [Nix 37124973405](https://github.com/nrslib/takt/actions/runs/37124973405) also passed on macOS/Linux. These are not Node-22-only CI results.
+
+Additional local verification of adapter source `f3cd83fb` used the real stock SDK with loopback mocks, not paid model calls:
+
+| Node | Executed verification | Result |
+|---|---|---|
+| 22.22.0 | Build, types, SDK error mapping, real SDK client; preceding full unit/light/heavy/smoke gates | Success; final real SDK client run: 24 tests |
+| 24.21.0 | Build/types, real SDK client and SDK probe integration | 2 files, 42 tests passed; exit 0 |
+| 26.0.0 | Build/types, real SDK client and SDK probe integration | 2 files, 42 tests passed; exit 0 |
+
+This records the minimum, CI/LTS major and installed newer major. It does not claim every future Node release or every minor was tested, and does not narrow or change the project's engine range. Later documentation-only changes leave the adapter and dependency graph unchanged; their fresh CI results belong in the PR.
+
 [CI 37120296023](https://github.com/nrslib/takt/actions/runs/37120296023) passed on the snapshot source. [SDK mock job 111194982834](https://github.com/nrslib/takt/actions/runs/37120296023/job/111194982834) exposes the clean-install/build/real-SDK mock result in its public log:
 
 ```text
