@@ -530,6 +530,26 @@ describe('DeepSeek Harness SDK error mapping', () => {
     expect(runtimeBehavior.closeCount).toBeGreaterThan(1);
   });
 
+  it('keeps a just-completed long turn live when newer short turns fill the idle cache', async () => {
+    runtimeBehavior.uniqueSessions = true;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    runtimeBehavior.runGate = async (prompt) => { if (prompt === 'hold-first') await gate; };
+    const longTurn = callDeepSeekHarness('worker', 'hold-first', { cwd: temporaryRoot });
+    try {
+      await vi.waitFor(() => expect(runtimeBehavior.runCount).toBe(1));
+      for (let index = 0; index < 8; index += 1) {
+        expect((await callDeepSeekHarness('worker', `fresh ${index}`, { cwd: temporaryRoot })).status).toBe('done');
+      }
+    } finally { release(); }
+    const completed = await longTurn;
+    expect(completed.status).toBe('done');
+    expect(runtimeBehavior.closeCount).toBe(1);
+    expect((await callDeepSeekHarness('worker', 'continue completed', {
+      cwd: temporaryRoot, sessionId: completed.sessionId,
+    })).status).toBe('done');
+  });
+
   it('still bounds the idle cache when simultaneous evictions are durably quarantined', async () => {
     runtimeBehavior.uniqueSessions = true;
     let release: () => void = () => {};

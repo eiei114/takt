@@ -1245,6 +1245,9 @@ let idlePruning: Promise<void> = Promise.resolve();
 async function pruneIdleProcesses(completedProcess: DeepSeekHarnessProcess): Promise<void> {
   const prune = async (): Promise<void> => {
     completedProcess.activeTurns -= 1;
+    // A long turn is freshly used when it completes, not an eviction target
+    // merely because shorter turns started after it.
+    completedProcess.lastUsed = ++runtimeUseSequence;
     while (true) {
       const idle = [...new Set(processes.values())].filter((item) => item.activeTurns === 0
         && (item.sessionId === undefined
