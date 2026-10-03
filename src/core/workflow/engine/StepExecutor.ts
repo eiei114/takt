@@ -1541,7 +1541,8 @@ export class StepExecutor {
           if (reportError.failureCategory === AGENT_FAILURE_CATEGORIES.PROVIDER_STREAM_PARSE_ERROR) {
             throw createProviderStreamParseError(reportError.failureMessage ?? getErrorMessage(reportError));
           }
-          if (reportError.failureCategory === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED) {
+          if (reportError.failureCategory === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED
+            || reportError.failureCategory === AGENT_FAILURE_CATEGORIES.CREDENTIAL_BINDING_CHANGED) {
             throw createAgentFailureError(
               reportError.failureCategory,
               reportError.failureMessage ?? getErrorMessage(reportError),

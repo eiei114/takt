@@ -19,6 +19,7 @@ export function prepareToolkitManifest(manifest, resolvedVersion) {
   return { ...manifest, dependencies: { ...manifest.dependencies, fflate: resolvedVersion } };
 }
 
+/** Validate local resolutions and prepare only the bundled toolkit metadata. */
 function prepareBundle() {
   const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   for (const name of ['@deepseek-ai/dsh', '@deepseek-ai/dsh-sdk-client']) {
@@ -56,6 +57,7 @@ function prepareBundle() {
   // credential files are untouched; npm ci restores the upstream declaration.
   writeFileSync(toolkitPath, `${JSON.stringify(prepared, null, 2)}\n`);
   console.log('Prepared DeepSeek npm bundle with patched fflate 0.8.3');
+  console.log('Source checkout metadata is now prepared for publishing. After packing (including failed or interrupted packs), run npm ci to restore upstream node_modules metadata.');
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) prepareBundle();

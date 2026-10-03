@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { getGlobalConfigDir } from '../config/paths.js';
 import {
   assertDeepSeekRuntimeCreationAllowedLocked,
+  DEEPSEEK_RUNTIME_BUSY_MESSAGE,
   markDeepSeekCleanupBarrierLocked,
   withDeepSeekRuntimeStateFileLock,
 } from './runtime-state-lock.mjs';
@@ -12,7 +13,7 @@ const STATE_DIRECTORY = 'deepseek-harness';
 const SESSION_DIRECTORY = 'sessions';
 const OWNER_DIRECTORY = 'runtime-owners';
 const CLEANUP_BLOCKED_MESSAGE =
-  'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start until the previous runtime exits.';
+  'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start. Confirm that all previous DeepSeek runtimes, supervisors, and tool processes have exited, then manually remove .runtime-state-lock and cleanup-blocked from deepseek-harness/state/ under the TAKT config directory.';
 const CONTINUATION_MESSAGE =
   'DeepSeek Harness cannot continue this session after runtime replacement or teardown; start a new TAKT session or run.';
 
@@ -20,6 +21,14 @@ export class DeepSeekRuntimeCreationBlockedError extends Error {
   constructor() {
     super(CLEANUP_BLOCKED_MESSAGE);
     this.name = 'DeepSeekRuntimeCreationBlockedError';
+  }
+}
+
+/** A healthy foreign owner holds the shared runtime home; no cleanup failed. */
+export class DeepSeekRuntimeBusyError extends Error {
+  constructor() {
+    super(DEEPSEEK_RUNTIME_BUSY_MESSAGE);
+    this.name = 'DeepSeekRuntimeBusyError';
   }
 }
 
@@ -33,6 +42,7 @@ export interface DeepSeekRuntimePaths {
 
 let runtimeStateQueue: Promise<void> = Promise.resolve();
 
+/** Serialize parent-side state operations without holding a promise across rejection. */
 async function withRuntimeStateLock<T>(operation: () => Promise<T>): Promise<T> {
   const previous = runtimeStateQueue;
   let release: () => void = () => {};
@@ -45,6 +55,7 @@ async function withRuntimeStateLock<T>(operation: () => Promise<T>): Promise<T> 
   }
 }
 
+/** Derive managed runtime/state paths independently of the user's credential home. */
 export function getDeepSeekRuntimePaths(): DeepSeekRuntimePaths {
   const root = join(getGlobalConfigDir(), STATE_DIRECTORY);
   return {
@@ -56,11 +67,13 @@ export function getDeepSeekRuntimePaths(): DeepSeekRuntimePaths {
   };
 }
 
+/** Hash session IDs into path-safe durable usage marker names. */
 export function getDeepSeekSessionMarkerPath(sessionId: string): string {
   const digest = createHash('sha256').update(sessionId).digest('hex');
   return join(getDeepSeekRuntimePaths().sessions, `${digest}.used`);
 }
 
+/** Create private state directories before session markers or owner records are written. */
 async function ensureRuntimeDirectories(): Promise<void> {
   const paths = getDeepSeekRuntimePaths();
   await Promise.all([
@@ -72,6 +85,7 @@ async function ensureRuntimeDirectories(): Promise<void> {
   ]);
 }
 
+/** Check durable session usage without treating unreadable state as a fresh session. */
 export async function hasDeepSeekSessionMarker(sessionId: string): Promise<boolean> {
   try {
     await readFile(getDeepSeekSessionMarkerPath(sessionId));
@@ -82,6 +96,7 @@ export async function hasDeepSeekSessionMarker(sessionId: string): Promise<boole
   }
 }
 
+/** Atomically mark a generated SDK ID; false indicates an already-used identity. */
 export async function markDeepSeekSessionUsed(sessionId: string): Promise<boolean> {
   const markerPath = getDeepSeekSessionMarkerPath(sessionId);
   await ensureRuntimeDirectories();
@@ -95,6 +110,7 @@ export async function markDeepSeekSessionUsed(sessionId: string): Promise<boolea
   }
 }
 
+/** Publish cleanup evidence under the shared lock or retain the lock on failure. */
 async function markDeepSeekCleanupFailureUnlocked(): Promise<void> {
   const paths = getDeepSeekRuntimePaths();
   await ensureRuntimeDirectories();
@@ -108,6 +124,7 @@ async function markDeepSeekCleanupFailureUnlocked(): Promise<void> {
   });
 }
 
+/** Serialize cleanup barrier publication against subsequent parent-side startup. */
 export async function markDeepSeekCleanupFailure(): Promise<void> {
   await withRuntimeStateLock(markDeepSeekCleanupFailureUnlocked);
 }
@@ -119,7 +136,10 @@ async function assertDeepSeekRuntimeCreationAllowedUnderQueue(): Promise<void> {
     const paths = getDeepSeekRuntimePaths();
     await withDeepSeekRuntimeStateFileLock(paths.state, () =>
       assertDeepSeekRuntimeCreationAllowedLocked(paths.state, paths.owners, process.pid));
-  } catch {
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'DEEPSEEK_RUNTIME_BUSY') {
+      throw new DeepSeekRuntimeBusyError();
+    }
     throw new DeepSeekRuntimeCreationBlockedError();
   }
 }
@@ -150,6 +170,7 @@ export async function withDeepSeekRuntimeCreation<T>(
   });
 }
 
+/** Refuse unconfirmed cleanup and distinguish healthy foreign runtime ownership. */
 export async function assertDeepSeekRuntimeCreationAllowed(): Promise<void> {
   await withRuntimeStateLock(assertDeepSeekRuntimeCreationAllowedUnderQueue);
 }

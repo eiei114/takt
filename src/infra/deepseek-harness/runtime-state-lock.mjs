@@ -10,12 +10,16 @@ const CLEANUP_BARRIER_FILE = 'cleanup-blocked';
 const LOCK_WAIT_TIMEOUT_MS = 10_000;
 const LOCK_RETRY_DELAY_MS = 10;
 const CLEANUP_BLOCKED_MESSAGE =
-  'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start until the previous runtime exits.';
+  'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start. Confirm that all previous DeepSeek runtimes, supervisors, and tool processes have exited, then manually remove .runtime-state-lock and cleanup-blocked from deepseek-harness/state/ under the TAKT config directory.';
+export const DEEPSEEK_RUNTIME_BUSY_MESSAGE =
+  'DeepSeek Harness managed runtime home is in use by another TAKT process; wait for that process to close its runtimes or use a separate TAKT config directory. Do not remove runtime state while those processes are alive.';
 
+/** Return the fixed fail-closed diagnostic, including guarded manual recovery. */
 function cleanupBlockedError() {
   return new Error(CLEANUP_BLOCKED_MESSAGE);
 }
 
+/** Probe a runtime group; treat permission denial as alive and uncertainty separately. */
 function isProcessGroupAlive(pid) {
   try {
     process.kill(-pid, 0);
@@ -27,6 +31,7 @@ function isProcessGroupAlive(pid) {
   }
 }
 
+/** Probe supervisor liveness without attempting PID-based lock recovery. */
 function isProcessAlive(pid) {
   try {
     process.kill(pid, 0);
@@ -38,6 +43,7 @@ function isProcessAlive(pid) {
   }
 }
 
+/** Validate durable cleanup evidence; malformed or unreadable barriers fail closed. */
 async function readCleanupBarrier(stateDirectory) {
   const barrierPath = join(stateDirectory, CLEANUP_BARRIER_FILE);
   let content;
@@ -64,6 +70,7 @@ async function readCleanupBarrier(stateDirectory) {
   }
 }
 
+/** Serialize runtime publication/cleanup across processes; never steal a stale lock. */
 export async function withDeepSeekRuntimeStateFileLock(stateDirectory, operation) {
   try {
     await mkdir(stateDirectory, { recursive: true, mode: 0o700 });
@@ -168,18 +175,23 @@ export async function assertDeepSeekRuntimeCreationAllowedLocked(
       continue;
     }
     if (owner.cleanupFailed === true) throw cleanupBlockedError();
-    if (owner.parentPid === parentPid && isProcessAlive(owner.supervisorPid) === true) continue;
+    if (isProcessAlive(owner.supervisorPid) === true) {
+      if (owner.parentPid === parentPid) continue;
+      const error = new Error(DEEPSEEK_RUNTIME_BUSY_MESSAGE);
+      error.code = 'DEEPSEEK_RUNTIME_BUSY';
+      throw error;
+    }
     throw cleanupBlockedError();
   }
 }
 
 /** Caller must hold `withDeepSeekRuntimeStateFileLock` for `stateDirectory`. */
-export async function markDeepSeekCleanupBarrierLocked(stateDirectory, ownerDirectory) {
+export async function markDeepSeekCleanupBarrierLocked(stateDirectory, ownerDirectory, unregisteredRuntimePid) {
   let runtimePids = [];
   let unknownRuntime = false;
   try {
     const entries = await readdir(ownerDirectory);
-    unknownRuntime = entries.length === 0;
+    unknownRuntime = entries.length === 0 && unregisteredRuntimePid === undefined;
     runtimePids = await Promise.all(entries.map(async (entry) => {
       const owner = JSON.parse(await readFile(join(ownerDirectory, entry), 'utf8'));
       if (!Number.isSafeInteger(owner?.runtimePid) || owner.runtimePid <= 0) {
@@ -190,6 +202,15 @@ export async function markDeepSeekCleanupBarrierLocked(stateDirectory, ownerDire
   } catch {
     unknownRuntime = true;
   }
+  if (unregisteredRuntimePid !== undefined) {
+    if (Number.isSafeInteger(unregisteredRuntimePid) && unregisteredRuntimePid > 0) {
+      runtimePids.push(unregisteredRuntimePid);
+    } else {
+      unknownRuntime = true;
+    }
+  }
+  // An empty registry alone cannot rule out a supervisor not yet published.
+  // The parent skips this barrier only with its own supervisor's exit receipt.
 
   const barrierPath = join(stateDirectory, CLEANUP_BARRIER_FILE);
   try {

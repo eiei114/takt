@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -9,6 +9,12 @@ const runtimeBehavior = vi.hoisted(() => ({
   notifications: [] as unknown[],
   startCount: 0,
   runCount: 0,
+  closeCount: 0,
+  instanceCount: 0,
+  uniqueSessions: false,
+  confirmedExit: false,
+  runGate: undefined as ((prompt: string) => Promise<void>) | undefined,
+  onClose: undefined as (() => Promise<void>) | undefined,
 }));
 const runtimeStateBehavior = vi.hoisted(() => ({ blockCreationAtStart: false }));
 
@@ -17,7 +23,8 @@ vi.mock('@deepseek-ai/dsh-sdk-client', async (importOriginal) => {
   return {
     ...actual,
     DeepSeekHarness: class {
-      constructor(_options: unknown) {}
+      private readonly id = runtimeBehavior.uniqueSessions ? `cache-session-${++runtimeBehavior.instanceCount}` : 'error-mapping-session';
+      constructor(private readonly options: { env?: NodeJS.ProcessEnv }) {}
 
       async start(): Promise<void> {
         runtimeBehavior.startCount += 1;
@@ -28,16 +35,27 @@ vi.mock('@deepseek-ai/dsh-sdk-client', async (importOriginal) => {
         options?: { onNotification?: (notification: unknown) => void },
       ): Promise<{ sessionId: string; finalResponse: string; finishReason: 'completed' }> {
         runtimeBehavior.runCount += 1;
+        await runtimeBehavior.runGate?.(_prompt);
         if (runtimeBehavior.runError !== undefined) {
           throw runtimeBehavior.runError;
         }
         for (const notification of runtimeBehavior.notifications) {
           options?.onNotification?.(notification);
         }
-        return { sessionId: 'error-mapping-session', finalResponse: 'ok', finishReason: 'completed' };
+        if (runtimeBehavior.uniqueSessions) {
+          options?.onNotification?.({ method: 'session.event', params: { sessionId: this.id, event: {
+            type: 'turn/end', data: { reason: { kind: 'completed' } },
+          } } });
+        }
+        return { sessionId: this.id, finalResponse: 'ok', finishReason: 'completed' };
       }
 
       async close(): Promise<void> {
+        runtimeBehavior.closeCount += 1;
+        await runtimeBehavior.onClose?.();
+        if (runtimeBehavior.confirmedExit && this.options.env?.TAKT_DSH_CLEANUP_CONFIRMATION) {
+          await writeFile(this.options.env.TAKT_DSH_CLEANUP_CONFIRMATION, 'confirmed\n');
+        }
         if (runtimeBehavior.closeError !== undefined) {
           throw runtimeBehavior.closeError;
         }
@@ -71,6 +89,7 @@ import {
 import { callDeepSeekHarness, closeDeepSeekHarnessProcesses } from '../infra/deepseek-harness/index.js';
 import {
   DeepSeekRuntimeCreationBlockedError,
+  deepSeekCleanupBlockedMessage,
   getDeepSeekRuntimePaths,
   withDeepSeekRuntimeCreation,
 } from '../infra/deepseek-harness/runtime-state.js';
@@ -99,6 +118,12 @@ describe('DeepSeek Harness SDK error mapping', () => {
     runtimeBehavior.notifications = [];
     runtimeBehavior.startCount = 0;
     runtimeBehavior.runCount = 0;
+    runtimeBehavior.closeCount = 0;
+    runtimeBehavior.instanceCount = 0;
+    runtimeBehavior.uniqueSessions = false;
+    runtimeBehavior.confirmedExit = false;
+    runtimeBehavior.runGate = undefined;
+    runtimeBehavior.onClose = undefined;
   });
 
   afterEach(async () => {
@@ -271,13 +296,16 @@ describe('DeepSeek Harness SDK error mapping', () => {
   it('reports cleanup failure with a fixed diagnostic and prevents later runtime creation', async () => {
     runtimeBehavior.runError = new JsonRpcResponseError(-32000, 'original failure');
     runtimeBehavior.closeError = new Error(`cleanup ${RAW_FAILURE_SENTINEL}`);
+    runtimeBehavior.onClose = async () => {
+      await writeFile(path.join(getDeepSeekRuntimePaths().owners, 'unconfirmed.json'), '{invalid');
+    };
     const events: StreamEvent[] = [];
     const response = await callDeepSeekHarness('worker', 'trigger cleanup failure', {
       cwd: temporaryRoot,
       onStream: (event) => events.push(event),
     });
 
-    const expected = 'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start until the previous runtime exits.';
+    const expected = deepSeekCleanupBlockedMessage();
     expect(response).toMatchObject({
       status: 'error',
       failureCategory: AGENT_FAILURE_CATEGORIES.PROVIDER_ERROR,
@@ -312,7 +340,7 @@ describe('DeepSeek Harness SDK error mapping', () => {
     const response = await callDeepSeekHarness('worker', 'must fail before runtime creation', {
       cwd: temporaryRoot,
     });
-    const expected = 'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start until the previous runtime exits.';
+    const expected = deepSeekCleanupBlockedMessage();
     expect(response).toMatchObject({
       status: 'error',
       failureCategory: AGENT_FAILURE_CATEGORIES.PROVIDER_ERROR,
@@ -333,7 +361,7 @@ describe('DeepSeek Harness SDK error mapping', () => {
       const response = await callDeepSeekHarness('worker', 'must not start without the shared lock', {
         cwd: temporaryRoot,
       });
-      const expected = 'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start until the previous runtime exits.';
+      const expected = deepSeekCleanupBlockedMessage();
       expect(response).toMatchObject({
         status: 'error',
         failureCategory: AGENT_FAILURE_CATEGORIES.PROVIDER_ERROR,
@@ -354,7 +382,7 @@ describe('DeepSeek Harness SDK error mapping', () => {
       cwd: temporaryRoot,
     });
 
-    const expected = 'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start until the previous runtime exits.';
+    const expected = deepSeekCleanupBlockedMessage();
     expect(response).toMatchObject({
       status: 'error',
       failureCategory: AGENT_FAILURE_CATEGORIES.PROVIDER_ERROR,
@@ -363,5 +391,96 @@ describe('DeepSeek Harness SDK error mapping', () => {
     });
     expect(runtimeBehavior.startCount).toBe(0);
     expect(runtimeBehavior.runCount).toBe(0);
+  });
+
+  it('does not persist an unknown-runtime barrier after an SDK close error with no remaining owners', async () => {
+    runtimeBehavior.confirmedExit = true;
+    runtimeBehavior.runError = new Error('SDK failure');
+    runtimeBehavior.closeError = new Error('SDK close failure after process exit');
+    expect((await callDeepSeekHarness('worker', 'first', { cwd: temporaryRoot })).status).toBe('error');
+    await expect(readFile(path.join(getDeepSeekRuntimePaths().state, 'cleanup-blocked'), 'utf8'))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+    runtimeBehavior.runError = undefined;
+    runtimeBehavior.closeError = undefined;
+    runtimeBehavior.uniqueSessions = true;
+    expect((await callDeepSeekHarness('worker', 'new session', { cwd: temporaryRoot })).status).toBe('done');
+  });
+
+  it('keeps an empty registry fail-closed without supervisor exit confirmation', async () => {
+    runtimeBehavior.runError = new Error('SDK failure');
+    runtimeBehavior.closeError = new Error('SDK close failure with unpublished supervisor');
+    expect((await callDeepSeekHarness('worker', 'first', { cwd: temporaryRoot })).status).toBe('error');
+    const barrier = JSON.parse(await readFile(path.join(getDeepSeekRuntimePaths().state, 'cleanup-blocked'), 'utf8'));
+    expect(barrier).toMatchObject({ unknownRuntime: true });
+    const starts = runtimeBehavior.startCount;
+    runtimeBehavior.closeError = undefined;
+    runtimeBehavior.runError = undefined;
+    expect((await callDeepSeekHarness('worker', 'must not overlap', { cwd: temporaryRoot })).status).toBe('error');
+    expect(runtimeBehavior.startCount).toBe(starts);
+  });
+
+  it('bounds idle runtimes at eight and refuses evicted session IDs without silently replaying', async () => {
+    runtimeBehavior.uniqueSessions = true;
+    const sessions: string[] = [];
+    for (let index = 0; index < 8; index += 1) {
+      const result = await callDeepSeekHarness('worker', `fresh ${index}`, { cwd: temporaryRoot });
+      expect(result.status).toBe('done');
+      sessions.push(result.sessionId!);
+    }
+    expect((await callDeepSeekHarness('worker', 'touch oldest', { cwd: temporaryRoot, sessionId: sessions[0] })).status).toBe('done');
+    expect((await callDeepSeekHarness('worker', 'ninth', { cwd: temporaryRoot })).status).toBe('done');
+    expect(runtimeBehavior.closeCount).toBe(1);
+    const runs = runtimeBehavior.runCount;
+    expect(await callDeepSeekHarness('worker', 'evicted', { cwd: temporaryRoot, sessionId: sessions[1] }))
+      .toMatchObject({ status: 'error', failureCategory: AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED });
+    expect(runtimeBehavior.runCount).toBe(runs);
+    expect((await callDeepSeekHarness('worker', 'still live', { cwd: temporaryRoot, sessionId: sessions[0] })).status).toBe('done');
+  });
+
+  it('does not evict active or queued turns when pruning idle runtimes', async () => {
+    runtimeBehavior.uniqueSessions = true;
+    const first = await callDeepSeekHarness('worker', 'first', { cwd: temporaryRoot });
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    runtimeBehavior.runGate = async (prompt) => { if (prompt === 'hold') await gate; };
+    const active = callDeepSeekHarness('worker', 'hold', { cwd: temporaryRoot, sessionId: first.sessionId });
+    await vi.waitFor(() => expect(runtimeBehavior.runCount).toBe(2));
+    const queued = callDeepSeekHarness('worker', 'queued', { cwd: temporaryRoot, sessionId: first.sessionId });
+    try {
+      for (let index = 0; index < 9; index += 1) {
+        expect((await callDeepSeekHarness('worker', `fresh ${index}`, { cwd: temporaryRoot })).status).toBe('done');
+      }
+    } finally { release(); }
+    expect((await active).status).toBe('done');
+    expect((await queued).status).toBe('done');
+    expect((await callDeepSeekHarness('worker', 'still live', { cwd: temporaryRoot, sessionId: first.sessionId })).status).toBe('done');
+  });
+
+  it('bounds the idle cache after simultaneous fresh-turn completions', async () => {
+    runtimeBehavior.uniqueSessions = true;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    runtimeBehavior.runGate = () => gate;
+    const turns = Array.from({ length: 12 }, (_, index) => callDeepSeekHarness('worker', `fresh ${index}`, { cwd: temporaryRoot }));
+    try { await vi.waitFor(() => expect(runtimeBehavior.runCount).toBe(12)); }
+    finally { release(); }
+    expect((await Promise.all(turns)).every((turn) => turn.status === 'done')).toBe(true);
+    expect(runtimeBehavior.closeCount).toBe(4);
+  });
+
+  it('fails closed when idle eviction cannot confirm cleanup', async () => {
+    runtimeBehavior.uniqueSessions = true;
+    for (let index = 0; index < 8; index += 1) {
+      expect((await callDeepSeekHarness('worker', `fresh ${index}`, { cwd: temporaryRoot })).status).toBe('done');
+    }
+    runtimeBehavior.closeError = new Error('unconfirmed cleanup');
+    runtimeBehavior.onClose = async () => {
+      await writeFile(path.join(getDeepSeekRuntimePaths().owners, 'unconfirmed.json'), '{invalid');
+    };
+    expect(await callDeepSeekHarness('worker', 'ninth', { cwd: temporaryRoot }))
+      .toMatchObject({ status: 'error', content: deepSeekCleanupBlockedMessage() });
+    const starts = runtimeBehavior.startCount;
+    expect((await callDeepSeekHarness('worker', 'blocked', { cwd: temporaryRoot })).status).toBe('error');
+    expect(runtimeBehavior.startCount).toBe(starts);
   });
 });

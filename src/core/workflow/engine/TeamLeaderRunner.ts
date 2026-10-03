@@ -453,7 +453,7 @@ export class TeamLeaderRunner {
     };
     const leaderStream = composedLeaderOptions.onStream;
     const inspectTools = resolveTeamLeaderInspectToolsForProvider(teamLeaderConfig, leaderProvider);
-    const inspectGuidance = isTeamLeaderInspectGuidanceApplicable(teamLeaderConfig.inspectTools);
+    const inspectGuidance = isTeamLeaderInspectGuidanceApplicable(inspectTools);
     const leaderMcpServers = this.deps.optionsBuilder.resolveMcpServersForStep(leaderStep, leaderProvider);
 
     emitTeamLeaderProgressHint(this.deps.engineOptions, 'decompose');

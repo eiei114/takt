@@ -1102,7 +1102,8 @@ export class ParallelRunner {
                 if (reportError.failureCategory === AGENT_FAILURE_CATEGORIES.PROVIDER_STREAM_PARSE_ERROR) {
                   throw createProviderStreamParseError(reportError.failureMessage ?? getErrorMessage(reportError));
                 }
-                if (reportError.failureCategory === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED) {
+                if (reportError.failureCategory === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED
+                  || reportError.failureCategory === AGENT_FAILURE_CATEGORIES.CREDENTIAL_BINDING_CHANGED) {
                   throw createAgentFailureError(
                     reportError.failureCategory,
                     reportError.failureMessage ?? getErrorMessage(reportError),
@@ -1245,7 +1246,8 @@ export class ParallelRunner {
         ...(isProviderStreamParseError(result.reason)
           ? { failureCategory: result.reason.failureCategory }
           : isAgentFailureError(result.reason)
-            && result.reason.failureCategory === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED
+            && (result.reason.failureCategory === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED
+              || result.reason.failureCategory === AGENT_FAILURE_CATEGORIES.CREDENTIAL_BINDING_CHANGED)
             ? { failureCategory: result.reason.failureCategory }
             : {}),
       };
@@ -1296,7 +1298,8 @@ export class ParallelRunner {
     );
     const continuationFailureResult = terminalResults.find(
       (result) => result.response.failureCategory
-        === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED,
+        === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED
+        || result.response.failureCategory === AGENT_FAILURE_CATEGORIES.CREDENTIAL_BINDING_CHANGED,
     );
     const rateLimitedResult = terminalResults.find((r) => r.response.status === 'rate_limited');
     if (

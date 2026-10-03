@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -78,6 +79,7 @@ import {
 import {
   assertDeepSeekRuntimeCreationAllowed,
   DeepSeekRuntimeCreationBlockedError,
+  DeepSeekRuntimeBusyError,
   deepSeekCleanupBlockedMessage,
   deepSeekContinuationMessage,
   getDeepSeekRuntimePaths,
@@ -192,10 +194,12 @@ interface ProcessEnvironmentResolution {
   nestedObservabilityFingerprint: string;
 }
 
+/** Recognize JSON objects while excluding null and arrays. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** Reject malformed protocol objects using a fixed field description. */
 function requireRecord(value: unknown, description: string): Record<string, unknown> {
   if (!isRecord(value)) {
     throw new DeepSeekHarnessProtocolError(`DeepSeek Harness returned a malformed ${description}`);
@@ -203,6 +207,7 @@ function requireRecord(value: unknown, description: string): Record<string, unkn
   return value;
 }
 
+/** Validate protocol text before event normalization. */
 function requireString(value: unknown, description: string): string {
   if (typeof value !== 'string') {
     throw new DeepSeekHarnessProtocolError(`DeepSeek Harness returned a malformed ${description}`);
@@ -210,6 +215,7 @@ function requireString(value: unknown, description: string): string {
   return value;
 }
 
+/** Resolve bounded timeout/token options without zero or integer overflow. */
 function requirePositiveSafeInteger(
   value: number | undefined,
   name: string,
@@ -226,10 +232,12 @@ function requirePositiveSafeInteger(
   return value;
 }
 
+/** Read cancellation state without requiring a caller-provided signal. */
 function isAbortSignalAborted(signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true;
 }
 
+/** Resolve ancestor symlinks while preserving a not-yet-created path tail. */
 function canonicalizePathWithMissingTail(pathValue: string): string {
   const missingSegments: string[] = [];
   let current = pathValue;
@@ -255,6 +263,7 @@ function canonicalizePathWithMissingTail(pathValue: string): string {
   }
 }
 
+/** Reject unsafe SDK IDs before using them in runtime state or output. */
 function assertSafeSessionId(sessionId: string | undefined): void {
   if (sessionId === undefined) {
     return;
@@ -277,6 +286,7 @@ function assertSafeSessionId(sessionId: string | undefined): void {
   }
 }
 
+/** Prevent identifiers from carrying credentials into non-text stream fields. */
 function assertOpaqueProtocolIdentifier(
   identifier: string,
   knownSecrets: Record<string, string>,
@@ -287,6 +297,7 @@ function assertOpaqueProtocolIdentifier(
   }
 }
 
+/** Enforce credential-safe session IDs without rewriting their identity. */
 function assertOpaqueSessionId(
   sessionId: string | undefined,
   knownSecrets: Record<string, string>,
@@ -296,6 +307,7 @@ function assertOpaqueSessionId(
   }
 }
 
+/** Refuse credential-bearing tool IDs without breaking call/result correlation. */
 function assertOpaqueToolId(id: string, knownSecrets: Record<string, string>): void {
   assertOpaqueProtocolIdentifier(id, knownSecrets, 'tool ID');
 }
@@ -341,6 +353,7 @@ interface ConfiguredDeepSeekCredential {
   baseUrl: string | undefined;
 }
 
+/** Resolve the environment credential without opening the secret store. */
 function resolveConfiguredDeepSeekCredential(
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
   childProcessEnv: Readonly<Record<string, string>> | undefined,
@@ -352,6 +365,7 @@ function resolveConfiguredDeepSeekCredential(
   };
 }
 
+/** Collect available environment secrets solely for output redaction. */
 function resolveKnownSecrets(
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
   childProcessEnv: Readonly<Record<string, string>> | undefined,
@@ -366,6 +380,7 @@ function resolveKnownSecrets(
 
 // URL validation can fail before the process record exists; retain raw configured values so
 // reporting that failure does not throw again before the redactor can sanitize it.
+/** Build redaction context even when setup fails before runtime creation. */
 function resolveKnownSecretsForFailure(
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
   childProcessEnv: Readonly<Record<string, string>> | undefined,
@@ -383,6 +398,7 @@ function resolveKnownSecretsForFailure(
   };
 }
 
+/** Snapshot defined environment values for deterministic credential binding. */
 function getAmbientEnvironment(): Record<string, string> {
   const environment: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -393,12 +409,14 @@ function getAmbientEnvironment(): Record<string, string> {
   return environment;
 }
 
+/** Include nested-observability settings in runtime reuse compatibility. */
 function getProcessNestedObservabilityFingerprint(
   childProcessEnv: Readonly<Record<string, string>> | undefined,
 ): string {
   return getNestedObservabilityEnvFingerprint(childProcessEnv ?? getAmbientEnvironment());
 }
 
+/** Separate credential source from runtime home and disable unsafe SDK logs. */
 function resolveProcessEnvironment(
   providerOptions: DeepSeekHarnessProviderOptions | undefined,
   childProcessEnv: Readonly<Record<string, string>> | undefined,
@@ -432,6 +450,7 @@ function resolveProcessEnvironment(
   };
 }
 
+/** Canonicalize key order for stable runtime configuration fingerprints. */
 function stableValue(value: unknown): unknown {
   if (value === null || typeof value !== 'object') {
     return value;
@@ -475,6 +494,7 @@ function processKey(
   });
 }
 
+/** Remove known secret values and credential fields from complete text. */
 function sanitizeKnownSecrets(text: string, knownSecrets: Record<string, string>): string {
   let sanitized = sanitizeSensitiveTextWithKnownValues(text, knownSecrets);
   for (const value of Object.values(knownSecrets)
@@ -485,6 +505,7 @@ function sanitizeKnownSecrets(text: string, knownSecrets: Record<string, string>
   return sanitized;
 }
 
+/** Convert diagnostic values into redacted, control-character-safe text. */
 function safeMessage(value: unknown, knownSecrets: Record<string, string>): string {
   const sanitized = sanitizeTerminalText(
     sanitizeKnownSecrets(getErrorMessage(value), knownSecrets),
@@ -495,6 +516,7 @@ function safeMessage(value: unknown, knownSecrets: Record<string, string>): stri
   return `${Buffer.from(sanitized).subarray(0, DEEPSEEK_HARNESS_MAX_ERROR_BYTES).toString('utf8')}...`;
 }
 
+/** Retain a possible secret prefix at a chunk boundary until more text arrives. */
 function longestKnownSecretPrefixSuffix(
   text: string,
   knownSecrets: Record<string, string>,
@@ -516,10 +538,12 @@ function longestKnownSecretPrefixSuffix(
   return longest;
 }
 
+/** Detect credential-field boundaries requiring buffered redaction. */
 function hasSensitiveCredentialBoundary(text: string): boolean {
   return /(?:api[_-]?key|token|password|secret|credential|authorization|cookie|session[_-]?id)(?:\s*[:=]|\s*$)/iu.test(text);
 }
 
+/** Emit only safe buffered text, preserving channels and possible secret suffixes. */
 function drainResponseRedactedChunks(
   context: ResponseRedactionContext,
   knownSecrets: Record<string, string>,
@@ -574,12 +598,14 @@ function drainResponseRedactedChunks(
   return chunks;
 }
 
+/** Convert a redacted text/thinking chunk into a provider-neutral event. */
 function responseTextEvent(chunk: ResponseTextChunk): StreamEvent {
   return chunk.field === 'text'
     ? { type: 'text', data: { text: chunk.text } }
     : { type: 'thinking', data: { thinking: chunk.text } };
 }
 
+/** Buffer text so credentials split across notifications remain redacted. */
 function writeResponseRedactedChunks(
   context: ResponseRedactionContext,
   text: string,
@@ -616,6 +642,7 @@ function writeResponseRedactedChunks(
   return [];
 }
 
+/** Redact final values against unfinished streamed credential boundaries. */
 function redactCrossBoundaryFinalValue(
   value: string,
   pendingText: string,
@@ -652,6 +679,7 @@ function redactCrossBoundaryFinalValue(
   return sanitizeSensitiveTextWithKnownValues(value, knownSecrets);
 }
 
+/** Deliver sanitized events while preserving already-validated opaque identifier fields. */
 function invokeStream(
   onStream: StreamCallback | undefined,
   event: StreamEvent,
@@ -690,6 +718,7 @@ function invokeStream(
   } as unknown as StreamEvent);
 }
 
+/** Flush buffered text on completion/failure with conservative redaction. */
 function flushHarnessResponseRedactor(
   state: HarnessStreamState,
   onStream: StreamCallback | undefined,
@@ -713,6 +742,7 @@ function flushHarnessResponseRedactor(
   }
 }
 
+/** Sanitize the final SDK response independently of streamed delivery. */
 function redactFinalResponse(
   context: ResponseRedactionContext,
   value: string,
@@ -724,10 +754,12 @@ function redactFinalResponse(
   return finalResponse;
 }
 
+/** Require an SDK event data object before reading type-specific fields. */
 function eventData(event: Record<string, unknown>): Record<string, unknown> {
   return requireRecord(event.data, 'session event data');
 }
 
+/** Validate structured SDK content blocks instead of trusting arbitrary payloads. */
 function contentBlocks(value: unknown): readonly Record<string, unknown>[] {
   if (!Array.isArray(value) || !value.every(isRecord)) {
     throw new DeepSeekHarnessProtocolError('DeepSeek Harness returned malformed content blocks');
@@ -735,6 +767,7 @@ function contentBlocks(value: unknown): readonly Record<string, unknown>[] {
   return value;
 }
 
+/** Extract text blocks for provider-neutral tool output. */
 function textFromContentBlocks(value: unknown): string {
   return contentBlocks(value)
     .filter((block) => block.type === 'text')
@@ -742,6 +775,7 @@ function textFromContentBlocks(value: unknown): string {
     .join('');
 }
 
+/** Decode tool arguments into a validated object or fixed protocol failure. */
 function parseToolArguments(raw: unknown): Record<string, unknown> {
   const text = requireString(raw, 'tool-call arguments');
   if (text.trim().length === 0) {
@@ -759,6 +793,7 @@ function parseToolArguments(raw: unknown): Record<string, unknown> {
   return parsed;
 }
 
+/** Construct a correlated invocation event from validated SDK fields. */
 function toolUseEvent(
   id: string,
   name: string,
@@ -767,14 +802,17 @@ function toolUseEvent(
   return { type: 'tool_use', data: { id, tool: name, input } };
 }
 
+/** Construct a result preserving its invocation ID and error flag. */
 function toolResultEvent(id: string, content: string, isError: boolean): StreamEvent {
   return { type: 'tool_result', data: { id, content, isError } };
 }
 
+/** Record fixed failure evidence without retaining credential-bearing upstream details. */
 function recordFailureReason(state: HarnessStreamState, _reason: Record<string, unknown>): void {
   state.failureReason = 'DeepSeek Harness turn ended with an error';
 }
 
+/** Translate SDK turn events into redacted TAKT text, thinking, tool and end events. */
 function normalizeHarnessEvent(
   sessionId: string,
   event: Record<string, unknown>,
@@ -922,6 +960,7 @@ function normalizeHarnessEvent(
   }
 }
 
+/** Route known notifications after validating their session identity. */
 function normalizeHarnessNotification(
   notification: HarnessNotification,
   state: HarnessStreamState,
@@ -953,6 +992,10 @@ function normalizeHarnessNotification(
 
 class DeepSeekHarnessProcess {
   private closed = false;
+  activeTurns = 1;
+  lastUsed = ++runtimeUseSequence;
+  sessionId: string | undefined;
+  private readonly cleanupConfirmationPath: string;
 
   constructor(
     private readonly configuration: ResolvedDeepSeekConfiguration,
@@ -962,12 +1005,14 @@ class DeepSeekHarnessProcess {
     readonly credentialFingerprint: string,
   ) {
     const runtimePaths = getDeepSeekRuntimePaths();
+    this.cleanupConfirmationPath = path.join(path.dirname(credentialPatch.path), 'runtime-exit-confirmed');
     const supervisorPath = fileURLToPath(new URL('./runtime-supervisor.mjs', import.meta.url));
     const env: NodeJS.ProcessEnv = {
       ...environment.env,
       TAKT_DSH_OWNER_DIRECTORY: runtimePaths.owners,
       TAKT_DSH_STATE_DIRECTORY: runtimePaths.state,
       TAKT_DSH_PARENT_PID: String(process.pid),
+      TAKT_DSH_CLEANUP_CONFIRMATION: this.cleanupConfirmationPath,
     };
     this.harness = new DeepSeekHarness({
       dshBin: supervisorPath,
@@ -1001,6 +1046,7 @@ class DeepSeekHarnessProcess {
     return this.environment.knownSecrets;
   }
 
+  /** Start under the durable gate and clean up failed initialization. */
   async start(abortSignal?: AbortSignal): Promise<void> {
     if (this.closed) throw new TransportClosedError('closed');
     if (isAbortSignalAborted(abortSignal)) throw abortError(abortSignal?.reason);
@@ -1016,7 +1062,7 @@ class DeepSeekHarnessProcess {
           try {
             await this.harness.close();
           } catch {
-            return false;
+            if (!(await this.hasCleanupConfirmation())) return false;
           }
           this.closed = true;
           try {
@@ -1039,7 +1085,8 @@ class DeepSeekHarnessProcess {
       if (error instanceof TransportClosedError) {
         try {
           await assertDeepSeekRuntimeCreationAllowed();
-        } catch {
+        } catch (gateError) {
+          if (gateError instanceof DeepSeekRuntimeBusyError) throw gateError;
           throw new DeepSeekHarnessTransportError(deepSeekCleanupBlockedMessage(), 'cleanup-failed');
         }
       }
@@ -1047,6 +1094,7 @@ class DeepSeekHarnessProcess {
     }
   }
 
+  /** Execute one serialized SDK turn and translate typed upstream failures. */
   async run(
     prompt: string,
     sessionId: string | undefined,
@@ -1092,13 +1140,16 @@ class DeepSeekHarnessProcess {
     }
   }
 
+  /** Close SDK/credential patch and retain barriers for unconfirmed processes. */
   async close(): Promise<void> {
     if (this.closed) return;
     try {
       await this.harness.close();
     } catch {
-      await markDeepSeekCleanupFailure().catch(() => undefined);
-      throw new DeepSeekHarnessTransportError(deepSeekCleanupBlockedMessage(), 'cleanup-failed');
+      if (!(await this.hasCleanupConfirmation())) {
+        await markDeepSeekCleanupFailure().catch(() => undefined);
+        throw new DeepSeekHarnessTransportError(deepSeekCleanupBlockedMessage(), 'cleanup-failed');
+      }
     }
     try {
       await this.credentialPatch.dispose();
@@ -1110,9 +1161,20 @@ class DeepSeekHarnessProcess {
     }
     this.closed = true;
   }
+
+  /** Accept only this instance's supervisor receipt written after proven group exit. */
+  private async hasCleanupConfirmation(): Promise<boolean> {
+    try {
+      return await readFile(this.cleanupConfirmationPath, 'utf8') === 'confirmed\n';
+    } catch {
+      return false;
+    }
+  }
 }
 
+/** Map SDK error types to fixed diagnostics without exposing raw upstream data. */
 function mapSdkError(error: unknown): Error {
+  if (error instanceof DeepSeekRuntimeBusyError) return error;
   if (error instanceof DeepSeekRuntimeCreationBlockedError) {
     return new DeepSeekHarnessTransportError(deepSeekCleanupBlockedMessage(), 'cleanup-failed');
   }
@@ -1163,15 +1225,42 @@ const processes = new Map<string, DeepSeekHarnessProcess>();
 const sessionBindings = new Map<string, SessionBinding>();
 const sessionDispatchQueue = createSessionDispatchQueue();
 let oneShotProcessSequence = 0;
+let runtimeUseSequence = 0;
+const MAX_IDLE_RUNTIMES = 8;
+const sessionRequests = new Map<string, number>();
+let idlePruning: Promise<void> = Promise.resolve();
 
+/** Close least-recently-used idle runtimes; never evict active or queued turns. */
+async function pruneIdleProcesses(completedProcess: DeepSeekHarnessProcess): Promise<void> {
+  const prune = async (): Promise<void> => {
+    completedProcess.activeTurns -= 1;
+    while (true) {
+      const idle = [...new Set(processes.values())].filter((item) => item.activeTurns === 0
+        && (item.sessionId === undefined
+          || (sessionRequests.get(item.sessionId) ?? 0) <= (item === completedProcess ? 1 : 0)))
+        .sort((left, right) => left.lastUsed - right.lastUsed);
+      if (idle.length <= MAX_IDLE_RUNTIMES) return;
+      const oldest = idle[0]!;
+      removeProcess(oldest);
+      await oldest.close();
+    }
+  };
+  const result = idlePruning.then(prune, prune);
+  idlePruning = result.catch(() => undefined);
+  await result;
+}
+
+/** Namespace session keys separately from fresh runtime keys. */
 function sessionProcessKey(sessionId: string): string {
   return `session:${createHash('sha256').update(sessionId).digest('hex')}`;
 }
 
+/** Remove every cache alias and live credential binding for a disposed runtime. */
 function removeProcess(processRecord: DeepSeekHarnessProcess): void {
   for (const [key, value] of processes) {
     if (value === processRecord) processes.delete(key);
   }
+  if (processRecord.sessionId !== undefined) sessionBindings.delete(processRecord.sessionId);
 }
 
 class DeepSeekHarnessContinuationError extends Error {
@@ -1181,6 +1270,7 @@ class DeepSeekHarnessContinuationError extends Error {
   }
 }
 
+/** Reuse only compatible live sessions; create runtimes only for ID-less requests. */
 async function getOrCreateProcess(
   options: DeepSeekHarnessCallOptions,
   credentialFailureContext: CredentialFailureContext,
@@ -1222,7 +1312,11 @@ async function getOrCreateProcess(
         );
       }
       if (priorBinding.identity !== identity) throw new DeepSeekHarnessContinuationError();
-      if (priorProcess !== undefined && !priorProcess.isClosed) return priorProcess;
+      if (priorProcess !== undefined && !priorProcess.isClosed) {
+        priorProcess.activeTurns += 1;
+        priorProcess.lastUsed = ++runtimeUseSequence;
+        return priorProcess;
+      }
     }
     // A supplied ID is a continuation request, never permission to mint a new
     // SDK session. Preserve cleanup-barrier diagnostics before refusing it.
@@ -1250,6 +1344,7 @@ async function getOrCreateProcess(
   }
 }
 
+/** Format classified binding failures without reading stored secrets. */
 function credentialDiagnosticDetail(
   classification: DeepSeekCredentialFailureClassification,
   errorContext: { sourceHomeOrigin?: DeepSeekCredentialHomeOrigin; reference?: string },
@@ -1267,6 +1362,7 @@ function credentialDiagnosticDetail(
   }));
 }
 
+/** Recognize only adapter-owned typed, fixed diagnostic evidence. */
 function hasSafeRuntimeFailureEvidence(
   evidence: DeepSeekRuntimeFailureEvidence,
   knownSecrets: Record<string, string>,
@@ -1288,6 +1384,7 @@ function hasSafeRuntimeFailureEvidence(
     && !Object.values(knownSecrets).some((value) => value.length > 0 && projected.includes(value));
 }
 
+/** Extract safe evidence without inspecting raw SDK exception causes. */
 function runtimeFailureEvidence(
   error: DeepSeekHarnessTransportError | DeepSeekHarnessProviderError,
 ): DeepSeekRuntimeFailureEvidence {
@@ -1296,6 +1393,7 @@ function runtimeFailureEvidence(
     : { code: error.providerCode, message: error.providerMessage };
 }
 
+/** Classify adapter-owned evidence and leave unknown failures unclassified. */
 function safeRuntimeFailureClassification(
   error: DeepSeekHarnessTransportError | DeepSeekHarnessProviderError,
   knownSecrets: Record<string, string>,
@@ -1307,12 +1405,16 @@ function safeRuntimeFailureClassification(
   return classifyDeepSeekRuntimeFailure(evidence);
 }
 
+/** Preserve terminal failure categories and redact their user-facing diagnostics. */
 function failureDetail(
   error: unknown,
   options: DeepSeekHarnessCallOptions,
   knownSecrets: Record<string, string>,
   credentialFailureContext: CredentialFailureContext = {},
 ): AgentFailureDetail {
+  if (error instanceof DeepSeekRuntimeBusyError) {
+    return createProviderErrorFailure(error.message);
+  }
   if (error instanceof DeepSeekRuntimeCreationBlockedError) {
     return createProviderErrorFailure(deepSeekCleanupBlockedMessage());
   }
@@ -1387,6 +1489,7 @@ function failureDetail(
   return createProviderErrorFailure(reason);
 }
 
+/** Emit terminal failure with the requested session retention policy. */
 function emitFailure(
   onStream: StreamCallback | undefined,
   content: string,
@@ -1409,11 +1512,13 @@ function emitFailure(
   }, knownSecrets, preserveSessionId ? 'sessionId' : undefined);
 }
 
+/** Reject missing/unsupported completion evidence instead of reporting success. */
 function finishReasonFailure(state: HarnessStreamState): Error {
   const reason = state.failureReason ?? 'DeepSeek Harness turn ended with an error';
   return new DeepSeekHarnessProviderError(reason);
 }
 
+/** Validate completion and produce a redacted response before queue release. */
 function createSuccessResponse(
   agentType: string,
   result: HarnessRunResult,
@@ -1502,6 +1607,9 @@ export async function callDeepSeekHarness(
   };
   let processRecord: DeepSeekHarnessProcess | undefined;
   const requestedSessionId = turnOptions.sessionId;
+  if (requestedSessionId !== undefined) {
+    sessionRequests.set(requestedSessionId, (sessionRequests.get(requestedSessionId) ?? 0) + 1);
+  }
   const credentialFailureContext: CredentialFailureContext = {};
   const state: HarnessStreamState = {
     initializedSessions: new Set(),
@@ -1521,6 +1629,7 @@ export async function callDeepSeekHarness(
     const run = async (): Promise<AgentResponse> => {
       const currentProcess = await getOrCreateProcess(turnOptions, credentialFailureContext);
       processRecord = currentProcess;
+      let turnReleased = false;
       try {
         const result = await currentProcess.run(
           prompt,
@@ -1539,6 +1648,7 @@ export async function callDeepSeekHarness(
             throw new DeepSeekHarnessContinuationError();
           }
           removeProcess(currentProcess);
+          currentProcess.sessionId = result.sessionId;
           processes.set(sessionKey, currentProcess);
           sessionBindings.set(result.sessionId, {
             identity: currentProcess.identity,
@@ -1547,6 +1657,10 @@ export async function callDeepSeekHarness(
         }
         // Keep validation and cleanup inside the session queue: the next turn
         // must not acquire this process before its response has been validated.
+        // Serialize release and pruning: simultaneous completions must not
+        // all observe one another as active and exceed the idle cap.
+        turnReleased = true;
+        await pruneIdleProcesses(currentProcess);
         return createSuccessResponse(agentType, result, state, turnOptions, currentProcess.knownSecrets);
       } catch (error) {
         try {
@@ -1557,6 +1671,8 @@ export async function callDeepSeekHarness(
         }
         removeProcess(currentProcess);
         throw error;
+      } finally {
+        if (!turnReleased) currentProcess.activeTurns -= 1;
       }
     };
     const response = requestedSessionId === undefined
@@ -1610,11 +1726,18 @@ export async function callDeepSeekHarness(
       timestamp: new Date(),
       sessionId: preserveRequestedSessionId ? requestedSessionId : undefined,
     };
+  } finally {
+    if (requestedSessionId !== undefined) {
+      const remaining = (sessionRequests.get(requestedSessionId) ?? 1) - 1;
+      if (remaining > 0) sessionRequests.set(requestedSessionId, remaining);
+      else sessionRequests.delete(requestedSessionId);
+    }
   }
 }
 
 /** Close every live SDK runtime while retaining durable session and cleanup markers. */
 export async function closeDeepSeekHarnessProcesses(): Promise<void> {
+  await idlePruning;
   const active = [...processes.values()];
   processes.clear();
   sessionBindings.clear();

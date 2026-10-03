@@ -21,11 +21,13 @@ if (!ownerDirectory || !stateDirectory || !Number.isSafeInteger(parentPid) || pa
 const runtimePackage = require('@deepseek-ai/dsh/package.json');
 const runtimeBin = require.resolve(`@deepseek-ai/dsh/${runtimePackage.bin.dsh}`);
 const ownerPath = join(ownerDirectory, `${process.pid}.json`);
+const cleanupConfirmationPath = process.env.TAKT_DSH_CLEANUP_CONFIRMATION;
 let runtime;
 let terminationPromise;
 let resolveOwnerReady;
 const ownerReady = new Promise((resolve) => { resolveOwnerReady = resolve; });
 
+/** Atomically publish the supervised runtime PID and optional failed-cleanup marker. */
 async function writeOwner(cleanupFailure = false) {
   if (runtime?.pid === undefined) return;
   const tempPath = `${ownerPath}.${process.pid}.tmp`;
@@ -45,6 +47,7 @@ async function writeOwner(cleanupFailure = false) {
   }
 }
 
+/** Probe the whole runtime group, preserving uncertainty as distinct from exit. */
 function processGroupState(pid) {
   try {
     process.kill(-pid, 0);
@@ -56,6 +59,7 @@ function processGroupState(pid) {
   }
 }
 
+/** Wait a bounded interval for every tool/runtime process in the group to exit. */
 async function waitForProcessGroupExit(pid, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() <= deadline) {
@@ -65,6 +69,7 @@ async function waitForProcessGroupExit(pid, timeoutMs) {
   return processGroupState(pid) === false;
 }
 
+/** Signal the entire supervised group without surfacing raw OS diagnostic text. */
 function signalProcessGroup(pid, signal) {
   try {
     process.kill(-pid, signal);
@@ -75,21 +80,24 @@ function signalProcessGroup(pid, signal) {
   }
 }
 
+/** Persist failed cleanup, including unpublished runtime PIDs, or retain the state lock. */
 async function recordUnconfirmedCleanup(lock) {
   try {
     await writeOwner(true);
   } catch {
     try {
-      await markDeepSeekCleanupBarrierLocked(stateDirectory, ownerDirectory);
+      await markDeepSeekCleanupBarrierLocked(stateDirectory, ownerDirectory, runtime?.pid);
     } catch {
       lock.retain();
     }
   }
 }
 
+/** Escalate TERM to KILL under the state lock; remove owners only after proven exit. */
 async function cleanRuntimeGroupLocked(lock) {
   if (runtime?.pid === undefined) {
     try {
+      if (cleanupConfirmationPath) await writeFile(cleanupConfirmationPath, 'confirmed\n', { mode: 0o600 });
       await rm(ownerPath, { force: true });
       return true;
     } catch {
@@ -100,6 +108,7 @@ async function cleanRuntimeGroupLocked(lock) {
   signalProcessGroup(runtime.pid, 'SIGTERM');
   if (await waitForProcessGroupExit(runtime.pid, 1_000)) {
     try {
+      if (cleanupConfirmationPath) await writeFile(cleanupConfirmationPath, 'confirmed\n', { mode: 0o600 });
       await rm(ownerPath, { force: true });
       return true;
     } catch {
@@ -110,6 +119,7 @@ async function cleanRuntimeGroupLocked(lock) {
   signalProcessGroup(runtime.pid, 'SIGKILL');
   if (await waitForProcessGroupExit(runtime.pid, 2_000)) {
     try {
+      if (cleanupConfirmationPath) await writeFile(cleanupConfirmationPath, 'confirmed\n', { mode: 0o600 });
       await rm(ownerPath, { force: true });
       return true;
     } catch {
@@ -121,10 +131,12 @@ async function cleanRuntimeGroupLocked(lock) {
   return false;
 }
 
+/** Acquire the shared state lock before group termination and owner removal. */
 async function cleanRuntimeGroup() {
   return withDeepSeekRuntimeStateFileLock(stateDirectory, (lock) => cleanRuntimeGroupLocked(lock));
 }
 
+/** Share one termination promise between exit, cancellation and parent-loss handlers. */
 function terminateRuntime() {
   if (terminationPromise === undefined) {
     terminationPromise = cleanRuntimeGroup();

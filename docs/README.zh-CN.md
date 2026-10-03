@@ -120,6 +120,8 @@ TAKT 需要 Node.js `>=22.22.0`。
 
 runtime 保持运行且配置不变时，多个 turn 会按 FIFO 顺序串行执行。SDK 无法在 runtime 重启或 teardown 后恢复已保存的历史，也无法在保留该历史的同时替换 runtime 配置。此时 TAKT 会通过固定诊断拒绝旧 session。要使用新配置，请用新的 session identity 启动一个新的 TAKT session/run。这是有意的破坏性变更；跨 runtime 的历史保留延期支持。TAKT 不会自动删除旧 Python/uv 安装的文件；如需清理，请检查旧 managed environment 后手动处理。现有 credential 文件归用户所有，不会迁移或删除。
 
+每个进程最多保留八个 idle runtime，执行中及排队中的 turn 受保护。淘汰后的 ID 无法恢复历史。其他 TAKT 进程正常使用共享 home 时，会显示 home 占用错误；等待其退出或使用另一个 `TAKT_CONFIG_DIR`，不得通过删除 state 绕过。旧 Python 环境清理和残留 lock 恢复请遵循[配置指南](./configuration.zh-CN.md#deepseek-harness-deepseek-harness)的“旧环境的手动清理”。保留 credential store，不要删除整个 managed home。
+
 为避免 provider 错误回显 credential 后被写入 session 文件，TAKT 会禁用 runtime 的 JSONL session-persistence plugin。同一 runtime 内仍可继续多个 turn。TAKT 不读取或删除已有的 DeepSeek session 文件，会保留这些文件。
 
 代码编辑可使用 SDK 标准文件操作、搜索、shell 和委派执行工具。与其他本地 coding provider 一样，请仅运行可信 workspace 和 prompt。credential reference 不构成操作系统级读取隔离；工具可以访问 host 和 SDK policy 允许的文件与环境变量。

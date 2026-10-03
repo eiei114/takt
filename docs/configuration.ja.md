@@ -1262,7 +1262,13 @@ provider error が credential を含んで session file に保存されること
 
 初期化のtimeoutは30秒固定です。turnの`request_timeout_ms`、shutdownの`shutdown_timeout_ms`とは独立しています。SDK runtime は stderr を破棄し process group を監視する supervisor の下で起動します。cleanup を確認できない場合は、別 session を含むすべての次回 runtime 起動を、旧 process group の終了が確認できるまで拒否します。SDK error は固定診断へ変換し、raw exception message、cause、data、stderr は表示・分類に使いません。
 
-共有runtime-state lockを取得したprocessが強制終了した場合も、起動が拒否されることがあります。lockは自動復旧しません。TAKT config directoryの`deepseek-harness/state/`内に残るlockを手動で整理する場合、先に旧runtime・supervisor・tool processがすべて終了したことを確認してください。cleanup失敗を迂回するためだけにlockを削除してはいけません。
+共有runtime-state lockを取得したprocessが強制終了した場合も、起動が拒否されることがあります。lockは自動復旧しません。TAKT config directoryの`deepseek-harness/state/`内に残る`.runtime-state-lock`と`cleanup-blocked`を手動で整理する場合、先に旧runtime・supervisor・tool processがすべて終了したことを確認してください。cleanup失敗を迂回するためだけに削除してはいけません。
+
+**旧環境の手動整理:** すべてのTAKT/DeepSeek runtime・supervisor・toolを停止します。TAKT config directory（既定`~/.takt`）内の`deepseek-harness/venv/`、`deepseek-harness/pyproject.toml`、`deepseek-harness/uv.lock`、`deepseek-harness/install.lock`を確認し、必要な旧データをバックアップしてからPython導入用と確認できたものだけを削除してください。新providerも`dsh-home/`と`state/`を使うため、`deepseek-harness/`全体は削除しないでください。旧profile・plugin・session履歴は取り込まれません。必要なら別途保管してください。認証を変える意図がなければ、`$DSH_HOME/.credentials.yaml`と`settings.yaml`を残し、npm providerで新しいTAKT session/runを開始します。
+
+**runtimeの所有と保持:** 別のTAKT processの正常なruntimeが共有homeを占有している場合、その終了を待つか別の`TAKT_CONFIG_DIR`を使います。これはcleanup失敗ではなく占有中の診断で、state削除による迂回は禁止です。idle runtimeは最近使った順に最大8件を保持し、古いものから終了します。実行中・待機中のturnは保護され、一時的に8件を超える場合があります。終了したruntimeのIDでは履歴を復元できず、継続を明示拒否します。対話では通知後の次の利用者turnから新sessionを開始します。自身のsupervisorがprocess groupの終了を確認した証跡があれば、SDK closeエラーだけで永久barrierを作りません。owner一覧が空なだけでは終了の証明にしません。証跡なし・owner破損・未登録runtimeは引き続き起動を拒否します。
+
+source maintainer向け: prepackは失敗・中断したpackでもtoolkitのローカルmetadataを変更します。pack実行後は`npm ci`で上流の`node_modules` metadataへ戻してください。`node scripts/verify-deepseek-sdk-lock.mjs --pack`でSDK peerの完全固定とnpm dry-runの実bundle一覧を検証できます。
 
 SDK に permission control はないため、permission mode/callback、`bypassPermissions`、明示的な allowed-tools list を求める呼び出しは runtime 起動前に失敗します。空でない MCP server map、`maxTurns`、structured output、image attachment も適用できないため拒否します。provider の setup 時に渡す agent-level `systemPrompt` は SDK plugin 経由で runtime に適用されます。未対応の制約が必要な場合は対応する provider を使ってください。SDK notification/result は既存の text、thinking、tool、completion、error event へ正規化されます。
 
@@ -1272,7 +1278,7 @@ SDK に permission control はないため、permission mode/callback、`bypassP
 
 personaのfirst-step情報ではtool未指定を`undefined`とし、明示`[]`と区別します。空・非空の明示listはどちらもDeepSeekのguardへ渡します。DeepSeekの対話では一般的なstale-session retryを使いません。制約拒否なら稼働中のsessionを残せますが、`session_continuation_unsupported`なら保存IDを解除します。そのエラーには、次の利用者turnが旧履歴なしの新しいSDK sessionになることを明記します。履歴復元はSDK対応待ちであり、ID変更は許容します。拒否されたturnの黙示再実行や制約緩和はしません。workflowでの継続には、引き続き新しいTAKT session/runが必要です。
 
-TeamLeaderの`inspect_tools`もこの区別に従います。正規化で明示空listの指定元情報を残し、DeepSeekで空制約へ解決します。他providerの従来の既定動作は変えません。初期stepの未指定は`undefined`、表示用previewはarrayとします。指定SDK IDは継続要求として扱い、対応するlive bindingがなければ、使用済みmarkerがなくてもSDK起動前に拒否します。通知後の新しい利用者turnがIDなしの場合にだけ、SDKが新IDを生成できます。cleanup barrierは新IDでも迂回できません。認証元・参照名・endpointの変更は再試行不可の`credential_binding_changed`で拒否し、保存IDを残します。変更後のbindingを使う限り後続turnも拒否し、fresh-session回復には流しません。変更後の認証先には新しいTAKT session/runを使ってください。元のbindingへ戻せば、その稼働中runtimeは再び利用できます。
+TeamLeaderの`inspect_tools`もこの区別に従います。正規化で明示空listの指定元情報を残し、DeepSeekで空制約へ解決します。他providerの従来の既定動作は変えません。初期stepと表示用previewの未指定はともに`undefined`を保ち、toolなしではなくprovider標準と表示します。指定SDK IDは継続要求として扱い、対応するlive bindingがなければ、使用済みmarkerがなくてもSDK起動前に拒否します。通知後の新しい利用者turnがIDなしの場合にだけ、SDKが新IDを生成できます。cleanup barrierは新IDでも迂回できません。認証元・参照名・endpointの変更は再試行不可の`credential_binding_changed`で拒否し、保存IDを残します。変更後のbindingを使う限り後続turnも拒否し、fresh-session回復には流しません。変更後の認証先には新しいTAKT session/runを使ってください。元のbindingへ戻せば、その稼働中runtimeは再び利用できます。
 
 #### ネットワークアクセス (`network_access`)
 

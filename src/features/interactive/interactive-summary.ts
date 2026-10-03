@@ -56,9 +56,11 @@ function formatPreviewMetadata(p: StepPreview, lang: TaskHistoryLocale): string[
 }
 
 function formatStepPreview(p: StepPreview, label: string, lang: TaskHistoryLocale): string {
-  const toolsStr = p.allowedTools.length > 0
-    ? p.allowedTools.join(', ')
-    : (lang === 'ja' ? 'なし' : 'None');
+  const toolsStr = p.allowedTools === undefined
+    ? (lang === 'ja' ? '未指定（provider標準）' : 'Unspecified (provider defaults)')
+    : p.allowedTools.length > 0
+      ? p.allowedTools.join(', ')
+      : (lang === 'ja' ? 'なし' : 'None');
   const editStr = p.canEdit
     ? (lang === 'ja' ? '可' : 'Yes')
     : (lang === 'ja' ? '不可' : 'No');

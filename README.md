@@ -137,6 +137,8 @@ TeamLeader first-step metadata also distinguishes undeclared `inspect_tools` fro
 
 Credentials use the official store at `$DSH_HOME/.credentials.yaml` (default `~/.dsh/.credentials.yaml`) or the selected environment variable such as `DEEPSEEK_API_KEY`. TAKT keeps that credential source separate from its managed runtime home and never reads, copies, or rewrites stored secret values. See the [Configuration Guide](./docs/configuration.md#deepseek-harness-deepseek-harness) for settings and session limits.
 
+Idle runtime retention is bounded at eight per process; active and queued turns are protected. Evicted sessions cannot restore history. A healthy foreign TAKT process exclusively using the same managed home reports a busy-home error: wait for it to close or use another `TAKT_CONFIG_DIR`, never delete its state. For legacy Python cleanup and stale-lock recovery, follow the concrete **Manual migration cleanup** steps in the linked guide; retain your credential store and never remove the whole managed-home directory.
+
 These providers require an external CLI:
 
 - `opencode` — [OpenCode](https://opencode.ai/) CLI. v1 is the default; v2 is opt-in ([migration settings](./docs/configuration.md#opencode-v1v2-selection)).

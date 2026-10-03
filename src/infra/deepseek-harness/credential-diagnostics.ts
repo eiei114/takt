@@ -114,6 +114,7 @@ const RUNTIME_FAILURE_DETAILS: Record<
   'other-provider-transport': 'DeepSeek Harness reported a provider or transport failure. Check the projected upstream detail and retry.',
 };
 
+/** Keep only valid environment-selector names in user-facing credential diagnostics. */
 function safeReference(reference: string | undefined): string | undefined {
   return isValidDeepSeekCredentialReference(reference)
     ? reference
@@ -189,6 +190,7 @@ export function classifyDeepSeekRuntimeFailure(
   return 'unknown';
 }
 
+/** Format classified failure details using only previously projected safe evidence. */
 export function buildDeepSeekRuntimeFailureDiagnostic(
   classification: Exclude<DeepSeekRuntimeFailureClassification, 'unknown'>,
   upstreamMessage?: string,
@@ -224,6 +226,7 @@ export function projectDeepSeekRuntimeMessage(message: string): string | undefin
   return `${base}${projectedFields}`;
 }
 
+/** Replace recognizable secret fields and reject suffixes containing unclassified free text. */
 function projectSensitiveFields(suffix: string | undefined): string | undefined {
   if (suffix === undefined) return '';
   const fields = suffix.replace(/^[ ;]+/u, '').split(/\s*;\s*/u);

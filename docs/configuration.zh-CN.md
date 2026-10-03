@@ -950,7 +950,13 @@ runtime 在运行且支持的配置未改变时，可在同一 session 中执行
 
 初始化 timeout 固定为 30 秒，与 turn 的 `request_timeout_ms` 和 shutdown 的 `shutdown_timeout_ms` 相互独立。SDK runtime 在 supervisor 下启动，该 supervisor 丢弃 stderr 并跟踪 process group。若无法确认 cleanup，所有后续 runtime 启动（包括新 session）都会被阻止，直到旧 process group 确认退出。SDK error 转换为固定诊断；不显示或分类 raw exception message、cause、data 或 stderr。
 
-持有共享 runtime-state lock 的进程被强制终止后，也可能继续阻止启动。lock 不会自动恢复。手动清理 TAKT config directory 中 `deepseek-harness/state/` 下残留的 lock 前，必须先确认旧 runtime、supervisor 和工具进程全部退出。不得仅为绕过 cleanup 失败而删除 lock。
+持有共享 runtime-state lock 的进程被强制终止后，也可能继续阻止启动。lock 不会自动恢复。手动清理 TAKT config directory 中 `deepseek-harness/state/` 下的 `.runtime-state-lock` 和 `cleanup-blocked` 前，必须先确认旧 runtime、supervisor 和工具进程全部退出。不得仅为绕过 cleanup 失败而删除它们。
+
+**旧环境的手动清理：** 先停止所有 TAKT/DeepSeek runtime、supervisor 和工具。检查 TAKT config directory（默认 `~/.takt`）中的 `deepseek-harness/venv/`、`deepseek-harness/pyproject.toml`、`deepseek-harness/uv.lock` 和 `deepseek-harness/install.lock`，备份需要的旧数据后，仅删除确认为 Python 安装产物的文件。新 provider 也使用 `dsh-home/` 和 `state/`，不要删除整个 `deepseek-harness/`。旧 profile、plugin 和 session 历史不会导入；需要时请单独归档。若不打算更改认证，保留 `$DSH_HOME/.credentials.yaml` 和 `settings.yaml`，然后使用 npm provider 启动新的 TAKT session/run。
+
+**runtime 所有权与缓存：** 其他 TAKT 进程的正常 runtime 独占共享 managed home。等待其关闭，或使用单独的 `TAKT_CONFIG_DIR`。这是 home 占用诊断，不是 cleanup 失败，不能通过删除 state 绕过。每个进程最多保留八个 idle runtime，按最近使用顺序淘汰；执行中及排队中的 turn 受保护，可暂时超过八个。被淘汰的 ID 无法恢复历史，继续请求会被明确拒绝；交互恢复先发出通知，下一个用户 turn 才启动新 session。本实例的 supervisor 确认 process group 退出并写入凭证后，SDK close 错误不会创建永久 barrier。owner 列表为空本身不是退出证明；没有确认凭证、owner 损坏或 runtime 未登记时，仍阻止启动。
+
+source maintainer 注意：即使 pack 失败或被中断，prepack 也会更改本地 toolkit metadata。每次 pack 后运行 `npm ci` 恢复上游 `node_modules` metadata。运行 `node scripts/verify-deepseek-sdk-lock.mjs --pack` 检查 SDK peer 的完全固定及 npm dry-run 的实际 bundle 清单。
 
 SDK 不提供此 provider 所需的 permission control，因此请求 permission mode/callback、`bypassPermissions` 或显式 allowed-tools list 的调用会在启动 runtime 前失败。非空 MCP server map、`maxTurns`、structured output 和 image attachment 也无法应用，因此会被拒绝。provider setup 时提供的 agent-level `systemPrompt` 会通过 SDK plugin 应用到 runtime。需要未支持的控制功能时，请使用兼容的 provider。SDK notification/result 会转换为既有的 text、thinking、tool、completion 和 error event。
 
@@ -960,7 +966,7 @@ SDK 不提供此 provider 所需的 permission control，因此请求 permission
 
 persona 的 first-step 信息将未声明工具保留为 `undefined`，与显式 `[]` 区分；空和非空的显式列表都会传到 DeepSeek guard。DeepSeek 交互失败不使用通用 stale-session retry。拒绝限制时可保留仍运行的 session；遇到 `session_continuation_unsupported` 时则清除保存 ID，并说明下一个用户 turn 将创建没有旧历史的新 SDK session。历史恢复仍等待 SDK 支持，因此允许 ID 改变。不会静默重跑被拒绝的 turn，也不会放宽限制；workflow 继续执行仍需新的 TAKT session/run。
 
-TeamLeader 的 `inspect_tools` 也遵循此区别：规范化保留显式空列表的来源信息，仅 DeepSeek 将其解析为空限制，其他 provider 的原有默认行为不变，初始 step 保留未声明值，显示用 preview 仍为数组。指定 SDK ID 始终是继续请求；没有匹配的 live binding 时，即使没有使用记录 marker，也在 SDK 启动前拒绝。只有通知后的新用户 turn 不带 ID 时，SDK 才生成新 ID。cleanup barrier 仍不能被新 ID 绕过。credential source、reference 或 endpoint 改变属于不可重试的 `credential_binding_changed`，保留原 ID；后续 turn 使用改变后的 binding 仍被拒绝，不进入 fresh-session 恢复。请启动新的 TAKT session/run 使用新 binding，或恢复原 binding 以继续其运行中的 runtime。
+TeamLeader 的 `inspect_tools` 也遵循此区别：规范化保留显式空列表的来源信息，仅 DeepSeek 将其解析为空限制，其他 provider 的原有默认行为不变，初始 step 和显示用 preview 都保留未声明值，显示为 provider 默认值而非无工具。指定 SDK ID 始终是继续请求；没有匹配的 live binding 时，即使没有使用记录 marker，也在 SDK 启动前拒绝。只有通知后的新用户 turn 不带 ID 时，SDK 才生成新 ID。cleanup barrier 仍不能被新 ID 绕过。credential source、reference 或 endpoint 改变属于不可重试的 `credential_binding_changed`，保留原 ID；后续 turn 使用改变后的 binding 仍被拒绝，不进入 fresh-session 恢复。请启动新的 TAKT session/run 使用新 binding，或恢复原 binding 以继续其运行中的 runtime。
 
 #### 网络访问（`network_access`）
 

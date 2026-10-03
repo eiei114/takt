@@ -43,7 +43,7 @@ export interface StepPreview {
   personaDisplayName: string;
   personaContent: string;
   instructionContent: string;
-  allowedTools: string[];
+  allowedTools?: string[];
   canEdit: boolean;
   provider?: StepProviderInfo['provider'];
   model?: StepProviderInfo['model'];
@@ -240,7 +240,7 @@ function buildStepPreview(
     personaDisplayName: previewStep.personaDisplayName,
     personaContent: isParallelParent ? '' : readStepPersona(previewStep, projectCwd, workflowBundleResourceRoot),
     instructionContent: isParallelParent ? '' : previewStep.instruction,
-    allowedTools: isParallelParent ? [] : resolvePreviewAllowedTools(previewStep, resolution) ?? [],
+    allowedTools: isParallelParent ? [] : resolvePreviewAllowedTools(previewStep, resolution),
     canEdit: isParallelParent ? false : resolvePreviewCanEdit(previewStep),
     ...(providerInfo?.provider !== undefined ? { provider: providerInfo.provider } : {}),
     ...(providerInfo?.model !== undefined ? { model: providerInfo.model } : {}),

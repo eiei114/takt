@@ -8,6 +8,8 @@
 
 ### 修正
 
+- DeepSeekのreportで認証先変更が起きた場合、単独・並列stepともstatus判定やfallbackへ進まず終了します。idle SDK runtimeは最大8件を保持し、実行中・待機中のturnは保護します。別processの正常なhome占有はcleanup失敗と区別し、ownerが残らないSDK closeエラーで永久barrierを作らないようにしました。previewでもtool未指定と明示空listを区別します。SDK peerと修正版office toolkitを明示固定・bundle化し、実pack一覧の検証とpack後のmetadata復旧手順を追加しました。
+
 - DeepSeek TeamLeaderのtool未指定と明示空listを、正規化・preview読み込みでも区別します。認証先変更は専用の再試行不可エラーで拒否し、対話・workflowのfresh-session回復へ流しません。未登録の保存IDもSDK起動前に拒否し、旧IDで履歴なしの新sessionを作りません。
 
 - personaの明示的なDeepSeek空allowlistを、tool未指定と区別して保持します。DeepSeekの対話ではstale-session retryを行いません。継続未対応なら保存IDを解除し、次の利用者turnは履歴を復元しない新しいSDK sessionになることを明記します。runtime交換後の履歴・ID保持はSDK対応待ちです。

@@ -1,6 +1,7 @@
 export interface DeepSeekRuntimeStateFileLock {
   retain(): void;
 }
+export const DEEPSEEK_RUNTIME_BUSY_MESSAGE: string;
 
 export function withDeepSeekRuntimeStateFileLock<T>(
   stateDirectory: string,
@@ -16,4 +17,5 @@ export function assertDeepSeekRuntimeCreationAllowedLocked(
 export function markDeepSeekCleanupBarrierLocked(
   stateDirectory: string,
   ownerDirectory: string,
+  unregisteredRuntimePid?: number,
 ): Promise<void>;

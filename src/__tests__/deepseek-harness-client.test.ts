@@ -590,6 +590,7 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
 
     const sessionAStart = withDeepSeekRuntimeCreation(async () => {
       runtimeStartCount += 1;
+      await writeFile(join(getDeepSeekRuntimePaths().owners, 'unconfirmed.json'), '{invalid');
       signalSessionAStarted();
       await sessionAStartBarrier;
     });
@@ -604,7 +605,7 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     await sessionAStart;
     await cleanupFailurePublication;
     await expect(sessionBStart).rejects.toThrow(
-      'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start until the previous runtime exits.',
+      'then manually remove .runtime-state-lock and cleanup-blocked',
     );
     expect(runtimeStartCount).toBe(1);
   });
@@ -701,8 +702,10 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     const stateModuleUrl = new URL('../infra/deepseek-harness/runtime-state.js', import.meta.url).href;
     const parentB = await runSeparateParentProcess([
       `const state = await import(${JSON.stringify(stateModuleUrl)});`,
-      `const { writeFile } = await import('node:fs/promises');`,
+      `const { writeFile, rm } = await import('node:fs/promises');`,
+      `await writeFile(${JSON.stringify(join(runtimePaths.owners, 'unconfirmed.json'))}, '{invalid');`,
       'await state.markDeepSeekCleanupFailure();',
+      `await rm(${JSON.stringify(join(runtimePaths.owners, 'unconfirmed.json'))});`,
       `await writeFile(${JSON.stringify(continueFile)}, 'published');`,
     ].join('\n'), environment);
     expect(parentB.timedOut).toBe(false);
@@ -714,7 +717,7 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       started: false,
       blocked: true,
       ownerCount: 0,
-      diagnostic: 'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start until the previous runtime exits.',
+      diagnostic: expect.stringContaining('then manually remove .runtime-state-lock and cleanup-blocked'),
     });
     expect(await readdir(runtimePaths.owners)).toHaveLength(0);
 
@@ -724,7 +727,7 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     expect(providerResponse).toMatchObject({
       status: 'error',
       failureCategory: 'provider_error',
-      content: 'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start until the previous runtime exits.',
+      content: expect.stringContaining('then manually remove .runtime-state-lock and cleanup-blocked'),
     });
     expect(await readdir(runtimePaths.owners)).toHaveLength(0);
   }, 90_000);
@@ -863,7 +866,7 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     await mkdir(workspace, { recursive: true });
     vi.spyOn(DeepSeekHarness.prototype, 'start').mockImplementation(async () => {
       await withDeepSeekRuntimeStateFileLock(runtimePaths.state, () =>
-        markDeepSeekCleanupBarrierLocked(runtimePaths.state, runtimePaths.owners));
+        writeFile(join(runtimePaths.state, 'cleanup-blocked'), '{invalid'));
       throw new TransportClosedError('SDK-RAW-TEST-DIAGNOSTIC');
     });
     vi.spyOn(DeepSeekHarness.prototype, 'close').mockResolvedValue(undefined);
@@ -875,11 +878,28 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     expect(response).toMatchObject({
       status: 'error',
       failureCategory: 'provider_error',
-      content: 'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start until the previous runtime exits.',
+      content: expect.stringContaining('then manually remove .runtime-state-lock and cleanup-blocked'),
     });
     expect(JSON.stringify(response)).not.toContain('SDK-RAW-TEST-DIAGNOSTIC');
     expect(await readdir(runtimePaths.owners)).toHaveLength(0);
   });
+
+  it.skipIf(!SUPPORTED_RUNTIME)('uses supervisor exit proof when SDK close rejects after actual group cleanup', async () => {
+    const api = await startLocalApi();
+    const options = { cwd: temporaryRoot, providerOptions: { reasoningEffort: 'low' as const, baseUrl: api.endpoint } };
+    expect((await callDeepSeekHarness('worker', 'first live runtime', options)).status).toBe('done');
+    const originalClose = DeepSeekHarness.prototype.close;
+    const closeSpy = vi.spyOn(DeepSeekHarness.prototype, 'close').mockImplementation(async function (this: DeepSeekHarness) {
+      await originalClose.call(this);
+      throw new Error('SDK close rejected after confirmed process exit');
+    });
+    await expect(closeDeepSeekHarnessProcesses()).resolves.toBeUndefined();
+    expect(await readdir(getDeepSeekRuntimePaths().owners)).toHaveLength(0);
+    await expect(readFile(join(getDeepSeekRuntimePaths().state, 'cleanup-blocked'), 'utf8'))
+      .rejects.toMatchObject({ code: 'ENOENT' });
+    closeSpy.mockRestore();
+    expect((await callDeepSeekHarness('worker', 'new live runtime', options)).status).toBe('done');
+  }, 60_000);
 
   it.skipIf(process.platform === 'win32')('keeps a global cleanup barrier until the failed process group is confirmed stopped', async () => {
     const runtimePaths = getDeepSeekRuntimePaths();
@@ -902,7 +922,7 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     }));
     await markDeepSeekCleanupFailure();
     await expect(assertDeepSeekRuntimeCreationAllowed()).rejects.toThrow(
-      'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start until the previous runtime exits.',
+      'then manually remove .runtime-state-lock and cleanup-blocked',
     );
     expect(await readFile(join(runtimePaths.state, 'cleanup-blocked'), 'utf8')).toContain(String(child.pid));
     try {
@@ -936,9 +956,27 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       runtimePid: child.pid,
     }));
     await expect(assertDeepSeekRuntimeCreationAllowed()).rejects.toThrow(
-      'DeepSeek Harness runtime cleanup is unconfirmed; no new runtime can start until the previous runtime exits.',
+      'then manually remove .runtime-state-lock and cleanup-blocked',
     );
     try {
+      // A healthy supervisor in another TAKT parent is busy, not failed cleanup.
+      await writeFile(ownerPath, JSON.stringify({
+        parentPid: process.pid + 100_000,
+        supervisorPid: process.pid,
+        runtimePid: child.pid,
+      }));
+      const starts = sdkConstructorOptions.length;
+      const busy = await callDeepSeekHarness('worker', 'foreign managed home', { cwd: temporaryRoot });
+      expect(busy).toMatchObject({ status: 'error', content: expect.stringContaining('in use by another TAKT process') });
+      expect(busy.content).not.toContain('cleanup is unconfirmed');
+      expect(sdkConstructorOptions).toHaveLength(starts);
+      // Owner publication failure must preserve a concrete live runtime PID.
+      await rm(ownerPath);
+      await withDeepSeekRuntimeStateFileLock(runtimePaths.state, () =>
+        markDeepSeekCleanupBarrierLocked(runtimePaths.state, runtimePaths.owners, child.pid));
+      expect(JSON.parse(await readFile(join(runtimePaths.state, 'cleanup-blocked'), 'utf8')))
+        .toMatchObject({ runtimePids: [child.pid], unknownRuntime: false });
+      await expect(assertDeepSeekRuntimeCreationAllowed()).rejects.toThrow('cleanup is unconfirmed');
       process.kill(-child.pid, 'SIGTERM');
       await waitForExit(child);
       await assertDeepSeekRuntimeCreationAllowed();

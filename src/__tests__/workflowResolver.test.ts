@@ -1189,7 +1189,7 @@ steps:
     const result = getWorkflowSummary(workflowPath, tempDir, 1);
     expect(result.firstStep).toBeDefined();
     expect(result.firstStep?.allowedTools).toBeUndefined();
-    expect(result.stepPreviews?.[0]?.allowedTools).toEqual([]);
+    expect(result.stepPreviews?.[0]?.allowedTools).toBeUndefined();
   });
 
   it.each([{ tools: undefined, expected: undefined }, { tools: [], expected: [] }])(
@@ -1210,7 +1210,7 @@ ${tools === undefined ? '' : '      inspect_tools: []\n'}`);
       const result = getWorkflowSummary(workflowPath, tempDir, 1);
       expect(result.firstStep).toBeDefined();
       expect(result.firstStep?.allowedTools).toEqual(expected);
-      expect(result.stepPreviews[0]?.allowedTools).toEqual([]);
+      expect(result.stepPreviews[0]?.allowedTools).toEqual(expected);
     },
   );
 

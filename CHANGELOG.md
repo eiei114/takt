@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- DeepSeek report credential-binding failures now abort single and parallel steps before status judgment or fallback. Idle SDK runtimes have an eight-entry LRU bound; active and queued turns remain protected. Healthy foreign managed-home ownership is reported as busy, and SDK close errors with no remaining owners no longer create permanent cleanup barriers. Preview text distinguishes provider-default tools from an explicit empty list. SDK peers and the patched office toolkit are explicitly pinned/bundled, with actual pack-inventory verification and documented post-pack metadata recovery.
+
 - DeepSeek TeamLeader first-step tools preserve undeclared versus explicit empty lists through normalization and preview loading. Credential binding changes use distinct non-retryable failures without fresh-session recovery in interactive conversations or workflows. Unregistered saved session IDs are rejected before SDK startup instead of creating history-free sessions under an old ID.
 
 - Persona plans preserve explicit empty DeepSeek allowlists instead of treating them as native defaults. Undeclared first-step tools remain distinct. DeepSeek interactive refusals no longer use stale-session retries; unsupported continuation clears the saved ID and warns that the next user turn starts a fresh SDK session without restoring history. ID preservation across runtime replacement remains deferred pending SDK support.
