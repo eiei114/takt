@@ -958,6 +958,8 @@ SDK 不提供此 provider 所需的 permission control，因此请求 permission
 
 persona 的 first-step 信息将未声明工具保留为 `undefined`，与显式 `[]` 区分；空和非空的显式列表都会传到 DeepSeek guard。DeepSeek 交互失败不使用通用 stale-session retry。拒绝限制时可保留仍运行的 session；遇到 `session_continuation_unsupported` 时则清除保存 ID，并说明下一个用户 turn 将创建没有旧历史的新 SDK session。历史恢复仍等待 SDK 支持，因此允许 ID 改变。不会静默重跑被拒绝的 turn，也不会放宽限制；workflow 继续执行仍需新的 TAKT session/run。
 
+TeamLeader 的 `inspect_tools` 也遵循此区别：规范化保留显式空列表，初始 step 保留未声明值，显示用 preview 仍为数组。指定 SDK ID 始终是继续请求；没有匹配的 live binding 时，即使没有使用记录 marker，也在 SDK 启动前拒绝。只有通知后的新用户 turn 不带 ID 时，SDK 才生成新 ID。cleanup barrier 仍不能被新 ID 绕过。credential source、reference 或 endpoint 改变属于 `provider_error`，保留原 ID；后续 turn 使用改变后的 binding 仍被拒绝，不进入 fresh-session 恢复。请启动新的 TAKT session/run 使用新 binding，或恢复原 binding 以继续其运行中的 runtime。
+
 #### 网络访问（`network_access`）
 
 provider sandbox 默认阻止 `npm install`、`pip install`、`gradle` 和 `mvn` 等网络命令。Codex：

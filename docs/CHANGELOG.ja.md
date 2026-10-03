@@ -8,6 +8,8 @@
 
 ### 修正
 
+- DeepSeek TeamLeaderのtool未指定と明示空listを、正規化・preview読み込みでも区別します。認証先変更はprovider errorとして拒否し、対話のfresh-session回復へ流しません。未登録の保存IDもSDK起動前に拒否し、旧IDで履歴なしの新sessionを作りません。
+
 - personaの明示的なDeepSeek空allowlistを、tool未指定と区別して保持します。DeepSeekの対話ではstale-session retryを行いません。継続未対応なら保存IDを解除し、次の利用者turnは履歴を復元しない新しいSDK sessionになることを明記します。runtime交換後の履歴・ID保持はSDK対応待ちです。
 
 - DeepSeekの通常の対話ではSDK標準toolを使い、TAKTの既定toolを未対応の利用者制約として渡さないようにしました。空tool listと呼び出しごとのpermission modeを含む明示制約は引き続き拒否します。report/statusのtool禁止も黙って外さず、SDK起動前に拒否します。

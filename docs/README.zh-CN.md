@@ -124,6 +124,8 @@ runtime 保持运行且配置不变时，多个 turn 会按 FIFO 顺序串行执
 
 session 历史恢复仍等待 SDK 支持，交互中的 SDK session ID 可以改变。无法继续时，当前 turn 失败且不重试，保存的 ID 会被清除；错误消息说明下一个用户 turn 将启动新的 SDK session，不重放之前的历史。拒绝工具或权限限制时不会移除 ID 再重试，仍运行的 session 可继续使用。persona 也区分未声明工具列表与显式 `[]`，后者保持为限制并拒绝执行。
 
+TeamLeader 初始 step 也区分未声明的 `inspect_tools` 与显式 `[]`。指定 SDK ID 仅用于继续匹配的运行中 runtime；未注册的保存 ID 也会在 SDK 启动前拒绝。credential binding 改变属于 provider error，不走 continuation 恢复流程，保存 ID 不会被清除。需启动新的 TAKT session/run，不能用新 ID 静默绕过认证绑定限制。
+
 认证使用官方 store `$DSH_HOME/.credentials.yaml`（默认 `~/.dsh/.credentials.yaml`），或所选环境变量（例如 `DEEPSEEK_API_KEY`）。TAKT 将 credential source 与自身管理的 runtime home 分开，绝不读取、复制或改写已保存的 secret 值。配置和 session 限制请参阅[配置指南](./configuration.zh-CN.md#deepseek-harness-deepseek-harness)。
 
 以下 provider 需要外部 CLI：

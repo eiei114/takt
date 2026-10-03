@@ -129,6 +129,8 @@ Default interactive conversations use these native tools without a TAKT allowlis
 
 Session-history restoration remains unsupported pending SDK support; an interactive SDK session ID may change. A continuation refusal fails the current turn without retrying it, clears its saved ID, and warns that the next user turn starts a fresh SDK session without replaying the previous history. A rejected tool/permission constraint is not retried without an ID; a still-live session can remain usable. In persona conversations, an undeclared tool list uses native defaults, but an explicit `[]` stays a restriction and is rejected.
 
+TeamLeader first-step metadata also distinguishes undeclared `inspect_tools` from explicit `[]`. A supplied SDK session ID can only continue a matching live runtime: even an unregistered saved ID is refused before SDK startup. Credential binding changes are provider errors, not recoverable continuation errors; they keep the saved ID and require a new TAKT session/run rather than silently starting under a new credential binding.
+
 Credentials use the official store at `$DSH_HOME/.credentials.yaml` (default `~/.dsh/.credentials.yaml`) or the selected environment variable such as `DEEPSEEK_API_KEY`. TAKT keeps that credential source separate from its managed runtime home and never reads, copies, or rewrites stored secret values. See the [Configuration Guide](./docs/configuration.md#deepseek-harness-deepseek-harness) for settings and session limits.
 
 These providers require an external CLI:
