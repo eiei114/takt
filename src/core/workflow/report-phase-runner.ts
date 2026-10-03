@@ -629,6 +629,7 @@ async function runSingleReportAttempt(
     response.status !== 'done'
     && (
       response.failureCategory === AGENT_FAILURE_CATEGORIES.PROVIDER_STREAM_PARSE_ERROR
+      || response.failureCategory === AGENT_FAILURE_CATEGORIES.CREDENTIAL_BINDING_CHANGED
       || response.failureCategory === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED
     )
   ) {
@@ -733,6 +734,7 @@ function classifyRetryableFailure(
   if (response.status !== 'done') {
     if (
       response.failureCategory === AGENT_FAILURE_CATEGORIES.PROVIDER_STREAM_PARSE_ERROR
+      || response.failureCategory === AGENT_FAILURE_CATEGORIES.CREDENTIAL_BINDING_CHANGED
       || response.failureCategory === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED
     ) {
       return undefined;

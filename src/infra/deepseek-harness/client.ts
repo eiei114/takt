@@ -1339,6 +1339,9 @@ function failureDetail(
       credentialFailureContext,
     );
     if (diagnostic !== undefined) {
+      if (error.classification === 'binding-changed') {
+        return { ...diagnostic, category: AGENT_FAILURE_CATEGORIES.CREDENTIAL_BINDING_CHANGED };
+      }
       return diagnostic;
     }
   }

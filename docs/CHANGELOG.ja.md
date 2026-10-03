@@ -8,7 +8,7 @@
 
 ### 修正
 
-- DeepSeek TeamLeaderのtool未指定と明示空listを、正規化・preview読み込みでも区別します。認証先変更はprovider errorとして拒否し、対話のfresh-session回復へ流しません。未登録の保存IDもSDK起動前に拒否し、旧IDで履歴なしの新sessionを作りません。
+- DeepSeek TeamLeaderのtool未指定と明示空listを、正規化・preview読み込みでも区別します。認証先変更は専用の再試行不可エラーで拒否し、対話・workflowのfresh-session回復へ流しません。未登録の保存IDもSDK起動前に拒否し、旧IDで履歴なしの新sessionを作りません。
 
 - personaの明示的なDeepSeek空allowlistを、tool未指定と区別して保持します。DeepSeekの対話ではstale-session retryを行いません。継続未対応なら保存IDを解除し、次の利用者turnは履歴を復元しない新しいSDK sessionになることを明記します。runtime交換後の履歴・ID保持はSDK対応待ちです。
 
@@ -25,6 +25,32 @@
 - 固定したDeepSeek SDK/runtimeを修正版`fflate@0.8.3`と一緒にnpm bundleで配布します。pack時にoffice toolkitの依存宣言だけを調整し、SDK/runtimeのコードは変更しません。利用者自身のoverrideなしで修正版を導入できます。
 
 フォーマットは [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) に基づいています。
+
+## [0.68.0] - 2026-10-03
+
+### Changed
+
+- BREAKING: Claude の既定 provider を Claude Agent SDK に変更しました (#1633)。provider を設定していない場合は `claude-sdk` を使い、`provider: claude` は `claude-sdk` の別名になります。従来の headless Claude Code CLI の provider は `claude-headless` に改名しました。移行方法は次のとおりです。
+  - headless CLI を使い続ける場合は、`provider: claude` を `provider: claude-headless` に変更し（`runtime.yaml` の profile または legacy `config.yaml`）、コマンドラインでは `--provider claude-headless` を指定してください。
+  - 権限プロファイルは選択した provider 名で参照します。新しい既定または明示した `claude-sdk` を使う場合は `provider_profiles.claude` を `provider_profiles.claude-sdk` に、headless CLI に切り替える場合は `provider_profiles.claude-headless` に移してください。移さない場合、`claude` に設定した `readonly` などのプロファイルは既定の provider に適用されず、組み込みの `edit` で動きます。共通の設定キー `provider_options.claude` は変わりません。
+  - 旧 `claude` 名で保存されたセッションは再開せず、次の実行から新しいセッションを開始します。`claude-terminal` の動作は変わりません。
+- `takt watch` が `concurrency` に従ってタスクを並列実行するようになりました。`takt run` と同じ worker pool を使います (#1641)。pending タスクを待ち続ける常駐動作はそのままで、キューの確認間隔は `task_poll_interval_ms` に従います（以前は 2 秒固定）。起動時に既存の失敗タスクを一度だけ再キューし、実行中に失敗したタスクも再キューします。タスクが入力待ちの間は新しいタスクを取得せず、`concurrency` が 2 以上ならタスク名を付けて出力し、Ctrl+C では実行中のタスクの完了を待って終了します。
+- `/verify` が Alloy の `check` だけでなく、すべての `run` コマンドも実行するようになりました (#1657)。`run` はスコープ内に成立例があれば成功（SAT）、`check` は反例がなければ成功（UNSAT）と判定するため、制約が矛盾するモデルで `check` がすべて空虚に成功して検証を通ることがなくなりました。生成する仕様には有限スコープの整合性確認 `run {}` を含め、`run` だけのモデルも検証できます。コマンドごとの結果と成立例・反例を保存し、結果の解釈に渡します。
+- 会話から作る指示書に、ユーザーが指定または採用していない確認方法（目視、手動操作、実機確認）を必須条件として加えないようにしました (#1650)。
+- worktree の作成時にプロジェクト設定を同期したことで、タスク開始前から存在する設定差分について、タスクと無関係だと確認できたものはレビューで指摘・差し戻しの対象にしないようにしました (#1653)。由来が不明な差分は従来どおりレビューします。
+
+### Fixed
+
+- Kiro provider で、大きなプロンプトが `spawn E2BIG` で失敗しなくなりました。プロンプトをコマンドライン引数ではなく stdin で `kiro-cli` に渡します (#1661)。
+- `takt caccia` の一時クローンで、既存 origin の接続方式（HTTPS / SSH）と Push URL を引き継ぐようにしました。HTTPS だけで認証している環境でも `Permission denied (publickey)` で失敗しなくなりました (#1659)。
+- MCP サーバーを割り当てたステップで、persona セッションを参照時と同じキーで保存するようにしました (#1651)。以前は Phase 2 が別の会話を再開したり、次のステップの Phase 1 が直前の Phase 1 を含まない会話を再開したりすることがありました。
+- Copilot provider で、Copilot CLI のレート制限による失敗を `rate_limited` として報告するようにしました。`rate_limit_fallback.switch_chain` が働くようになります (#1563)。
+- TUI で、送信済みのユーザー発言の背景が再び端末幅いっぱいに表示されるようになりました (#1654)。
+
+### Internal
+
+- 実 provider の E2E で `claude` の代わりに `claude-headless` を実行し、`npm run test:e2e:provider:claude-headless` を追加しました。
+- 更新通知を別のワーカープロセスで実行し、そのシグナルハンドラーが CLI の Ctrl+C 処理に干渉しないようにしました。
 
 ## [0.67.1] - 2026-10-01
 

@@ -15,7 +15,7 @@ import {
 import {
   assertProviderResolvedForCapabilitySensitiveOptions,
   resolveAllowedToolsForProvider,
-  resolveInspectToolsForProvider,
+  resolveTeamLeaderInspectToolsForProvider,
 } from '../../../core/workflow/engine/engine-provider-options.js';
 import { createTeamLeaderPlanningStep } from '../../../core/workflow/engine/team-leader-common.js';
 import { createLogger, getErrorMessage } from '../../../shared/utils/index.js';
@@ -399,7 +399,7 @@ function resolvePreviewAllowedTools(
   });
 
   if (step.teamLeader) {
-    return resolveInspectToolsForProvider(step.teamLeader.inspectTools, resolvedProvider)
+    return resolveTeamLeaderInspectToolsForProvider(step.teamLeader, resolvedProvider)
       ?? (resolvedProvider === 'deepseek-harness' ? undefined : []);
   }
 

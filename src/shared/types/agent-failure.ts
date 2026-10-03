@@ -3,6 +3,7 @@ export const AGENT_FAILURE_CATEGORIES = {
   PART_TIMEOUT: 'part_timeout',
   PROVIDER_ERROR: 'provider_error',
   SESSION_CONTINUATION_UNSUPPORTED: 'session_continuation_unsupported',
+  CREDENTIAL_BINDING_CHANGED: 'credential_binding_changed',
   PROVIDER_STREAM_PARSE_ERROR: 'provider_stream_parse_error',
   STREAM_IDLE_TIMEOUT: 'stream_idle_timeout',
 } as const;
@@ -37,6 +38,7 @@ const FAILURE_CATEGORY_PREFIX: Record<AgentFailureCategory, string> = {
   [AGENT_FAILURE_CATEGORIES.PART_TIMEOUT]: 'part timeout',
   [AGENT_FAILURE_CATEGORIES.PROVIDER_ERROR]: 'provider error',
   [AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED]: 'session continuation unsupported',
+  [AGENT_FAILURE_CATEGORIES.CREDENTIAL_BINDING_CHANGED]: 'credential binding changed',
   [AGENT_FAILURE_CATEGORIES.PROVIDER_STREAM_PARSE_ERROR]: 'provider stream parse error',
   [AGENT_FAILURE_CATEGORIES.STREAM_IDLE_TIMEOUT]: 'stream idle timeout',
 };

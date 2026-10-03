@@ -209,13 +209,13 @@ describe('Phase 1 empty response recovery', () => {
     expect(result.response.structuredOutput).toEqual(terminalResponse.structuredOutput);
   });
 
-  it('does not discard the session or start a fresh Phase 1 after a continuation refusal', async () => {
+  it.each([AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED, AGENT_FAILURE_CATEGORIES.CREDENTIAL_BINDING_CHANGED])('does not discard the session or start a fresh Phase 1 after %s', async (failureCategory) => {
     const continuationRefusal = response({
       status: 'error',
       content: 'DeepSeek Harness cannot continue this session after runtime replacement or teardown; start a new TAKT session or run.',
       error: 'DeepSeek Harness cannot continue this session after runtime replacement or teardown; start a new TAKT session or run.',
     });
-    Object.assign(continuationRefusal, { failureCategory: 'session_continuation_unsupported' });
+    Object.assign(continuationRefusal, { failureCategory });
     const execute = vi.fn().mockResolvedValue(continuationRefusal);
     const discardSession = vi.fn();
 
@@ -236,7 +236,7 @@ describe('Phase 1 empty response recovery', () => {
     expect(result.response).toMatchObject({
       status: 'error',
       error: 'DeepSeek Harness cannot continue this session after runtime replacement or teardown; start a new TAKT session or run.',
-      failureCategory: 'session_continuation_unsupported',
+      failureCategory,
     });
     expect(result.finalAttempt.reason).toBe('initial');
   });

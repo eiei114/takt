@@ -239,6 +239,7 @@ function isProviderErrorEligibleForFreshRetry(response: AgentResponse): boolean 
   return response.status === 'error'
     && response.errorKind !== 'rate_limit'
     && response.failureCategory !== AGENT_FAILURE_CATEGORIES.EXTERNAL_ABORT
+    && response.failureCategory !== AGENT_FAILURE_CATEGORIES.CREDENTIAL_BINDING_CHANGED
     && response.failureCategory !== AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED;
 }
 

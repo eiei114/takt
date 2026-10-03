@@ -16,7 +16,7 @@ TAKT compares existing global and project configuration directories by their rea
 language: en                  # UI language: 'en' or 'ja'
 logging:
   level: info                 # Log level: debug, info, warn, error
-provider: claude              # Default provider: claude, claude-sdk, claude-terminal, codex, opencode, deepseek-harness, cursor, copilot, kiro, pi, or mock
+provider: claude-sdk              # Default provider: claude-sdk, claude, claude-headless, claude-terminal, codex, opencode, deepseek-harness, cursor, copilot, kiro, pi, or mock
 model: sonnet                 # Default model (optional, passed to provider as-is)
 branch_name_strategy: romaji  # Branch name generation: 'romaji' (fast) or 'ai' (slow)
 prevent_sleep: false          # Prevent macOS idle sleep during execution (caffeinate)
@@ -27,10 +27,10 @@ notification_sound_events:    # Optional per-event toggles (all events enabled b
   workflow_abort: true
   run_complete: true
   run_abort: true
-concurrency: 1                # Parallel task count for takt run (1-10, default: 1 = sequential)
-task_poll_interval_ms: 500    # Polling interval for new tasks during takt run (100-5000, default: 500)
+concurrency: 1                # Parallel task count for takt run / takt watch (1-10, default: 1 = sequential)
+task_poll_interval_ms: 500    # Polling interval for new tasks during takt run / takt watch (100-5000, default: 500)
 interactive_preview_steps: 3  # Step previews in interactive mode (0-10, default: 3)
-auto_requeue_max_attempts: 0  # Auto-requeue failed workflow tasks during takt run (non-negative integer, default: 0 = disabled)
+auto_requeue_max_attempts: 0  # Auto-requeue failed workflow tasks during takt run / takt watch (non-negative integer, default: 0 = disabled)
 ignore_exceed: false          # Applies to takt run and takt watch like --ignore-exceed (default: false)
 assistant:
   formal_spec:
@@ -91,7 +91,7 @@ assistant:
 #     default_permission_mode: full
 #     step_permission_overrides:
 #       ai_review: readonly
-#   claude:
+#   claude-sdk:
 #     default_permission_mode: edit
 
 # API Key configuration (optional)
@@ -125,7 +125,7 @@ assistant:
 # fall back to top-level provider/model for report fallback.
 # takt_providers:
 #   assistant:
-#     provider: claude
+#     provider: claude-sdk
 #     model: opus
 #   selector:              # optional selector override for dynamic parallel, dynamic_facets, and companion pools
 #     provider: codex
@@ -186,17 +186,17 @@ assistant:
 | `logging.debug` | boolean | `false` | Enable debug logging (`debug.log` + `prompts.jsonl`) |
 | `logging.provider_events` | boolean | `false` | Persist provider stream events |
 | `logging.usage_events` | boolean | `false` | Persist usage event logs |
-| `provider` | `"claude"` \| `"claude-sdk"` \| `"claude-terminal"` \| `"codex"` \| `"opencode"` \| `"deepseek-harness"` \| `"pi"` \| `"cursor"` \| `"copilot"` \| `"kiro"` \| `"mock"` | `"claude"` | Default concrete AI provider (`claude` = headless CLI mode, `claude-sdk` = SDK/API mode, `claude-terminal` = experimental interactive terminal mode, `pi` = Pi SDK mode, `deepseek-harness` = official DeepSeek Harness TypeScript SDK/runtime `0.2.0-rc.2`) |
+| `provider` | `"claude"` \| `"claude-sdk"` \| `"claude-headless"` \| `"claude-terminal"` \| `"codex"` \| `"opencode"` \| `"deepseek-harness"` \| `"pi"` \| `"cursor"` \| `"copilot"` \| `"kiro"` \| `"mock"` | `"claude-sdk"` | Default concrete AI provider (`claude-sdk` = Agent SDK mode, `claude` = alias for `claude-sdk`, `claude-headless` = headless CLI mode, `claude-terminal` = experimental interactive terminal mode, `pi` = Pi SDK mode, `deepseek-harness` = official DeepSeek Harness TypeScript SDK/runtime `0.2.0-rc.2`) |
 | `model` | string | - | Default model name (passed to provider as-is) |
 | `branch_name_strategy` | `"romaji"` \| `"ai"` | `"romaji"` | Branch name generation strategy |
 | `prevent_sleep` | boolean | `false` | Prevent macOS idle sleep (caffeinate) |
 | `notification_sound` | boolean | `true` | Enable notification sounds |
 | `notification_sound_events` | object | - | Per-event notification sound toggles |
-| `concurrency` | number (1-10) | `1` | Parallel task count for `takt run` |
-| `task_poll_interval_ms` | number (100-5000) | `500` | Polling interval for new tasks |
+| `concurrency` | number (1-10) | `1` | Parallel task count for `takt run` / `takt watch` |
+| `task_poll_interval_ms` | number (100-5000) | `500` | Polling interval for new tasks (`takt run` / `takt watch`) |
 | `interactive_preview_steps` | number (0-10) | `3` | Step previews in interactive mode |
 | `assistant.formal_spec` | boolean \| `"Y/n"` \| `"y/N"` \| object | mode `"y/N"`, comments `true` | Adds Alloy/Quint guidance and expresses requirements in both notations. The structured form accepts independent `mode`, `comments`, and `model_check_timeout_seconds` fields; `comments: false` removes only the natural-language meaning-comment instruction and does not reduce formal specification coverage, requirement coverage, or syntax/correctness guidance. `model_check_timeout_seconds` is the limit in seconds for `quint verify` and the Alloy Analyzer during `/verify` (an integer from 1 to 86,400, default 900); the 60-second limit for `parse`/`typecheck`/`run` is unchanged. Project and global object fields are resolved independently, with project values taking precedence. `true` and `false` are used without prompting; on a TTY, `"Y/n"` and `"y/N"` ask once per conversation session with Yes or No as the default; without a TTY, the default answer is used without consuming standard input. Gherkin guidance applies only to development and implementation tasks. |
-| `auto_requeue_max_attempts` | non-negative integer | `0` | Maximum automatic requeue attempts for failed workflow tasks during `takt run`; `0` disables automatic requeue |
+| `auto_requeue_max_attempts` | non-negative integer | `0` | Maximum automatic requeue attempts for failed workflow tasks during `takt run` / `takt watch`; `0` disables automatic requeue |
 | `ignore_exceed` | boolean | `false` | Configures iteration-limit bypass for `takt run` and `takt watch`; a CLI `--ignore-exceed` flag takes precedence when specified |
 | `sync_project_local_takt_on_retry` | boolean | `true` | Sync the root project-local `.takt` into the worktree before retry / re-execution; set `false` to keep the worktree copy |
 | `worktree_dir` | string | - | Directory for shared clones (defaults to `../{clone-name}`) |
@@ -269,11 +269,11 @@ Configure project-specific settings in `.takt/config.yaml`. This file is created
 
 ```yaml
 # .takt/config.yaml
-provider: claude              # Override provider for this project
+provider: claude-sdk              # Override provider for this project
 model: sonnet                 # Override model for this project
 auto_pr: true                 # Auto-create PR after worktree execution
-concurrency: 2                # Parallel task count for takt run in this project (1-10)
-auto_requeue_max_attempts: 1  # Auto-requeue failed workflow tasks during takt run (non-negative integer)
+concurrency: 2                # Parallel task count for takt run / takt watch in this project (1-10)
+auto_requeue_max_attempts: 1  # Auto-requeue failed workflow tasks during takt run / takt watch (non-negative integer)
 ignore_exceed: false          # Applies to takt run and takt watch like --ignore-exceed
 # base_branch: main           # Base branch for clone creation (overrides global, default: remote default branch)
 
@@ -372,7 +372,7 @@ The `provider` and `model` declarations select the provider and model for a TAKT
 Every provider uses `guards.call_timeout_ms` as its maximum period without an
 observable provider event. Each stream/tool event, phase completion, and new
 provider attempt resets the timer; cumulative execution time is not capped.
-It applies to `codex`, `opencode`, `claude` (including `claude-sdk`),
+It applies to `codex`, `opencode`, `claude` (shared by `claude-sdk`, its `claude` alias, and `claude-headless`),
 `claude_terminal`, `cursor`, `copilot`, `kiro`, and `pi`. Values are integer
 milliseconds from 60,000 through 86,400,000; the default is 3,600,000 ms
 (60 minutes). The normal `provider_options` profile resolution path resolves
@@ -422,7 +422,7 @@ Project config accepts most global keys and overrides their global values (e.g. 
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `provider` | `"claude"` \| `"claude-sdk"` \| `"claude-terminal"` \| `"codex"` \| `"opencode"` \| `"deepseek-harness"` \| `"pi"` \| `"cursor"` \| `"copilot"` \| `"kiro"` \| `"mock"` | - | Override concrete provider |
+| `provider` | `"claude"` \| `"claude-sdk"` \| `"claude-headless"` \| `"claude-terminal"` \| `"codex"` \| `"opencode"` \| `"deepseek-harness"` \| `"pi"` \| `"cursor"` \| `"copilot"` \| `"kiro"` \| `"mock"` | - | Override concrete provider |
 | `model` | string | - | Override model name (passed to provider as-is) |
 | `submodules` | `"all"` \| string[] | - | Project-only. Submodules to initialize in shared clones: `"all"` or an explicit path list (wildcards not supported) |
 | `with_submodules` | boolean | - | Project-only. Legacy boolean equivalent of `submodules: "all"`; prefer `submodules` |
@@ -431,8 +431,8 @@ Project config accepts most global keys and overrides their global values (e.g. 
 | `auto_pr` | boolean | - | Auto-create PR after worktree execution |
 | `caccia` | object | disabled | CodeRabbit review-loop settings; see [Caccia Review Loop](#caccia-review-loop) |
 | `draft_pr` | boolean | `false` (from global) | Create the auto-created PR as a draft |
-| `concurrency` | number (1-10) | `1` (from global) | Parallel task count for `takt run` |
-| `auto_requeue_max_attempts` | non-negative integer | `0` (from global/default) | Maximum automatic requeue attempts for failed workflow tasks during `takt run`; `0` disables automatic requeue |
+| `concurrency` | number (1-10) | `1` (from global) | Parallel task count for `takt run` / `takt watch` |
+| `auto_requeue_max_attempts` | non-negative integer | `0` (from global/default) | Maximum automatic requeue attempts for failed workflow tasks during `takt run` / `takt watch`; `0` disables automatic requeue |
 | `ignore_exceed` | boolean | `false` (from global/default) | Configures iteration-limit bypass for `takt run` and `takt watch`; a CLI `--ignore-exceed` flag takes precedence when specified |
 | `base_branch` | string | - | Base branch for clone creation (overrides global, default: remote default branch) |
 | `assistant.init_files` | string[] | - | Project-only interactive assistant initial context files. Paths must be relative to the project root; absolute paths, paths resolving outside the project root, and sensitive file patterns such as `.env*`, `.npmrc`, `.pypirc`, `.netrc`, `*.pem`, `*.key`, and `.git/**` are rejected. Missing paths, directories, and unreadable files fail with a clear error. At most 16 files are allowed; each file is limited to 256 KiB and the combined content is limited to 1 MiB. When unset or empty, TAKT does not auto-discover `CLAUDE.md`, `AGENT.md`, `AGENTS.md`, `TAKT.md`, or other files. This is separate from `takt_providers.assistant`, which only controls the assistant provider/model. |
@@ -582,7 +582,7 @@ Provider and model selection is owned by `runtime.yaml` when runtime mode is act
 
 ### Provider-specific Model Notes
 
-**Claude Code** supports aliases (`opus`, `sonnet`, `haiku`, `opusplan`, `default`) and full model names (e.g., `claude-sonnet-4-5-20250929`). The `model` field is passed directly to the provider CLI. Refer to the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code) for available models.
+**Claude Code** supports aliases (`opus`, `sonnet`, `haiku`, `opusplan`, `default`) and full model names (e.g., `claude-sonnet-4-5-20250929`). For `claude-sdk` and its `claude` alias, TAKT passes `model` through the Agent SDK model option. For `claude-headless` and `claude-terminal`, it passes the value through the CLI `--model` argument. Refer to the [Claude Code documentation](https://docs.anthropic.com/en/docs/claude-code) for available models.
 
 **Codex** uses the model string as-is via the Codex SDK. If unspecified, defaults to `codex`. Refer to Codex documentation for available models.
 
@@ -600,7 +600,7 @@ Provider and model selection is owned by `runtime.yaml` when runtime mode is act
 
 ```yaml
 # ~/.takt/config.yaml
-provider: claude
+provider: claude-sdk
 model: opus     # Default model for all steps (unless overridden)
 ```
 
@@ -1009,7 +1009,7 @@ Each provider declares the transports it supports. When a resolved server uses a
 
 | Provider | Supported transports |
 |---|---|
-| `claude` / `claude-sdk` / `claude-terminal` | `stdio`, `sse`, `http` |
+| `claude-sdk` / `claude` / `claude-headless` / `claude-terminal` | `stdio`, `sse`, `http` |
 | `codex` | `stdio`, `http` |
 | `opencode` | `stdio`, `http` |
 | `cursor` | `stdio`, `http` |
@@ -1061,7 +1061,7 @@ provider_profiles:
     default_permission_mode: full
     step_permission_overrides:
       ai_review: readonly
-  claude:
+  claude-sdk:
     default_permission_mode: edit
     step_permission_overrides:
       implement: full
@@ -1080,6 +1080,8 @@ Permission mode is resolved in the following order (first match wins):
 The `required_permission_mode` on a step sets the minimum floor. If the resolved mode from provider profiles is lower than the required mode, the required mode is used instead. For example, if a step requires `edit` but the profile resolves to `readonly`, the effective mode will be `edit`.
 
 Every provider also has a builtin `default_permission_mode: edit` that always participates in this resolution. When neither project nor global `provider_profiles` set a value, the effective mode is therefore `edit` (raised when the step's `required_permission_mode` demands more).
+
+Provider permission profile keys match the selected provider name; they are not aliases. When using the new `claude-sdk` default or explicit `claude-sdk`, move existing `provider_profiles.claude` settings to `provider_profiles.claude-sdk`. Explicit `claude` still uses the `claude` key; `claude-headless` uses `claude-headless`. If the provider is omitted, an old `claude` profile specifying `readonly` no longer applies and the SDK can fall back to builtin `edit` unless the profile is moved.
 
 ### Legacy `config.yaml` Provider Routing
 
@@ -1280,7 +1282,7 @@ provider_options:
     base_url: http://127.0.0.1:8787/v1
 ```
 
-TAKT passes `provider_options.claude.base_url` to `claude` and `claude-sdk` as `ANTHROPIC_BASE_URL`. TAKT passes `provider_options.codex.base_url` to the Codex SDK constructor as `baseUrl`. For `deepseek-harness`, `provider_options.deepseek_harness.base_url` is passed to the official TypeScript SDK through `DEEPSEEK_BASE_URL`. `claude-terminal`, `opencode`, `cursor`, `copilot`, `kiro`, and `pi` are not included in this base URL support unless documented separately.
+TAKT passes `provider_options.claude.base_url` to `claude-sdk`, `claude`, and `claude-headless` as `ANTHROPIC_BASE_URL`. TAKT passes `provider_options.codex.base_url` to the Codex SDK constructor as `baseUrl`. For `deepseek-harness`, `provider_options.deepseek_harness.base_url` is passed to the official TypeScript SDK through `DEEPSEEK_BASE_URL`. `claude-terminal`, `opencode`, `cursor`, `copilot`, `kiro`, and `pi` are not included in this base URL support unless documented separately.
 
 Provider-native environment variables such as `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` are provider fallback settings. A TAKT `provider_options.*.base_url` value is explicit TAKT configuration and takes priority over those provider-native settings for the providers above.
 
@@ -1331,7 +1333,7 @@ Default interactive conversations delegate to native SDK tools; an explicit allo
 
 Persona first-step metadata preserves undeclared tools as `undefined`, distinct from an explicit empty list. Both empty and non-empty explicit lists reach the DeepSeek guard. DeepSeek interactive failures never use the generic stale-session retry. A constraint refusal can leave a live session usable; a `session_continuation_unsupported` refusal instead clears the saved ID and states that the next user turn will create a fresh SDK session without the old history. SDK history restoration remains deferred, so an ID change is allowed. The rejected turn is not silently rerun, constraints are not relaxed, and workflow-level continuation still requires a new TAKT session/run.
 
-This distinction includes TeamLeader `inspect_tools`: normalization preserves explicit empty lists; the first-step metadata retains undeclared tools, while display previews remain arrays. A supplied SDK ID is always a continuation request, never a request to create a session with that ID. Without a matching live binding it is refused before SDK startup, even without a durable marker; only a later user turn with no ID can ask the SDK to generate a fresh one. Cleanup barriers still block runtime creation. A credential source/reference/endpoint change is a `provider_error`, retains the old ID, and remains refused on subsequent turns under the changed binding; it cannot use interactive fresh-session recovery. Start a new TAKT session/run to use the changed binding, or restore the original binding to use its still-live runtime.
+This distinction includes TeamLeader `inspect_tools`: normalization records explicit-empty YAML provenance for DeepSeek while other providers retain their existing empty-list defaults; the first-step metadata retains undeclared tools, while display previews remain arrays. A supplied SDK ID is always a continuation request, never a request to create a session with that ID. Without a matching live binding it is refused before SDK startup, even without a durable marker; only a later user turn with no ID can ask the SDK to generate a fresh one. Cleanup barriers still block runtime creation. A credential source/reference/endpoint change is a non-retryable `credential_binding_changed` failure, retains the old ID, and remains refused on subsequent turns under the changed binding; it cannot use interactive fresh-session recovery. Start a new TAKT session/run to use the changed binding, or restore the original binding to use its still-live runtime.
 
 #### Network access (`network_access`)
 
@@ -1436,7 +1438,7 @@ Discovery uses the same depth, directory, and entry limits as Codex. If a scan e
 
 #### Claude Skill inheritance (`skills`)
 
-TAKT disables filesystem Skill discovery for `claude-sdk`, `claude`, and `claude-terminal` by default. Enable it only when a workflow intentionally depends on repository or user Skills:
+TAKT disables filesystem Skill discovery for `claude-sdk`, `claude`, `claude-headless`, and `claude-terminal` by default. Enable it only when a workflow intentionally depends on repository or user Skills:
 
 ```yaml
 provider_options:
@@ -1445,9 +1447,9 @@ provider_options:
       enabled: true
 ```
 
-With `enabled: false`, `claude-sdk` receives `skills: []`; `claude` and `claude-terminal` receive `--disable-slash-commands`. This also disables custom Claude slash commands for those CLI sessions. With `enabled: true`, TAKT adds no Skill option or flag, preserving Claude's normal discovery. The setting follows normal provider-option leaf priority, including `TAKT_PROVIDER_OPTIONS_CLAUDE_SKILLS_ENABLED`, and is retained for retries and resumed sessions.
+With `enabled: false`, `claude-sdk` and its `claude` alias receive `skills: []`; `claude-headless` and `claude-terminal` receive `--disable-slash-commands`. This also disables custom Claude slash commands for those CLI sessions. With `enabled: true`, TAKT adds no Skill option or flag, preserving Claude's normal discovery. The setting follows normal provider-option leaf priority, including `TAKT_PROVIDER_OPTIONS_CLAUDE_SKILLS_ENABLED`, and is retained for retries and resumed sessions.
 
-This is a context filter, not a sandbox: a Skill file can still be reachable through Read or Bash. TAKT does not change `settingSources`, Claude settings, or user/repository Skill files. The bundled Agent SDK version is `0.3.206`. CLI sessions require a Claude Code version that supports `--disable-slash-commands`; TAKT verifies the flag before starting either a headless (`claude`) or terminal (`claude-terminal`) CLI session and reports an update error when unavailable. Claude Code `2.1.220` is the verified minimum.
+This is a context filter, not a sandbox: a Skill file can still be reachable through Read or Bash. TAKT does not change `settingSources`, Claude settings, or user/repository Skill files. The bundled Agent SDK version is `0.3.206`. CLI sessions require a Claude Code version that supports `--disable-slash-commands`; TAKT verifies the flag before starting either a headless (`claude-headless`) or terminal (`claude-terminal`) CLI session and reports an update error when unavailable. Claude Code `2.1.220` is the verified minimum.
 
 #### Claude Code sandbox control (`allow_unsandboxed_commands`)
 
@@ -1637,9 +1639,9 @@ Companion structured calls use the same provider-neutral fresh-session transport
 
 | Provider | Implementer tool events |
 |---|---:|
-| `claude-sdk` | Live |
+| `claude-sdk` / `claude` | Live |
 | `codex` | Live |
-| `claude` (headless) | Live |
+| `claude-headless` | Live |
 | `claude-terminal` | Replayed after the turn |
 | `mock` | Scenario-dependent |
 | `opencode` | Live |

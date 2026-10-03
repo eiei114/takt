@@ -46,9 +46,7 @@ function normalizeTeamLeaderInspectTools(
     return normalizedTool;
   });
 
-  // Provider-specific defaults are resolved later. Preserve an explicit empty
-  // constraint rather than turning it into an undeclared tool list here.
-  return normalizedTools;
+  return normalizedTools.length > 0 ? normalizedTools : undefined;
 }
 
 export function normalizeOutputContract(
@@ -139,6 +137,7 @@ export function normalizeTeamLeader(
     ...(raw.fail_on_part_error !== undefined ? { failOnPartError: raw.fail_on_part_error } : {}),
     timeoutMs: raw.timeout_ms ?? 900000,
     inspectTools: normalizeTeamLeaderInspectTools(raw.inspect_tools, stepPath),
+    ...(raw.inspect_tools?.length === 0 ? { inspectToolsExplicitlyEmpty: true } : {}),
     partPersona,
     partPersonaPath,
     ...(raw.part_persona !== undefined && raw.part_persona.trim().length > 0

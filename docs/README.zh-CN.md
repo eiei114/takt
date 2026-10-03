@@ -105,6 +105,10 @@ TAKT 需要 Node.js `>=22.22.0`。
 
 所选 provider 决定是否需要外部 CLI，或者是否只用 Node.js 即可通过 TypeScript SDK 运行。
 
+默认 provider 是使用 Claude Agent SDK 的 `claude-sdk`。`claude` 是 `claude-sdk` 的别名。
+
+如果要继续使用原来的 headless Claude Code CLI，请将 `runtime.yaml` profile 或旧版 `config.yaml` 中的 `provider: claude` 改为 `provider: claude-headless`，CLI 覆盖使用 `--provider claude-headless`。权限配置应移到 `provider_profiles.claude-headless`。使用新的 SDK 默认值或显式指定 `claude-sdk` 时，应将权限配置移到 `provider_profiles.claude-sdk`；显式指定别名 `claude` 时仍使用 `provider_profiles.claude` 键。例如，未指定 provider 且原来设置了 `provider_profiles.claude.default_permission_mode: readonly` 时，不迁移该 profile 会导致旧权限设置失效，并可能回退到 SDK 的 builtin `edit`。共享的 `provider_options.claude` 键保持不变。以旧 `claude` 名称保存的会话不会被恢复，而是启动新会话。`claude-terminal` 的行为保持不变。
+
 以下 provider 通过 SDK 运行，不需要 CLI：
 
 - `claude-sdk` — `@anthropic-ai/claude-agent-sdk`
@@ -124,13 +128,13 @@ runtime 保持运行且配置不变时，多个 turn 会按 FIFO 顺序串行执
 
 session 历史恢复仍等待 SDK 支持，交互中的 SDK session ID 可以改变。无法继续时，当前 turn 失败且不重试，保存的 ID 会被清除；错误消息说明下一个用户 turn 将启动新的 SDK session，不重放之前的历史。拒绝工具或权限限制时不会移除 ID 再重试，仍运行的 session 可继续使用。persona 也区分未声明工具列表与显式 `[]`，后者保持为限制并拒绝执行。
 
-TeamLeader 初始 step 也区分未声明的 `inspect_tools` 与显式 `[]`。指定 SDK ID 仅用于继续匹配的运行中 runtime；未注册的保存 ID 也会在 SDK 启动前拒绝。credential binding 改变属于 provider error，不走 continuation 恢复流程，保存 ID 不会被清除。需启动新的 TAKT session/run，不能用新 ID 静默绕过认证绑定限制。
+TeamLeader 初始 step 也区分未声明的 `inspect_tools` 与显式 `[]`。指定 SDK ID 仅用于继续匹配的运行中 runtime；未注册的保存 ID 也会在 SDK 启动前拒绝。credential binding 改变属于不可重试的 `credential_binding_changed`，不走 continuation 恢复流程，保存 ID 不会被清除。需启动新的 TAKT session/run，不能用新 ID 静默绕过认证绑定限制。
 
 认证使用官方 store `$DSH_HOME/.credentials.yaml`（默认 `~/.dsh/.credentials.yaml`），或所选环境变量（例如 `DEEPSEEK_API_KEY`）。TAKT 将 credential source 与自身管理的 runtime home 分开，绝不读取、复制或改写已保存的 secret 值。配置和 session 限制请参阅[配置指南](./configuration.zh-CN.md#deepseek-harness-deepseek-harness)。
 
 以下 provider 需要外部 CLI：
 
-- `claude` — [Claude Code](https://claude.ai/code)
+- `claude-headless` — [Claude Code](https://claude.ai/code)
 - `claude-terminal` — 在交互式终端会话中驱动 [Claude Code](https://claude.ai/code)，还需要 [`tmux`](https://github.com/tmux/tmux)
 - `copilot` — [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
 - `cursor` — [Cursor Agent](https://docs.cursor.com/)
@@ -311,7 +315,7 @@ exec 输入支持图片附件。使用 `/paste-image` 或 macOS 上的 `Ctrl+V` 
 最小的 `~/.takt/config.yaml`：
 
 ```yaml
-provider: claude              # claude, claude-sdk, claude-terminal, codex, opencode, deepseek-harness, cursor, copilot, kiro, pi, or mock
+provider: claude-sdk              # claude-sdk, claude (alias), claude-headless, claude-terminal, codex, opencode, deepseek-harness, cursor, copilot, kiro, pi, or mock
 model: sonnet                 # 直接传给 provider
 language: en                  # en 或 ja；当前 UI 不提供 zh-CN
 ```

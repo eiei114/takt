@@ -13,7 +13,7 @@
 language: en                  # UI 语言：'en' 或 'ja'
 logging:
   level: info                 # 日志级别：debug、info、warn、error
-provider: claude              # 默认 provider：claude、claude-sdk、claude-terminal、codex、opencode、deepseek-harness、cursor、copilot、kiro、pi 或 mock
+provider: claude-sdk              # 默认 provider：claude-sdk、claude、claude-headless、claude-terminal、codex、opencode、deepseek-harness、cursor、copilot、kiro、pi 或 mock
 model: sonnet                 # 默认 model（可省略，原样传给 provider）
 branch_name_strategy: romaji  # 分支名生成策略：'romaji'（快）或 'ai'（慢）
 prevent_sleep: false          # 执行期间阻止 macOS 空闲睡眠（caffeinate）
@@ -24,10 +24,10 @@ notification_sound_events:    # 可选的事件级开关（默认所有事件启
   workflow_abort: true
   run_complete: true
   run_abort: true
-concurrency: 1                # takt run 的并行任务数（1-10，默认 1 = 顺序执行）
-task_poll_interval_ms: 500    # takt run 检查新任务的间隔（100-5000，默认 500）
+concurrency: 1                # takt run / takt watch 的并行任务数（1-10，默认 1 = 顺序执行）
+task_poll_interval_ms: 500    # takt run / takt watch 检查新任务的间隔（100-5000，默认 500）
 interactive_preview_steps: 3  # 交互模式中的 step 预览数（0-10，默认 3）
-auto_requeue_max_attempts: 0  # takt run 期间失败 workflow task 的自动 requeue 次数（非负整数，默认 0 = 禁用）
+auto_requeue_max_attempts: 0  # takt run / takt watch 期间失败 workflow task 的自动 requeue 次数（非负整数，默认 0 = 禁用）
 ignore_exceed: false          # 对 takt run 和 takt watch 应用 --ignore-exceed（默认 false）
 assistant:
   formal_spec:
@@ -88,7 +88,7 @@ assistant:
 #     default_permission_mode: full
 #     step_permission_overrides:
 #       ai_review: readonly
-#   claude:
+#   claude-sdk:
 #     default_permission_mode: edit
 
 # API key 配置（可选）
@@ -120,7 +120,7 @@ assistant:
 # 项目 assistant 覆盖全局 assistant；未设置 assistant 时，Report fallback 不会回退到顶层 provider/model。
 # takt_providers:
 #   assistant:
-#     provider: claude
+#     provider: claude-sdk
 #     model: opus
 #   selector:              # dynamic parallel、dynamic_facets 和 companion pool 的可选 selector 覆盖
 #     provider: codex
@@ -183,17 +183,17 @@ assistant:
 | `logging.debug` | boolean | `false` | 启用 debug 日志（`debug.log` + `prompts.jsonl`） |
 | `logging.provider_events` | boolean | `false` | 持久化 provider stream event |
 | `logging.usage_events` | boolean | `false` | 持久化 usage event 日志 |
-| `provider` | `"claude"` \| `"claude-sdk"` \| `"claude-terminal"` \| `"codex"` \| `"opencode"` \| `"deepseek-harness"` \| `"pi"` \| `"cursor"` \| `"copilot"` \| `"kiro"` \| `"mock"` | `"claude"` | 默认 AI provider；`deepseek-harness` 是官方 DeepSeek Harness TypeScript SDK/runtime `0.2.0-rc.2` |
+| `provider` | `"claude"` \| `"claude-sdk"` \| `"claude-headless"` \| `"claude-terminal"` \| `"codex"` \| `"opencode"` \| `"deepseek-harness"` \| `"pi"` \| `"cursor"` \| `"copilot"` \| `"kiro"` \| `"mock"` | `"claude-sdk"` | 默认 AI provider（`claude` 是 `claude-sdk` 的别名，`claude-headless` 使用 headless CLI）；`deepseek-harness` 是官方 DeepSeek Harness TypeScript SDK/runtime `0.2.0-rc.2` |
 | `model` | string | - | 默认 model 名称，原样传给 provider |
 | `branch_name_strategy` | `"romaji"` \| `"ai"` | `"romaji"` | 分支名生成策略 |
 | `prevent_sleep` | boolean | `false` | 阻止 macOS 空闲睡眠 |
 | `notification_sound` | boolean | `true` | 启用通知音 |
 | `notification_sound_events` | object | - | 各事件通知音开关 |
-| `concurrency` | number (1-10) | `1` | `takt run` 并行任务数 |
-| `task_poll_interval_ms` | number (100-5000) | `500` | 新任务轮询间隔 |
+| `concurrency` | number (1-10) | `1` | `takt run` / `takt watch` 并行任务数 |
+| `task_poll_interval_ms` | number (100-5000) | `500` | 新任务轮询间隔 (`takt run` / `takt watch`) |
 | `interactive_preview_steps` | number (0-10) | `3` | 交互模式中的 step 预览数 |
 | `assistant.formal_spec` | boolean \| `"Y/n"` \| `"y/N"` \| object | mode `"y/N"`，comments `true` | 添加 Alloy/Quint 指导，要求同时用两种记法表达。object 格式可独立设置 `mode`、`comments` 和 `model_check_timeout_seconds`；`comments: false` 仅移除自然语言含义注释指令，不减少形式规格数量、需求覆盖、语法或正确性指令。`model_check_timeout_seconds` 是 `/verify` 中 `quint verify` 与 Alloy Analyzer 的上限秒数（1～86,400 的整数，默认 900），`parse`/`typecheck`/`run` 的 60 秒不变。project 和 global 的 object 字段独立解析，project 优先。`true` 和 `false` 不提问；TTY 下 `"Y/n"`、`"y/N"` 每个会话提问一次并分别以 Yes、No 为默认值；非 TTY 不读取标准输入，直接采用默认答案。Gherkin 指导仅适用于开发和实现任务。 |
-| `auto_requeue_max_attempts` | 非负整数 | `0` | 失败 workflow task 的自动 requeue 上限；`0` 禁用 |
+| `auto_requeue_max_attempts` | 非负整数 | `0` | 失败 workflow task 的自动 requeue 上限；`0` 禁用 (`takt run` / `takt watch`) |
 | `ignore_exceed` | boolean | `false` | 配置 `takt run` 和 `takt watch` 的迭代上限绕过 |
 | `sync_project_local_takt_on_retry` | boolean | `true` | retry/re-execution 前将根项目 `.takt` 同步到 worktree |
 | `worktree_dir` | string | - | shared clone 目录，默认 `../{clone-name}` |
@@ -266,11 +266,11 @@ caccia:
 
 ```yaml
 # .takt/config.yaml
-provider: claude              # 覆盖项目的 provider
+provider: claude-sdk              # 覆盖项目的 provider
 model: sonnet                 # 覆盖项目的 model
 auto_pr: true                 # worktree 执行后自动创建 PR
-concurrency: 2                # 此项目 takt run 的并行任务数（1-10）
-auto_requeue_max_attempts: 1  # takt run 期间失败 workflow task 的自动 requeue 次数
+concurrency: 2                # 此项目 takt run / takt watch 的并行任务数（1-10）
+auto_requeue_max_attempts: 1  # takt run / takt watch 期间失败 workflow task 的自动 requeue 次数
 ignore_exceed: false          # 对 takt run 和 takt watch 应用 --ignore-exceed
 # base_branch: main           # 创建 clone 的基分支（覆盖全局值，默认 remote 默认分支）
 
@@ -367,7 +367,7 @@ provider_options:
 
 ### Provider inactivity deadline 与 OpenCode execution guard
 
-所有 provider 都使用 `guards.call_timeout_ms` 作为没有可观察 provider event 时允许的最长时间。每个 stream/tool event、阶段完成和新的 provider attempt 都会重置计时器；累计执行时间没有上限。它适用于 `codex`、`opencode`、`claude`（包括 `claude-sdk`）、`claude_terminal`、`cursor`、`copilot`、`kiro` 和 `pi`。取值是 60,000 到 86,400,000 之间的整数毫秒，默认 3,600,000 ms（60 分钟）。通常的 `provider_options` profile 解析路径会将该值应用到 engine 的 parent-step deadline，并向所有 provider 传递同一个 `AbortSignal`。`claude_terminal.timeout_ms` 为兼容性保留，仅在未设置 `guards.call_timeout_ms` 时使用。
+所有 provider 都使用 `guards.call_timeout_ms` 作为没有可观察 provider event 时允许的最长时间。每个 stream/tool event、阶段完成和新的 provider attempt 都会重置计时器；累计执行时间没有上限。它适用于 `codex`、`opencode`、`claude`（由 `claude-sdk`、别名 `claude` 和 `claude-headless` 共享）、`claude_terminal`、`cursor`、`copilot`、`kiro` 和 `pi`。取值是 60,000 到 86,400,000 之间的整数毫秒，默认 3,600,000 ms（60 分钟）。通常的 `provider_options` profile 解析路径会将该值应用到 engine 的 parent-step deadline，并向所有 provider 传递同一个 `AbortSignal`。`claude_terminal.timeout_ms` 为兼容性保留，仅在未设置 `guards.call_timeout_ms` 时使用。
 
 `provider_options.opencode.guards.profile` 默认是 `standard`。`minimal` 只关闭启发式循环检测；时间、资源上限、完整性和严格修正 guard 仍然强制启用。`model_profiles` 按解析出的 model 字符串以声明顺序选择 profile，唯一通配符是 `*`。guard leaf 在 provider-option 层之间独立合并；较高优先级的 `model_profiles` 值会替换较低优先级的完整 map。
 
@@ -390,8 +390,8 @@ TAKT 观察实际收到的 provider event，不会合成 keepalive。OpenCode �
 | `auto_pr` | boolean | - | worktree 执行后自动创建 PR |
 | `caccia` | object | disabled | CodeRabbit 审查循环设置（见上文） |
 | `draft_pr` | boolean | `false`（来自全局） | 将自动创建的 PR 设为 draft |
-| `concurrency` | number (1-10) | `1`（来自全局） | `takt run` 并行任务数 |
-| `auto_requeue_max_attempts` | 非负整数 | `0` | 失败 workflow task 的自动 requeue 上限 |
+| `concurrency` | number (1-10) | `1`（来自全局） | `takt run` / `takt watch` 并行任务数 |
+| `auto_requeue_max_attempts` | 非负整数 | `0` | 失败 workflow task 的自动 requeue 上限 (`takt run` / `takt watch`) |
 | `ignore_exceed` | boolean | `false` | `takt run` / `takt watch` 的迭代限制绕过 |
 | `base_branch` | string | - | 创建 clone 的基分支 |
 | `assistant.init_files` | string[] | - | 仅项目级的 assistant 初始上下文文件。路径必须相对于项目根；绝对路径、解析到项目根之外的路径，以及 `.env*`、`.npmrc`、`.pypirc`、`.netrc`、`*.pem`、`*.key` 和 `.git/**` 等敏感文件模式会被拒绝。路径不存在、指向目录或文件不可读时会明确报错。最多 16 个文件，每个最多 256 KiB，合计最多 1 MiB。未设置或为空时，TAKT 不会自动发现 `CLAUDE.md`、`AGENT.md`、`AGENTS.md`、`TAKT.md` 或其他文件。 |
@@ -519,7 +519,7 @@ kiro_cli_path: /usr/local/bin/kiro-cli
 
 ### Provider 专属 model 说明
 
-- **Claude Code** 支持 `opus`、`sonnet`、`haiku`、`opusplan`、`default` 等别名和完整 model 名称；`model` 原样传给 provider CLI。可用 model 参见 [Claude Code 文档](https://docs.anthropic.com/en/docs/claude-code)。
+- **Claude Code** 支持 `opus`、`sonnet`、`haiku`、`opusplan`、`default` 等别名和完整 model 名称；`claude-sdk` 及其别名 `claude` 通过 Agent SDK 的 model option 传递 `model`；`claude-headless` 和 `claude-terminal` 通过 CLI 的 `--model` 参数传递。可用 model 参见 [Claude Code 文档](https://docs.anthropic.com/en/docs/claude-code)。
 - **Codex** 通过 Codex SDK 原样使用 model 字符串；省略时默认 `codex`。
 - **OpenCode** 要求 `provider/model` 格式，例如 `opencode/big-pickle`；省略 model 会产生配置错误。
 - **Pi** 接受 `provider/model` 引用或能唯一匹配 Pi model 的裸 ID。reference 只按 `/` 分割，因此 `provider/model:high` 中的 `model:high` 是字面 model ID。thinking level 通过 `provider_options.pi.thinking_level` 或 `TAKT_PROVIDER_OPTIONS_PI_THINKING_LEVEL` 设置；省略时使用 Pi SDK 默认值 `medium`。显式设置的 level 会应用于每个 Pi turn。省略 model 时，TAKT 保留 Pi session 当前的 model。
@@ -531,7 +531,7 @@ kiro_cli_path: /usr/local/bin/kiro-cli
 
 ```yaml
 # ~/.takt/config.yaml
-provider: claude
+provider: claude-sdk
 model: opus     # 所有 step 的默认 model（除非被覆盖）
 ```
 
@@ -752,7 +752,7 @@ provider_profiles:
     default_permission_mode: full
     step_permission_overrides:
       ai_review: readonly
-  claude:
+  claude-sdk:
     default_permission_mode: edit
     step_permission_overrides:
       implement: full
@@ -769,6 +769,8 @@ provider_profiles:
 5. step `required_permission_mode`（作为最低下限）
 
 每个 provider 都有 builtin `default_permission_mode: edit`；如果项目和全局 profile 都没有设置，最终模式就是 `edit`，再根据 step 的 `required_permission_mode` 提高。
+
+权限 profile 键必须与所选 provider 名称一致，键本身不作为别名处理。使用新的 `claude-sdk` 默认值或显式指定 `claude-sdk` 时，请将旧的 `provider_profiles.claude` 设置移到 `provider_profiles.claude-sdk`。显式指定 `claude` 仍使用 `claude` 键，`claude-headless` 使用 `claude-headless` 键。如果未指定 provider，旧 `claude` profile 中的 `readonly` 设置将不再生效，不迁移该 profile 可能导致 SDK 回退到 builtin `edit`。
 
 ## 旧版 `config.yaml` Provider Routing
 
@@ -913,7 +915,7 @@ provider_options:
     base_url: http://127.0.0.1:8787/v1
 ```
 
-`provider_options.claude.base_url` 会作为 `ANTHROPIC_BASE_URL` 传给 `claude` 和 `claude-sdk`；`provider_options.codex.base_url` 作为 `baseUrl` 传给 Codex SDK；`provider_options.deepseek_harness.base_url` 通过 `DEEPSEEK_BASE_URL` 传给官方 TypeScript SDK。workflow 和项目配置只允许 loopback URL；非 loopback endpoint 必须放在全局配置或 `TAKT_PROVIDER_OPTIONS_*_BASE_URL` 环境变量中。
+`provider_options.claude.base_url` 会作为 `ANTHROPIC_BASE_URL` 传给 `claude-sdk`、`claude` 和 `claude-headless`；`provider_options.codex.base_url` 作为 `baseUrl` 传给 Codex SDK；`provider_options.deepseek_harness.base_url` 通过 `DEEPSEEK_BASE_URL` 传给官方 TypeScript SDK。workflow 和项目配置只允许 loopback URL；非 loopback endpoint 必须放在全局配置或 `TAKT_PROVIDER_OPTIONS_*_BASE_URL` 环境变量中。
 
 #### DeepSeek Harness (`deepseek-harness`)
 
@@ -958,7 +960,7 @@ SDK 不提供此 provider 所需的 permission control，因此请求 permission
 
 persona 的 first-step 信息将未声明工具保留为 `undefined`，与显式 `[]` 区分；空和非空的显式列表都会传到 DeepSeek guard。DeepSeek 交互失败不使用通用 stale-session retry。拒绝限制时可保留仍运行的 session；遇到 `session_continuation_unsupported` 时则清除保存 ID，并说明下一个用户 turn 将创建没有旧历史的新 SDK session。历史恢复仍等待 SDK 支持，因此允许 ID 改变。不会静默重跑被拒绝的 turn，也不会放宽限制；workflow 继续执行仍需新的 TAKT session/run。
 
-TeamLeader 的 `inspect_tools` 也遵循此区别：规范化保留显式空列表，初始 step 保留未声明值，显示用 preview 仍为数组。指定 SDK ID 始终是继续请求；没有匹配的 live binding 时，即使没有使用记录 marker，也在 SDK 启动前拒绝。只有通知后的新用户 turn 不带 ID 时，SDK 才生成新 ID。cleanup barrier 仍不能被新 ID 绕过。credential source、reference 或 endpoint 改变属于 `provider_error`，保留原 ID；后续 turn 使用改变后的 binding 仍被拒绝，不进入 fresh-session 恢复。请启动新的 TAKT session/run 使用新 binding，或恢复原 binding 以继续其运行中的 runtime。
+TeamLeader 的 `inspect_tools` 也遵循此区别：规范化保留显式空列表的来源信息，仅 DeepSeek 将其解析为空限制，其他 provider 的原有默认行为不变，初始 step 保留未声明值，显示用 preview 仍为数组。指定 SDK ID 始终是继续请求；没有匹配的 live binding 时，即使没有使用记录 marker，也在 SDK 启动前拒绝。只有通知后的新用户 turn 不带 ID 时，SDK 才生成新 ID。cleanup barrier 仍不能被新 ID 绕过。credential source、reference 或 endpoint 改变属于不可重试的 `credential_binding_changed`，保留原 ID；后续 turn 使用改变后的 binding 仍被拒绝，不进入 fresh-session 恢复。请启动新的 TAKT session/run 使用新 binding，或恢复原 binding 以继续其运行中的 runtime。
 
 #### 网络访问（`network_access`）
 
@@ -1025,7 +1027,7 @@ provider_options:
 
 #### Claude Skill 继承（`skills`）
 
-`claude-sdk`、`claude` 和 `claude-terminal` 默认关闭 filesystem Skill discovery。只有 workflow 有意依赖它们时才启用：
+`claude-sdk`、`claude`、`claude-headless` 和 `claude-terminal` 默认关闭 filesystem Skill discovery。只有 workflow 有意依赖它们时才启用：
 
 ```yaml
 provider_options:
@@ -1201,9 +1203,9 @@ Companion 的 structured call 使用和其他 TAKT-owned structured agent 一样
 
 | Provider | Implementer tool event |
 |----------|------------------------|
-| `claude-sdk` | Live |
+| `claude-sdk` / `claude` | Live |
 | `codex` | Live |
-| `claude`（headless） | Live |
+| `claude-headless` | Live |
 | `claude-terminal` | turn 后 replay |
 | `mock` | 取决于 scenario |
 | `opencode` | Live |

@@ -154,7 +154,13 @@ describe('DeepSeek Harness SDK error mapping', () => {
   });
 
   it('classifies the SDK duplicate-session response as unsupported continuation', async () => {
-    const sessionId = 'saved-session-duplicate';
+    runtimeBehavior.notifications = [{
+      method: 'session.event',
+      params: { sessionId: 'error-mapping-session', event: { type: 'turn/end', data: { reason: { kind: 'completed' } } } },
+    }];
+    const first = await callDeepSeekHarness('worker', 'create a live SDK session', { cwd: temporaryRoot });
+    expect(first.status).toBe('done');
+    const sessionId = first.sessionId!;
     runtimeBehavior.runError = new JsonRpcResponseError(-32603, `session "${sessionId}" already exists`);
     const response = await callDeepSeekHarness('worker', 'continue saved session', {
       cwd: temporaryRoot,
@@ -169,13 +175,13 @@ describe('DeepSeek Harness SDK error mapping', () => {
     });
     expect(response.sessionId).toBe(sessionId);
     expect(response.content).not.toContain(sessionId);
+    expect(runtimeBehavior.runCount).toBe(2);
   });
 
   it('does not classify a different SDK JSON-RPC error as duplicate session', async () => {
     runtimeBehavior.runError = new JsonRpcResponseError(-32603, 'invalid request');
     const response = await callDeepSeekHarness('worker', 'send an invalid request', {
       cwd: temporaryRoot,
-      sessionId: 'saved-session-invalid-request',
     });
 
     expect(response).toMatchObject({
@@ -184,6 +190,7 @@ describe('DeepSeek Harness SDK error mapping', () => {
       content: 'DeepSeek Harness runtime returned a JSON-RPC error. Upstream error details are withheld.',
     });
     expect(response.content).not.toContain('invalid request');
+    expect(runtimeBehavior.runCount).toBe(1);
   });
 
   it('maps SDK assistant/message text, reasoning, tool, and completion notifications to provider stream events', async () => {
@@ -235,7 +242,6 @@ describe('DeepSeek Harness SDK error mapping', () => {
 
     const response = await callDeepSeekHarness('worker', 'map SDK events', {
       cwd: temporaryRoot,
-      sessionId,
       onStream: (streamEvent) => events.push(streamEvent),
     });
 

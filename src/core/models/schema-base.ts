@@ -234,23 +234,12 @@ export const ProviderBlockSchema = z.object({
   const hasNetworkAccess = provider.network_access !== undefined;
   const hasSandbox = provider.sandbox !== undefined;
 
-  if (provider.type === 'claude-sdk') {
+  if (provider.type === 'claude-sdk' || provider.type === 'claude' || provider.type === 'claude-headless') {
     if (hasNetworkAccess) {
       ctx.addIssue({
         code: 'custom',
         path: ['network_access'],
-        message: "provider.type 'claude-sdk' does not support 'network_access'.",
-      });
-    }
-    return;
-  }
-
-  if (provider.type === 'claude') {
-    if (hasNetworkAccess) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['network_access'],
-        message: "provider.type 'claude' does not support 'network_access'.",
+        message: `provider.type '${provider.type}' does not support 'network_access'.`,
       });
     }
     return;
@@ -415,6 +404,7 @@ export const ProviderPermissionProfileSchema = z.object({
 export const ProviderPermissionProfilesSchema = z.object({
   claude: ProviderPermissionProfileSchema.optional(),
   'claude-sdk': ProviderPermissionProfileSchema.optional(),
+  'claude-headless': ProviderPermissionProfileSchema.optional(),
   'claude-terminal': ProviderPermissionProfileSchema.optional(),
   codex: ProviderPermissionProfileSchema.optional(),
   opencode: ProviderPermissionProfileSchema.optional(),

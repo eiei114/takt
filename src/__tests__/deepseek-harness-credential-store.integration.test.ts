@@ -603,7 +603,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     expect(changed).toMatchObject({
       status: 'error',
       sessionId,
-      failureCategory: 'provider_error',
+      failureCategory: 'credential_binding_changed',
     });
     expect(changed.content).toContain('changed during this session');
     expect(endpoint.requests).toHaveLength(1);
