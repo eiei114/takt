@@ -944,6 +944,36 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     }
   });
 
+  it.each(['malformed', 'directory', 'insufficient', 'missing-live-pid'] as const)(
+    'does not confirm an existing %s cleanup barrier and retains the startup lock',
+    async (kind) => {
+      const paths = getDeepSeekRuntimePaths();
+      await mkdir(paths.state, { recursive: true });
+      const barrier = join(paths.state, 'cleanup-blocked');
+      if (kind === 'directory') await mkdir(barrier);
+      else await writeFile(barrier, kind === 'malformed'
+        ? '{invalid'
+        : JSON.stringify({ runtimePids: [], unknownRuntime: false }));
+      if (kind === 'missing-live-pid') {
+        await mkdir(paths.owners, { recursive: true });
+        await writeFile(join(paths.owners, 'known-runtime.json'), JSON.stringify({
+          parentPid: process.pid, supervisorPid: process.pid, runtimePid: process.pid,
+        }));
+      }
+      await expect(markDeepSeekCleanupFailure()).rejects.toThrow('cleanup is unconfirmed');
+      expect(existsSync(join(paths.state, '.runtime-state-lock'))).toBe(true);
+    },
+  );
+
+  it('confirms an existing valid unknown-runtime quarantine barrier', async () => {
+    const paths = getDeepSeekRuntimePaths();
+    await mkdir(paths.state, { recursive: true });
+    await writeFile(join(paths.state, 'cleanup-blocked'), JSON.stringify({ runtimePids: [], unknownRuntime: true }));
+    await expect(markDeepSeekCleanupFailure()).resolves.toBeUndefined();
+    expect(existsSync(join(paths.state, '.runtime-state-lock'))).toBe(false);
+    await expect(assertDeepSeekRuntimeCreationAllowed()).rejects.toThrow('cleanup is unconfirmed');
+  });
+
   it.skipIf(process.platform === 'win32')('blocks runtime creation while an unowned process group remains alive', async () => {
     const runtimePaths = getDeepSeekRuntimePaths();
     await mkdir(runtimePaths.owners, { recursive: true });

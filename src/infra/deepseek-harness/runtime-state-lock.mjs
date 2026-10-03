@@ -221,4 +221,12 @@ export async function markDeepSeekCleanupBarrierLocked(stateDirectory, ownerDire
   } catch (error) {
     if (error?.code !== 'EEXIST') throw cleanupBlockedError();
   }
+  // EEXIST alone is not confirmation: reject a directory, malformed/partial
+  // file, or a prior barrier that does not cover this failed runtime cleanup.
+  const persisted = await readCleanupBarrier(stateDirectory);
+  if (persisted === undefined || typeof persisted.unknownRuntime !== 'boolean'
+    || (persisted.unknownRuntime !== true
+      && (unknownRuntime || runtimePids.some((pid) => !persisted.runtimePids.includes(pid))))) {
+    throw cleanupBlockedError();
+  }
 }

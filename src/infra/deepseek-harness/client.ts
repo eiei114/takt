@@ -134,11 +134,12 @@ class DeepSeekHarnessProtocolError extends Error {
 }
 
 class DeepSeekHarnessTransportError extends Error {
-  /** Attach SDK transport metadata to an error for subsequent diagnostic mapping and redaction. */
+  /** Attach safe transport metadata; persisted quarantine permits a completed other turn, not a claim of process exit. */
   constructor(
     message: string,
     readonly sdkCode?: string,
     readonly sdkMessage?: string,
+    readonly cleanupBarrierPersisted = false,
   ) {
     super(message);
     this.name = 'DeepSeekHarnessTransportError';
@@ -1142,15 +1143,23 @@ class DeepSeekHarnessProcess {
     }
   }
 
-  /** Close SDK/credential patch and retain barriers for unconfirmed processes. */
+  /** Close SDK/patch; failed SDK cleanup carries confirmed quarantine status, while patch cleanup never does. */
   async close(): Promise<void> {
     if (this.closed) return;
     try {
       await this.harness.close();
     } catch {
       if (!(await this.hasCleanupConfirmation())) {
-        await markDeepSeekCleanupFailure().catch(() => undefined);
-        throw new DeepSeekHarnessTransportError(deepSeekCleanupBlockedMessage(), 'cleanup-failed');
+        let cleanupBarrierPersisted = false;
+        try {
+          await markDeepSeekCleanupFailure();
+          cleanupBarrierPersisted = true;
+        } catch {
+          // Admission retains its fail-closed lock; do not claim a durable barrier.
+        }
+        throw new DeepSeekHarnessTransportError(
+          deepSeekCleanupBlockedMessage(), 'cleanup-failed', undefined, cleanupBarrierPersisted,
+        );
       }
     }
     try {
@@ -1232,7 +1241,7 @@ const MAX_IDLE_RUNTIMES = 8;
 const sessionRequests = new Map<string, number>();
 let idlePruning: Promise<void> = Promise.resolve();
 
-/** Close least-recently-used idle runtimes; never evict active or queued turns. */
+/** Evict idle runtimes, preserving a completed turn only when failed eviction is durably quarantined. */
 async function pruneIdleProcesses(completedProcess: DeepSeekHarnessProcess): Promise<void> {
   const prune = async (): Promise<void> => {
     completedProcess.activeTurns -= 1;
@@ -1244,7 +1253,14 @@ async function pruneIdleProcesses(completedProcess: DeepSeekHarnessProcess): Pro
       if (idle.length <= MAX_IDLE_RUNTIMES) return;
       const oldest = idle[0]!;
       removeProcess(oldest);
-      await oldest.close();
+      try {
+        await oldest.close();
+      } catch (error) {
+        if (error instanceof DeepSeekHarnessTransportError
+          && error.sdkCode === 'cleanup-failed'
+          && error.cleanupBarrierPersisted) continue;
+        throw error;
+      }
     }
   };
   const result = idlePruning.then(prune, prune);

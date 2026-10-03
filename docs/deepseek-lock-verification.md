@@ -1,6 +1,6 @@
 # DeepSeek lock and production-consumer verification (#1658)
 
-This is a reviewable evidence snapshot, not a second lockfile. Installation uses `package-lock.json` only. Source: `d755d8ee0789cf0883c48d79f26d41870e25247b`; later documentation-only edits leave the lock bytes unchanged. Regenerate this snapshot after any lock/dependency change. No review filter, check or threshold was disabled.
+This is a reviewable evidence snapshot, not a second lockfile. Installation uses `package-lock.json` only. Source: `d755d8ee0789cf0883c48d79f26d41870e25247b`; subsequent documentation and adapter cleanup-quarantine changes leave the lock/dependency bytes unchanged. Regenerate this snapshot after any lock/dependency change. No review filter, check or threshold was disabled. Later adapter regression results and current-head CI belong in the PR, not in this predecessor's packed-consumer receipt.
 
 ## Exact canonical lock entries
 

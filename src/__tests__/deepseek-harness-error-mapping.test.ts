@@ -16,7 +16,11 @@ const runtimeBehavior = vi.hoisted(() => ({
   runGate: undefined as ((prompt: string) => Promise<void>) | undefined,
   onClose: undefined as (() => Promise<void>) | undefined,
 }));
-const runtimeStateBehavior = vi.hoisted(() => ({ blockCreationAtStart: false }));
+const runtimeStateBehavior = vi.hoisted(() => ({
+  blockCreationAtStart: false,
+  failBarrierPublication: false,
+  failPatchDisposal: false,
+}));
 
 vi.mock('@deepseek-ai/dsh-sdk-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@deepseek-ai/dsh-sdk-client')>();
@@ -68,10 +72,30 @@ vi.mock('@deepseek-ai/dsh-sdk-client', async (importOriginal) => {
   };
 });
 
+vi.mock('../infra/deepseek-harness/credential-patch.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../infra/deepseek-harness/credential-patch.js')>();
+  return {
+    ...actual,
+    createDeepSeekCredentialPatch: async (...args: Parameters<typeof actual.createDeepSeekCredentialPatch>) => {
+      const patch = await actual.createDeepSeekCredentialPatch(...args);
+      return {
+        ...patch,
+        dispose: async (): Promise<void> => {
+          await patch.dispose();
+          if (runtimeStateBehavior.failPatchDisposal) throw new Error('patch disposal failed');
+        },
+      };
+    },
+  };
+});
+
 vi.mock('../infra/deepseek-harness/runtime-state.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../infra/deepseek-harness/runtime-state.js')>();
   return {
     ...actual,
+    markDeepSeekCleanupFailure: (): Promise<void> => runtimeStateBehavior.failBarrierPublication
+      ? Promise.reject(new Error('barrier publication failed'))
+      : actual.markDeepSeekCleanupFailure(),
     withDeepSeekRuntimeCreation: <T,>(
       create: () => Promise<T>,
       cleanupAfterFailure?: () => Promise<boolean>,
@@ -119,6 +143,8 @@ describe('DeepSeek Harness SDK error mapping', () => {
     runtimeBehavior.runError = undefined;
     runtimeBehavior.closeError = undefined;
     runtimeStateBehavior.blockCreationAtStart = false;
+    runtimeStateBehavior.failBarrierPublication = false;
+    runtimeStateBehavior.failPatchDisposal = false;
     runtimeBehavior.notifications = [];
     runtimeBehavior.startCount = 0;
     runtimeBehavior.runCount = 0;
@@ -472,7 +498,7 @@ describe('DeepSeek Harness SDK error mapping', () => {
     expect(runtimeBehavior.closeCount).toBe(4);
   });
 
-  it('fails closed when idle eviction cannot confirm cleanup', async () => {
+  it('preserves a completed turn when failed idle eviction has a confirmed quarantine barrier', async () => {
     runtimeBehavior.uniqueSessions = true;
     for (let index = 0; index < 8; index += 1) {
       expect((await callDeepSeekHarness('worker', `fresh ${index}`, { cwd: temporaryRoot })).status).toBe('done');
@@ -482,9 +508,54 @@ describe('DeepSeek Harness SDK error mapping', () => {
       await writeFile(path.join(getDeepSeekRuntimePaths().owners, 'unconfirmed.json'), '{invalid');
     };
     expect(await callDeepSeekHarness('worker', 'ninth', { cwd: temporaryRoot }))
-      .toMatchObject({ status: 'error', content: deepSeekCleanupBlockedMessage() });
+      .toMatchObject({ status: 'done', content: 'ok' });
+    expect(JSON.parse(await readFile(path.join(getDeepSeekRuntimePaths().state, 'cleanup-blocked'), 'utf8')))
+      .toMatchObject({ unknownRuntime: true });
     const starts = runtimeBehavior.startCount;
     expect((await callDeepSeekHarness('worker', 'blocked', { cwd: temporaryRoot })).status).toBe('error');
     expect(runtimeBehavior.startCount).toBe(starts);
+  });
+
+  it('withholds completion when eviction cannot confirm barrier publication', async () => {
+    runtimeBehavior.uniqueSessions = true;
+    for (let index = 0; index < 8; index += 1) {
+      expect((await callDeepSeekHarness('worker', `fresh ${index}`, { cwd: temporaryRoot })).status).toBe('done');
+    }
+    runtimeStateBehavior.failBarrierPublication = true;
+    runtimeBehavior.closeError = new Error('unconfirmed cleanup');
+    const events: StreamEvent[] = [];
+    expect(await callDeepSeekHarness('worker', 'ninth', { cwd: temporaryRoot, onStream: (event) => { events.push(event); } }))
+      .toMatchObject({ status: 'error', content: deepSeekCleanupBlockedMessage() });
+    expect(events.some((event) => event.type === 'result' && event.data.success === true)).toBe(false);
+    expect(runtimeBehavior.closeCount).toBeGreaterThan(1);
+  });
+
+  it('still bounds the idle cache when simultaneous evictions are durably quarantined', async () => {
+    runtimeBehavior.uniqueSessions = true;
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    runtimeBehavior.runGate = () => gate;
+    runtimeBehavior.closeError = new Error('unconfirmed cleanup');
+    const turns = Array.from({ length: 12 }, (_, index) => callDeepSeekHarness('worker', `fresh ${index}`, { cwd: temporaryRoot }));
+    try { await vi.waitFor(() => expect(runtimeBehavior.runCount).toBe(12)); }
+    finally { release(); }
+    expect((await Promise.all(turns)).every((turn) => turn.status === 'done')).toBe(true);
+    expect(runtimeBehavior.closeCount).toBe(4);
+    const starts = runtimeBehavior.startCount;
+    expect((await callDeepSeekHarness('worker', 'blocked', { cwd: temporaryRoot })).status).toBe('error');
+    expect(runtimeBehavior.startCount).toBe(starts);
+  });
+
+  it('withholds completion when the evicted runtime credential patch cannot be disposed', async () => {
+    runtimeBehavior.uniqueSessions = true;
+    for (let index = 0; index < 8; index += 1) {
+      expect((await callDeepSeekHarness('worker', `fresh ${index}`, { cwd: temporaryRoot })).status).toBe('done');
+    }
+    runtimeStateBehavior.failPatchDisposal = true;
+    const events: StreamEvent[] = [];
+    expect((await callDeepSeekHarness('worker', 'ninth', { cwd: temporaryRoot, onStream: (event) => { events.push(event); } })).status)
+      .toBe('error');
+    expect(events.some((event) => event.type === 'result' && event.data.success === true)).toBe(false);
+    expect(runtimeBehavior.closeCount).toBeGreaterThan(1);
   });
 });
