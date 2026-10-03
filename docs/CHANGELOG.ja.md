@@ -8,6 +8,8 @@
 
 ### 修正
 
+- personaの明示的なDeepSeek空allowlistを、tool未指定と区別して保持します。DeepSeekの対話ではstale-session retryを行いません。継続未対応なら保存IDを解除し、次の利用者turnは履歴を復元しない新しいSDK sessionになることを明記します。runtime交換後の履歴・ID保持はSDK対応待ちです。
+
 - DeepSeekの通常の対話ではSDK標準toolを使い、TAKTの既定toolを未対応の利用者制約として渡さないようにしました。空tool listと呼び出しごとのpermission modeを含む明示制約は引き続き拒否します。report/statusのtool禁止も黙って外さず、SDK起動前に拒否します。
 - turnのtimeoutを短くしても、初期化のtimeoutは独立した30秒を維持します。削除済みPython-path環境変数は空文字列も含めてproject/global configで拒否します。
 - SDK保存ログの検査で連結Zstdの全frameを読むようにしました。公式SDK単体の保存ログに認証情報のechoが残ることを正しく確認できます。TAKT側のJSONL保存無効化は維持し、テストで保護を確認します。

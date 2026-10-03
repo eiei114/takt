@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Persona plans preserve explicit empty DeepSeek allowlists instead of treating them as native defaults. Undeclared first-step tools remain distinct. DeepSeek interactive refusals no longer use stale-session retries; unsupported continuation clears the saved ID and warns that the next user turn starts a fresh SDK session without restoring history. ID preservation across runtime replacement remains deferred pending SDK support.
+
 - Default DeepSeek interactive plans now use native SDK tools without converting framework defaults into unsupported user constraints. Explicit restrictions, including empty tool lists and per-call permission modes, remain fail-closed. Tool-free report/status routes refuse before SDK startup instead of dropping their restrictions.
 - DeepSeek initialization retains its independent 30-second deadline even with a shorter turn timeout. Removed Python-path environment overrides now fail project/global config validation, including empty values.
 - SDK persistence probes scan every concatenated Zstd frame. They now accurately characterize credential echoes in unpatched upstream session files; TAKT's JSONL-persistence suppression remains enabled and tested.

@@ -1252,7 +1252,7 @@ provider_options:
 
 credential は公式 store `$DSH_HOME/.credentials.yaml`（既定 `~/.dsh/.credentials.yaml`）または `DEEPSEEK_API_KEY` など選択された環境変数から解決されます。参照名は `$DSH_HOME/settings.yaml` の `llm-deepseek.apiKeyEnv` から読み、未指定時は `DEEPSEEK_API_KEY` を使います。保存された `llm-deepseek.baseURL` は実際の endpoint と一致する必要があります。選択された環境変数は保存 credential より優先されます。TAKT は store の path と参照名を runtime に渡し、secret 値を読み取り・複写・書き換えません。credential source home と TAKT の runtime home は分離されています。既存 session 中の credential binding 変更は拒否されます。
 
-runtime が稼働し、対応設定が同じ間は複数 turn を同一 session で受け付け、FIFO で直列化します。SDK は runtime 終了・再起動後に保存済み履歴を復元できず、設定変更で runtime 交換が必要な場合も履歴を保持できません。その状態での継続要求は固定診断で拒否し、新しい TAKT session/run を案内します。推論強度、model、credential、runtime 設定を変える場合は新しい session identity を使ってください。履歴の reset、session ID の自動変更、過去履歴の再送は行いません。これは意図的な破壊的変更で、runtime をまたぐ履歴保持は後続対応です。
+runtime が稼働し、対応設定が同じ間は複数 turn を同一 session で受け付け、FIFO で直列化します。SDK は runtime 終了・再起動後に保存済み履歴を復元できず、設定変更で runtime 交換が必要な場合も履歴を保持できません。その状態での継続要求は固定診断で拒否します。推論強度、model、credential、runtime 設定を変える場合は新しい session identity を使ってください。過去履歴は再送せず、拒否したturnをID変更で再実行しません。対話の後続turnでは、後述の方針に従い新IDを許容します。workflowには新しいTAKT session/runが必要です。これは意図的な破壊的変更で、runtimeをまたぐ履歴保持は後続対応です。
 
 provider error が credential を含んで session file に保存されることを防ぐため、TAKT は runtime の JSONL session-persistence plugin を無効にします。同一 runtime 内の turn はメモリ上で引き続き利用できます。既存の DeepSeek session file は読み込み・削除しません。
 
@@ -1267,6 +1267,8 @@ SDK に permission control はないため、permission mode/callback、`bypassP
 以前の Python/uv managed file と install command は使われません。TAKT は利用者の file を移行・削除しません。旧 managed environment を削除したい場合は内容を確認して手動で整理し、`~/.dsh` の credential store は別途管理してください。互換期間はありません。
 
 通常の対話ではSDK標準toolを使います。`[]`を含む明示allowlistは未対応です。report/status phaseではtool禁止の空allowlistを維持し、resume、新sessionでのretry、DeepSeekへのfallbackのすべてでSDK起動前に拒否します。tool実行後の検出ではなく、副作用を実行前に防ぎます。これらのphaseには対応するproviderを使ってください。
+
+personaのfirst-step情報ではtool未指定を`undefined`とし、明示`[]`と区別します。空・非空の明示listはどちらもDeepSeekのguardへ渡します。DeepSeekの対話では一般的なstale-session retryを使いません。制約拒否なら稼働中のsessionを残せますが、`session_continuation_unsupported`なら保存IDを解除します。そのエラーには、次の利用者turnが旧履歴なしの新しいSDK sessionになることを明記します。履歴復元はSDK対応待ちであり、ID変更は許容します。拒否されたturnの黙示再実行や制約緩和はしません。workflowでの継続には、引き続き新しいTAKT session/runが必要です。
 
 #### ネットワークアクセス (`network_access`)
 

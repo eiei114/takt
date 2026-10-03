@@ -127,6 +127,8 @@ credential を含む provider error が session file に残ることを防ぐた
 
 通常の対話ではTAKTのallowlistを付けず、SDK標準toolを使います。`[]`を含む明示的なtool制約はSDK起動前に拒否します。DeepSeekではreport/status phaseのtool禁止を強制できないため、このphaseは実行前に失敗します。これらのphaseが必要なworkflowでは、対応するproviderを使ってください。
 
+session履歴の復元はSDK対応待ちで、対話中のSDK session IDは変わる場合があります。継続できないturnは再試行せず、保存IDを解除します。次の利用者turnは履歴を再送しない新しいSDK sessionになることをエラーに明記します。tool/permission制約の拒否はIDなしで再試行せず、まだ稼働するsessionは使い続けられます。personaでもtool未指定と明示`[]`を区別し、後者は制約として拒否します。
+
 credential は公式 store `$DSH_HOME/.credentials.yaml`（既定 `~/.dsh/.credentials.yaml`）または選択された `DEEPSEEK_API_KEY` などの環境変数を使います。TAKT は credential source と管理 runtime home を分離し、保存済み secret 値を読み取り・複写・書き換えません。設定と session 制約は[設定ガイド](./configuration.ja.md#deepseek-harness-deepseek-harness)を参照してください。
 
 次のプロバイダーを使う場合は外部 CLI のインストールが必要です:

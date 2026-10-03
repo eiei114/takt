@@ -940,7 +940,7 @@ provider_options:
 
 认证从官方 store `$DSH_HOME/.credentials.yaml`（默认 `~/.dsh/.credentials.yaml`）或选定的环境变量（例如 `DEEPSEEK_API_KEY`）解析。参照名来自 `$DSH_HOME/settings.yaml` 中的 `llm-deepseek.apiKeyEnv`，未设置时使用 `DEEPSEEK_API_KEY`。若保存了 `llm-deepseek.baseURL`，它必须与有效 endpoint 一致。选定的环境变量优先于已保存的 credential。TAKT 将 store path 和参照名传给 runtime，不读取、复制或改写 secret 值。credential source home 与 TAKT 管理的 runtime home 分开。已有 session 中改变 credential binding 会被拒绝。
 
-runtime 在运行且支持的配置未改变时，可在同一 session 中执行多个 turn，并按 FIFO 顺序串行处理。SDK 无法在 runtime 终止/重启后恢复已保存历史，也无法在配置变化要求替换 runtime 时保留历史。此类继续请求会收到固定诊断，并提示启动新的 TAKT session/run。要更改 reasoning effort、model、credential 或 runtime 设置，请使用新的 session identity。TAKT 不会重置历史、自动更换 session ID 或重新发送旧历史。这是有意的破坏性缩减；跨 runtime 的历史保留延期支持。
+runtime 在运行且支持的配置未改变时，可在同一 session 中执行多个 turn，并按 FIFO 顺序串行处理。SDK 无法在 runtime 终止/重启后恢复已保存历史，也无法在配置变化要求替换 runtime 时保留历史。此类继续请求会收到固定诊断。要更改 reasoning effort、model、credential 或 runtime 设置，请使用新的 session identity。TAKT 不重放旧历史，也不通过更换 ID 重跑被拒绝的 turn。后续交互用户 turn 可按下述策略使用新 ID；workflow 仍需新的 TAKT session/run。这是有意的破坏性缩减；跨 runtime 的历史保留延期支持。
 
 为避免 provider 错误正文回显 credential 后写入新 session 文件，TAKT 会禁用 runtime 的 JSONL session-persistence plugin。同一 runtime 内的 turn 仍保存在内存中并可继续执行。TAKT 不读取或删除已有的 DeepSeek session 文件。
 
@@ -955,6 +955,8 @@ SDK 不提供此 provider 所需的 permission control，因此请求 permission
 旧 Python/uv managed files 和旧安装命令不再使用。TAKT 不会迁移或删除用户文件。如需删除旧 managed environment，请先检查再手动处理；`~/.dsh` credential store 仍由用户管理。没有兼容过渡期。
 
 默认交互会话使用 SDK 标准工具；显式 allowlist（包括 `[]`）仍不受支持。report/status phase 保留禁用工具的空 allowlist，在 resume、新 session 重试及 DeepSeek fallback 路径中均会在 SDK 启动前拒绝。这是在执行前防止工具副作用，而不是执行后才检测。请为这些 phase 使用兼容的 provider。
+
+persona 的 first-step 信息将未声明工具保留为 `undefined`，与显式 `[]` 区分；空和非空的显式列表都会传到 DeepSeek guard。DeepSeek 交互失败不使用通用 stale-session retry。拒绝限制时可保留仍运行的 session；遇到 `session_continuation_unsupported` 时则清除保存 ID，并说明下一个用户 turn 将创建没有旧历史的新 SDK session。历史恢复仍等待 SDK 支持，因此允许 ID 改变。不会静默重跑被拒绝的 turn，也不会放宽限制；workflow 继续执行仍需新的 TAKT session/run。
 
 #### 网络访问（`network_access`）
 
