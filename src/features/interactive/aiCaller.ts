@@ -230,7 +230,7 @@ async function disposeConversationMcp(
 export async function callAIWithRetry(
   prompt: string,
   systemPrompt: string,
-  allowedTools: string[],
+  allowedTools: string[] | undefined,
   cwd: string,
   ctx: SessionContext,
   options: CallAIWithRetryOptions = {},
@@ -321,15 +321,16 @@ export async function callAIWithRetry(
         ? resolveTrustedTaskStateMcpAllowedTools(ctx.taskStateMcpServers)
         : undefined;
     const allowedToolsForProvider = ctx.providerType === 'deepseek-harness'
-      ? (allowedTools.length === 0 ? undefined : allowedTools)
+      ? allowedTools
       : providerSupportsAllowedTools(ctx.providerType) === false
         ? undefined
         : taskStateMcpTools === undefined
           ? allowedTools
-          : [...new Set([...allowedTools, ...taskStateMcpTools])];
+          : [...new Set([...(allowedTools ?? []), ...taskStateMcpTools])];
     // Per-call permissionMode is used for operations with a dedicated constraint; a session-level
     // mode is resolved user configuration and must still reach the provider for explicit-constraint errors.
-    const permissionModeForProvider = providerSupportsPermissionControls(ctx.providerType) === false
+    const permissionModeForProvider = ctx.providerType !== 'deepseek-harness'
+      && providerSupportsPermissionControls(ctx.providerType) === false
       ? ctx.permissionMode
       : options.permissionMode ?? ctx.permissionMode;
     // Only the terminal caller owns stdout; a silent caller (the Ink TUI) renders

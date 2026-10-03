@@ -6,7 +6,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DeepSeekHarness, TransportClosedError } from '@deepseek-ai/dsh-sdk-client';
+import { DeepSeekHarness, HarnessClient, RequestTimeoutError, TransportClosedError, type DeepSeekHarnessOptions } from '@deepseek-ai/dsh-sdk-client';
+
+const sdkConstructorOptions = vi.hoisted(() => [] as Array<DeepSeekHarnessOptions | undefined>);
+vi.mock('@deepseek-ai/dsh-sdk-client', async (importOriginal) => {
+  const sdk = await importOriginal<typeof import('@deepseek-ai/dsh-sdk-client')>();
+  return {
+    ...sdk,
+    DeepSeekHarness: class extends sdk.DeepSeekHarness {
+      constructor(options?: DeepSeekHarnessOptions) {
+        sdkConstructorOptions.push(options);
+        super(options);
+      }
+    },
+  };
+});
 import {
   callDeepSeekHarness,
   closeDeepSeekHarnessProcesses,
@@ -210,6 +224,7 @@ async function waitForFile(path: string, timeoutMs: number): Promise<void> {
 
 describe('DeepSeek Harness TypeScript SDK client', () => {
   beforeEach(async () => {
+    sdkConstructorOptions.length = 0;
     for (const key of environmentKeys) savedEnvironment.set(key, process.env[key]);
     temporaryRoot = await mkdtemp(join(tmpdir(), 'takt-deepseek-client-sdk-'));
     process.env.TAKT_CONFIG_DIR = join(temporaryRoot, 'takt');
@@ -230,6 +245,35 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       else process.env[key] = value;
     }
     savedEnvironment.clear();
+  });
+
+  it.skipIf(!SUPPORTED_RUNTIME)('keeps real SDK initialization, turn and shutdown deadlines independent', async () => {
+    const api = await startLocalApi();
+    const response = await callDeepSeekHarness('worker', 'Return ok.', {
+      cwd: temporaryRoot,
+      providerOptions: { baseUrl: api.endpoint, requestTimeoutMs: 5_000, shutdownTimeoutMs: 2_000 },
+    });
+    expect(response.status).toBe('done');
+    expect(sdkConstructorOptions).toHaveLength(1);
+    expect(sdkConstructorOptions[0]).toMatchObject({
+      initializeTimeoutMs: 30_000, requestTimeoutMs: 5_000, shutdownTimeoutMs: 2_000,
+    });
+  });
+
+  it.skipIf(!SUPPORTED_RUNTIME)('cleans up a real runtime when initialization fails with an SDK timeout', async () => {
+    // SDK start() still spawns its real child. Inject the deadline failure at
+    // the public handshake boundary, exercising SDK and TAKT failure cleanup.
+    vi.spyOn(HarnessClient.prototype, 'initialize').mockRejectedValue(
+      new RequestTimeoutError('RAW-INITIALIZE-TIMEOUT-SENTINEL'),
+    );
+    const close = vi.spyOn(DeepSeekHarness.prototype, 'close');
+    const response = await callDeepSeekHarness('worker', 'Must not start a turn.', { cwd: temporaryRoot });
+    expect(response.status).toBe('error');
+    expect(JSON.stringify(response)).not.toContain('RAW-INITIALIZE-TIMEOUT-SENTINEL');
+    expect(close).toHaveBeenCalled();
+    const paths = getDeepSeekRuntimePaths();
+    expect(await readdir(paths.owners)).toHaveLength(0);
+    await expect(assertDeepSeekRuntimeCreationAllowed()).resolves.toBeUndefined();
   });
 
   it.skipIf(!SUPPORTED_RUNTIME)('binds a normal first turn to its live SDK session, serializes later turns FIFO, and refuses after teardown', async () => {

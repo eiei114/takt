@@ -3,8 +3,15 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/pr
 import { createServer, type Server } from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { zstdCompressSync, zstdDecompressSync } from 'node:zlib';
+import { zstdCompressSync } from 'node:zlib';
+import { decompressSessionFrames } from './helpers/deepseek-session-frames.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DeepSeekHarness } from '@deepseek-ai/dsh-sdk-client';
+import { createAssistantConversationPlan } from '../features/interactive/conversationPlan.js';
+import { createConversationSession } from '../features/interactive/conversationSession.js';
+import { OptionsBuilder } from '../core/workflow/engine/OptionsBuilder.js';
+import { runAgent } from '../agents/runner.js';
+import type { WorkflowStep } from '../core/models/types.js';
 import {
   callDeepSeekHarness,
   closeDeepSeekHarnessProcesses,
@@ -201,25 +208,6 @@ async function startMockEndpoint(readSourcePath: string): Promise<MockEndpoint> 
   };
 }
 
-function decompressSessionFrames(data: Buffer): Buffer {
-  const frames: Buffer[] = [];
-  let offset = 0;
-  while (offset < data.length) {
-    // Node's one-shot Zstd decoder stops after the first frame. Harness appends
-    // frames, so scanning only that first frame silently misses later events.
-    const decoded = zstdDecompressSync(data.subarray(offset), { info: true }) as unknown as {
-      buffer: Buffer;
-      engine: { bytesWritten: number };
-    };
-    if (decoded.engine.bytesWritten <= 0) {
-      throw new Error('Session decoder did not consume a frame');
-    }
-    offset += decoded.engine.bytesWritten;
-    frames.push(decoded.buffer);
-  }
-  return Buffer.concat(frames);
-}
-
 describe('DeepSeek Harness persisted session inspection', () => {
   it('scans later concatenated Zstd frames instead of just the session header', () => {
     const data = Buffer.concat([
@@ -325,6 +313,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
   afterEach(async () => {
     await closeDeepSeekHarnessProcesses();
     await endpoint?.close();
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });
   });
@@ -345,14 +334,24 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     expect(existsSync(path.join(dshHome, '.credentials.yaml'))).toBe(false);
   });
 
-  it('executes standard coding tools in a trusted workspace without copying the credential source', async () => {
+  it('executes standard coding tools through the public interactive plan, session and real SDK without copying credentials', async () => {
     endpoint.setMode('workspace-tools');
     const events: StreamEvent[] = [];
     const storeBefore = await readFile(storePath);
 
-    const response = await runTurn({ prompt: 'Read, write, edit and run the workspace fixture.', onStream: (event) => events.push(event) });
+    vi.stubEnv('DEEPSEEK_BASE_URL', endpoint.baseUrl);
+    const plan = createAssistantConversationPlan(workspace, {
+      assistantMode: 'assistant', formalSpec: false, formalSpecComments: false, modelCheckTimeoutSeconds: 30,
+      provider: 'deepseek-harness', model: 'deepseek-v4-flash',
+    });
+    const session = createConversationSession({
+      cwd: workspace, ctx: plan.ctx, strategy: plan.strategy, formalSpec: false,
+      modelCheckTimeoutSeconds: 30, outputMode: 'silent', persistSession: false,
+      onStream: (event) => events.push(event),
+    });
+    const response = await session.handleUserMessage({ text: 'Read, write, edit and run the workspace fixture.' });
 
-    expect(response.status).toBe('done');
+    expect(response.kind).toBe('assistant_response');
     const toolNames = endpoint.requests[0]?.toolNames ?? [];
     expect(toolNames).toEqual(expect.arrayContaining(['read', 'write', 'edit', 'bash', 'glob', 'grep', 'subagent', 'workflow']));
     expect(endpoint.requests).toHaveLength(5);
@@ -361,9 +360,38 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     expect(events.filter((event) => event.type === 'tool_use')).toHaveLength(4);
     expect(events.filter((event) => event.type === 'tool_result')).toHaveLength(4);
     expect(endpoint.requests.some((request) => request.toolResultContainsStoreKey)).toBe(false);
-    expect(response.content).not.toContain(STORE_KEY);
+    expect(JSON.stringify(response)).not.toContain(STORE_KEY);
     expect(await readFile(storePath)).toEqual(storeBefore);
     expect(existsSync(path.join(dshHome, '.credentials.yaml'))).toBe(false);
+  });
+
+  it('refuses all report routes through the real agent dispatcher without starting the SDK or contacting the endpoint', async () => {
+    const step: WorkflowStep = {
+      name: 'report', personaDisplayName: 'Reporter', instruction: 'report', passPreviousResponse: false,
+      engineSynthesized: true, provider: 'deepseek-harness', model: 'deepseek-v4-flash',
+    };
+    const builder = new OptionsBuilder(
+      { projectCwd: workspace, provider: 'deepseek-harness', reportFallbackProvider: { provider: 'deepseek-harness', model: 'deepseek-v4-flash' } },
+      () => workspace, () => workspace, () => undefined, () => path.join(root, 'reports'),
+      () => 'en', () => [{ name: 'report' }], () => 'default', () => 'test workflow',
+    );
+    const fallback = builder.buildFallbackReportOptions(step, { cwd: workspace, resolvedProvider: 'opencode' }, { allowedTools: [] });
+    expect(fallback).toBeDefined();
+    const start = vi.spyOn(DeepSeekHarness.prototype, 'start');
+    for (const options of [
+      builder.buildResumeOptions(step, 'old-session', {}),
+      builder.buildNewSessionReportOptions(step, { allowedTools: [] }),
+      builder.buildNewSessionReportOptions(step, {}),
+      builder.buildNewSessionReportOptions(step, { allowedTools: ['Read'] }),
+      fallback!,
+    ]) {
+      const response = await runAgent(undefined, 'Write a tool-free report.', options);
+      expect(response.status).toBe('error');
+      expect(response.content).toContain('cannot honor allowedTools');
+    }
+    expect(start).not.toHaveBeenCalled();
+    expect(endpoint.requests).toHaveLength(0);
+    expect(existsSync(path.join(workspace, 'generated.ts'))).toBe(false);
   });
 
   it('terminates a real coding-tool child on abort before allowing another runtime', async () => {

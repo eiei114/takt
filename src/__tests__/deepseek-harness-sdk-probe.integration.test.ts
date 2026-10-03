@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
-import { zstdDecompressSync } from 'node:zlib';
+import { zstdCompressSync } from 'node:zlib';
+import { decompressSessionFrames } from './helpers/deepseek-session-frames.js';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { stringify as stringifyYaml } from 'yaml';
 import { createSessionDispatchQueue } from '../infra/deepseek-harness/session-dispatch.js';
@@ -446,7 +447,7 @@ async function readFilesRecursively(directory: string): Promise<{ content: strin
     else if (entry.isFile()) {
       const fileContents = await readFile(entryPath);
       contents.push(entry.name.endsWith('.zstd')
-        ? zstdDecompressSync(fileContents).toString('utf8')
+        ? decompressSessionFrames(fileContents).toString('utf8')
         : fileContents.toString('utf8'));
       paths.push(entryPath);
     }
@@ -484,6 +485,37 @@ async function waitForPromptIdle(
     ) return;
   }
 }
+
+describe('DeepSeek SDK probe persisted-session inspection', () => {
+  it('finds a credential in a later Zstd frame through the probe file scanner', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'takt-probe-frames-'));
+    try {
+      const sessionPath = join(root, 'session.zstd');
+      await writeFile(sessionPath, Buffer.concat([
+        zstdCompressSync(Buffer.from('{"type":"session/header"}\n')),
+        zstdCompressSync(Buffer.from('{"message":"dummy-later-frame-secret"}\n')),
+      ]));
+      const inspection = await readFilesRecursively(root);
+      expect(inspection.content).toContain('dummy-later-frame-secret');
+      expect(inspection.paths).toEqual([sessionPath]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a malformed later frame instead of reporting a secret-free file', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'takt-probe-invalid-frame-'));
+    try {
+      await writeFile(join(root, 'session.zstd'), Buffer.concat([
+        zstdCompressSync(Buffer.from('header')),
+        Buffer.from('invalid later frame'),
+      ]));
+      await expect(readFilesRecursively(root)).rejects.toThrow();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('DeepSeek Harness TypeScript SDK feasibility probes', () => {
   beforeAll(async () => {
@@ -1001,7 +1033,7 @@ describe('DeepSeek Harness TypeScript SDK feasibility probes', () => {
     expect(JSON.stringify(mock.requests[2]?.body.messages)).not.toContain('second live-client prompt');
   }, 65_000);
 
-  it.skipIf(process.platform === 'win32')('characterizes a dummy credential echo in raw SDK notifications and its absence from saved session files', async () => {
+  it.skipIf(process.platform === 'win32')('characterizes a dummy credential echo in raw SDK notifications and later persisted session frames', async () => {
     const mock = await startLocalApiMock('credential-echo-after-success');
     const dshHome = join(temporaryRoot, 'runtime-home');
     const credential = 'TAKT_DUMMY_CREDENTIAL_ECHO_SENTINEL';
@@ -1042,7 +1074,9 @@ describe('DeepSeek Harness TypeScript SDK feasibility probes', () => {
       result: (JSON.stringify(result ?? null) ?? '').includes(credential),
       error: (JSON.stringify(serializeErrorExposure(runError)) ?? '').includes(credential),
       savedSession: savedSessions.content.includes(credential),
-    }).toEqual({ notification: true, result: true, error: false, savedSession: false });
+    // This is the unpatched upstream SDK, not TAKT's protected runtime. The
+    // credential-store integration suite verifies TAKT disables persistence.
+    }).toEqual({ notification: true, result: true, error: false, savedSession: true });
   }, 45_000);
 
   it.skipIf(!isSupportedDshRuntimePlatform)('sends the exact per-run system prompt through a public profile patch', async () => {

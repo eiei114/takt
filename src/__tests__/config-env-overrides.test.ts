@@ -236,15 +236,22 @@ describe('config traced env overrides', () => {
     expect(() => loadProjectConfig(projectDir)).toThrow(/reasoning_effort/iu);
   });
 
-  it('ignores the removed DeepSeek Python path environment override', () => {
+  it.each([
+    { scope: 'project', value: '/tmp/removed-python' },
+    { scope: 'global', value: '/tmp/removed-python' },
+    { scope: 'project', value: '' },
+    { scope: 'global', value: '' },
+  ])('rejects the removed DeepSeek Python path environment override ($scope, $value)', ({ scope, value }) => {
     const projectDir = join(testRoot, 'project-deepseek-python-path-removed');
-    const configDir = getProjectConfigDir(projectDir);
+    const configDir = scope === 'project' ? getProjectConfigDir(projectDir) : globalTaktDir;
     mkdirSync(configDir, { recursive: true });
     writeFileSync(join(configDir, 'config.yaml'), 'provider: deepseek-harness\n', 'utf-8');
-    process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH = '/tmp/removed-python';
+    process.env.TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH = value;
+    invalidateGlobalConfigCache();
 
-    const config = loadProjectConfig(projectDir);
-    expect(config.providerOptions?.deepseekHarness).toBeUndefined();
+    expect(() => scope === 'project' ? loadProjectConfig(projectDir) : loadGlobalConfig()).toThrow(
+      new Error('Configuration error: TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH was removed; unset this environment variable.'),
+    );
   });
 
   it.each([

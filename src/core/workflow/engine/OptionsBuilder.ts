@@ -718,6 +718,11 @@ export class OptionsBuilder {
     runtime?: RuntimeStepResolution,
   ): Pick<RunAgentOptions, 'permissionMode' | 'permissionResolution' | 'allowedTools'> {
     const { provider: resolvedProvider } = this.resolveStepProviderModel(step, runtime);
+    if (resolvedProvider === 'deepseek-harness') {
+      // The SDK cannot enforce report-phase tool restrictions. Keep even the
+      // synthetic empty allowlist so the provider refuses before any tool runs.
+      return { allowedTools: allowedTools ?? [] };
+    }
     const supportsPermissionControls = providerSupportsPermissionControls(resolvedProvider);
     if (supportsPermissionControls === false) {
       // Empty tools are the synthetic report-phase default. Preserve a

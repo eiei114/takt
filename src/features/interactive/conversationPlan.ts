@@ -287,7 +287,7 @@ export function createAssistantConversationPlan(
     ctx,
     strategy: {
       ...initialPromptConfiguration,
-      allowedTools: DEFAULT_INTERACTIVE_TOOLS,
+      allowedTools: ctx.providerType === 'deepseek-harness' ? undefined : DEFAULT_INTERACTIVE_TOOLS,
       transformPrompt: (message: string, sourceContext?: string) =>
         prependSourceContext(ctx.lang, frameUserComment(ctx.lang, message), sourceContext),
       introMessage: getLabel(
@@ -340,7 +340,7 @@ export function createPersonaConversationPlan(
       modelCheckTimeoutSeconds: overrides.modelCheckTimeoutSeconds,
       allowedTools: firstStep.allowedTools.length > 0
         ? firstStep.allowedTools
-        : DEFAULT_INTERACTIVE_TOOLS,
+        : ctx.providerType === 'deepseek-harness' ? undefined : DEFAULT_INTERACTIVE_TOOLS,
       transformPrompt: (message: string, sourceContext?: string) =>
         prependSourceContext(ctx.lang, message, sourceContext),
       introMessage: `${getLabel(

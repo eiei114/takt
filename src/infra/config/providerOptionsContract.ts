@@ -69,11 +69,15 @@ export function assertNoRemovedProviderOptionConfigurationValues(
 export function assertNoRemovedProviderOptionEnvironmentVariables(
   environment: NodeJS.ProcessEnv = process.env,
 ): void {
-  const removedName = 'TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_RUNTIME_MODE';
-  if (environment[removedName] !== undefined) {
-    throw new Error(
-      `Configuration error: ${removedName} was removed; unset this environment variable.`,
-    );
+  for (const removedName of [
+    'TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_RUNTIME_MODE',
+    'TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH',
+  ]) {
+    if (environment[removedName] !== undefined) {
+      throw new Error(
+        `Configuration error: ${removedName} was removed; unset this environment variable.`,
+      );
+    }
   }
 }
 

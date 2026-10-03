@@ -366,7 +366,7 @@ describe('callAIWithRetry', () => {
     });
 
     expect(capture.allowedTools).toEqual([['Read']]);
-    expect(capture.permissionModes).toEqual([undefined]);
+    expect(capture.permissionModes).toEqual(['readonly']);
   });
 
   it('retains an explicit session permission mode for an unsupported provider', async () => {

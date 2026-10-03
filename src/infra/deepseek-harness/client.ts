@@ -976,7 +976,7 @@ class DeepSeekHarnessProcess {
       dshHome: runtimePaths.dshHome,
       processCwd: configuration.cwd,
       env,
-      initializeTimeoutMs: Math.min(configuration.requestTimeoutMs, DEEPSEEK_HARNESS_STARTUP_TIMEOUT_MS),
+      initializeTimeoutMs: DEEPSEEK_HARNESS_STARTUP_TIMEOUT_MS,
       requestTimeoutMs: configuration.requestTimeoutMs,
       shutdownTimeoutMs: configuration.shutdownTimeoutMs,
       disposeEofGraceMs: DEEPSEEK_HARNESS_SHUTDOWN_TIMEOUT_MS,
