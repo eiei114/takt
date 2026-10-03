@@ -4,7 +4,7 @@ import type { ProviderAgent } from '../infra/providers/types.js';
 import { AGENT_FAILURE_CATEGORIES } from '../shared/types/agent-failure.js';
 import { DeepSeekHarnessProvider } from '../infra/providers/deepseek-harness.js';
 import { callAIWithRetry } from '../features/interactive/aiCaller.js';
-import { createAssistantConversationPlan } from '../features/interactive/conversationPlan.js';
+import { createAssistantConversationPlan, createPersonaConversationPlan } from '../features/interactive/conversationPlan.js';
 import { makeProvider, makeSessionContext } from './test-helpers.js';
 
 const deepSeekClientCall = vi.hoisted(() => vi.fn());
@@ -38,16 +38,16 @@ describe('interactive session continuation refusal', () => {
         providerType: 'deepseek-harness',
         sessionId: 'persisted-session',
       }),
-      { outputMode: 'silent' },
+      { outputMode: 'silent', persistSession: false },
     );
 
     expect(providerCall).toHaveBeenCalledOnce();
     expect(providerCall.mock.calls[0]?.[1].sessionId).toBe('persisted-session');
     expect(result).toMatchObject({
-      sessionId: 'persisted-session',
+      sessionId: undefined,
       result: {
         success: false,
-        content: SESSION_CONTINUATION_DIAGNOSTIC,
+        content: expect.stringContaining('next turn will start a new SDK session without the previous history'),
       },
     });
   });
@@ -113,5 +113,39 @@ describe('interactive session continuation refusal', () => {
     expect(deepSeekClientCall).not.toHaveBeenCalled();
     expect(result.result?.success).toBe(false);
     expect(result.result?.content).toContain('permission');
+  });
+
+  it('preserves an explicit empty persona allowlist through plan and caller before SDK startup', async () => {
+    vi.clearAllMocks();
+    const plan = createPersonaConversationPlan('/workspace', {
+      personaContent: 'Coder', personaDisplayName: 'Coder', allowedTools: [],
+    }, { modelCheckTimeoutSeconds: 30, resolvedSessionContext: makeSessionContext({
+      provider: new DeepSeekHarnessProvider(), providerType: 'deepseek-harness',
+    }) });
+    const result = await callAIWithRetry('Do not run tools.', plan.strategy.systemPrompt,
+      plan.strategy.allowedTools, '/workspace', plan.ctx, { outputMode: 'silent' });
+    expect(result.result).toMatchObject({ success: false, content: expect.stringContaining('cannot honor allowedTools') });
+    expect(deepSeekClientCall).not.toHaveBeenCalled();
+  });
+
+  it('does not retry a DeepSeek constraint refusal and can reuse the still-live session on a normal turn', async () => {
+    vi.clearAllMocks();
+    const context = makeSessionContext({
+      provider: new DeepSeekHarnessProvider(), providerType: 'deepseek-harness', sessionId: 'live-session',
+    });
+    const setup = vi.spyOn(context.provider, 'setup');
+    const refusal = await callAIWithRetry('read only', 'system', undefined, '/workspace', context,
+      { outputMode: 'silent', permissionMode: 'readonly' });
+    expect(setup).toHaveBeenCalledOnce();
+    expect(refusal.sessionId).toBe('live-session');
+    expect(refusal.result?.success).toBe(false);
+    expect(deepSeekClientCall).not.toHaveBeenCalled();
+    deepSeekClientCall.mockResolvedValue({ persona: 'interactive', status: 'done', content: 'ok',
+      sessionId: 'live-session', timestamp: new Date() });
+    const next = await callAIWithRetry('normal turn', 'system', undefined, '/workspace',
+      { ...context, sessionId: refusal.sessionId }, { outputMode: 'silent', persistSession: false });
+    expect(next.result?.success).toBe(true);
+    expect(deepSeekClientCall.mock.calls[0]?.[2].sessionId).toBe('live-session');
+    setup.mockRestore();
   });
 });

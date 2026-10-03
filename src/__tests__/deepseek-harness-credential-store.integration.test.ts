@@ -11,6 +11,7 @@ import { createAssistantConversationPlan } from '../features/interactive/convers
 import { createConversationSession } from '../features/interactive/conversationSession.js';
 import { OptionsBuilder } from '../core/workflow/engine/OptionsBuilder.js';
 import { runAgent } from '../agents/runner.js';
+import { loadPersonaSessions, resolvePersonaSessionId } from '../infra/config/project/sessionStore.js';
 import type { WorkflowStep } from '../core/models/types.js';
 import {
   callDeepSeekHarness,
@@ -36,6 +37,7 @@ interface RecordedRequest {
   apiKey: string | undefined;
   toolNames: string[];
   toolResultContainsStoreKey: boolean;
+  messages: unknown;
 }
 
 type MockMode = 'ok' | 'auth-echo' | 'workspace-tools' | 'held-tool' | 'assistant-message-reasoning' | 'assistant-message-text-only';
@@ -154,6 +156,7 @@ async function startMockEndpoint(readSourcePath: string): Promise<MockEndpoint> 
         apiKey: Array.isArray(apiKeyHeader) ? apiKeyHeader[0] : apiKeyHeader,
         toolNames,
         toolResultContainsStoreKey: bodyText.includes(STORE_KEY),
+        messages: body.messages,
       });
       const sequence = requests.length;
       const currentHold = hold;
@@ -363,6 +366,18 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     expect(JSON.stringify(response)).not.toContain(STORE_KEY);
     expect(await readFile(storePath)).toEqual(storeBefore);
     expect(existsSync(path.join(dshHome, '.credentials.yaml'))).toBe(false);
+
+    const liveId = session.getSessionId();
+    plan.strategy.permissionMode = 'readonly';
+    const refusal = await session.handleUserMessage({ text: 'Reject this unsupported permission request.' });
+    expect(refusal.kind).toBe('error');
+    expect(endpoint.requests).toHaveLength(5);
+    expect(session.getSessionId()).toBe(liveId);
+    plan.strategy.permissionMode = undefined;
+    const normalTurn = await session.handleUserMessage({ text: 'Continue with native tools.' });
+    expect(normalTurn.kind).toBe('assistant_response');
+    expect(session.getSessionId()).toBe(liveId);
+    expect(endpoint.requests).toHaveLength(6);
   });
 
   it('refuses all report routes through the real agent dispatcher without starting the SDK or contacting the endpoint', async () => {
@@ -392,6 +407,38 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     expect(start).not.toHaveBeenCalled();
     expect(endpoint.requests).toHaveLength(0);
     expect(existsSync(path.join(workspace, 'generated.ts'))).toBe(false);
+  });
+
+  it('starts a new interactive SDK session after teardown refusal without restoring or replaying history', async () => {
+    vi.stubEnv('DEEPSEEK_BASE_URL', endpoint.baseUrl);
+    const plan = createAssistantConversationPlan(workspace, {
+      assistantMode: 'assistant', formalSpec: false, formalSpecComments: false,
+      modelCheckTimeoutSeconds: 30, provider: 'deepseek-harness', model: 'deepseek-v4-flash',
+    });
+    const session = createConversationSession({
+      cwd: workspace, ctx: plan.ctx, strategy: plan.strategy, formalSpec: false,
+      modelCheckTimeoutSeconds: 30, outputMode: 'silent',
+    });
+    const first = await session.handleUserMessage({ text: 'UNIQUE_OLD_SESSION_HISTORY_SENTINEL' });
+    expect(first.kind).toBe('assistant_response');
+    const oldId = session.getSessionId();
+    expect(oldId).toEqual(expect.any(String));
+    expect(resolvePersonaSessionId(loadPersonaSessions(workspace, 'deepseek-harness'), 'interactive', 'deepseek-harness')).toBe(oldId);
+    await closeDeepSeekHarnessProcesses();
+
+    const refused = await session.handleUserMessage({ text: 'Do not restore a dead SDK session.' });
+    expect(refused).toMatchObject({ kind: 'error', message: expect.stringContaining('next turn will start a new SDK session') });
+    expect(session.getSessionId()).toBeUndefined();
+    expect(resolvePersonaSessionId(loadPersonaSessions(workspace, 'deepseek-harness'), 'interactive', 'deepseek-harness')).toBeUndefined();
+    expect(endpoint.requests).toHaveLength(1);
+
+    const next = await session.handleUserMessage({ text: 'EXPLICIT_NEXT_TURN_FRESH_SESSION' });
+    expect(next.kind).toBe('assistant_response');
+    expect(session.getSessionId()).toEqual(expect.any(String));
+    expect(session.getSessionId()).not.toBe(oldId);
+    expect(endpoint.requests).toHaveLength(2);
+    expect(JSON.stringify(endpoint.requests[1]?.messages)).toContain('EXPLICIT_NEXT_TURN_FRESH_SESSION');
+    expect(JSON.stringify(endpoint.requests[1]?.messages)).not.toContain('UNIQUE_OLD_SESSION_HISTORY_SENTINEL');
   });
 
   it('terminates a real coding-tool child on abort before allowing another runtime', async () => {

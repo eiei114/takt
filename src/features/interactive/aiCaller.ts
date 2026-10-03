@@ -442,6 +442,9 @@ export async function callAIWithRetry(
       && !forceExitRequested
       && !success
       && sessionId
+      // DeepSeek has no stale-session recovery. Retrying an unsupported
+      // constraint without an ID cannot make that same constraint supported.
+      && ctx.providerType !== 'deepseek-harness'
       && response.failureCategory !== AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED
       && ctx.effort === undefined
       && ctx.disableSessionRetry !== true) {
@@ -479,7 +482,15 @@ export async function callAIWithRetry(
       };
     }
 
-    if (response.sessionId) {
+    const startFreshNextTurn = !success
+      && ctx.providerType === 'deepseek-harness'
+      && response.failureCategory === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED;
+    if (startFreshNextTurn) {
+      sessionId = undefined;
+      if (shouldPersistSession()) {
+        updatePersonaSession(cwd, ctx.personaName, undefined, ctx.providerType);
+      }
+    } else if (response.sessionId) {
       sessionId = response.sessionId;
       if (shouldPersistSession()) {
         updatePersonaSession(cwd, ctx.personaName, sessionId, ctx.providerType);
@@ -487,8 +498,11 @@ export async function callAIWithRetry(
     }
     return {
       result: {
-        content: success ? response.content : (response.error ?? response.content),
-        sessionId: response.sessionId,
+        content: success ? response.content : (response.error ?? response.content)
+          + (startFreshNextTurn
+            ? '\nThe next turn will start a new SDK session without the previous history; SDK history restoration is not supported yet.'
+            : ''),
+        sessionId: startFreshNextTurn ? undefined : response.sessionId,
         success,
         ...(success && firstAttempt.referenceRunSlug === undefined
           ? {}

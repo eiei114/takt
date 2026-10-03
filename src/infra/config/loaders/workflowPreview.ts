@@ -72,7 +72,8 @@ export interface StepPreview {
 export interface FirstStepInfo {
   personaContent: string;
   personaDisplayName: string;
-  allowedTools: string[];
+  /** Undefined is undeclared; [] is an explicit empty allowlist. */
+  allowedTools?: string[];
   provider?: StepProviderInfo['provider'];
 }
 
@@ -239,7 +240,7 @@ function buildStepPreview(
     personaDisplayName: previewStep.personaDisplayName,
     personaContent: isParallelParent ? '' : readStepPersona(previewStep, projectCwd, workflowBundleResourceRoot),
     instructionContent: isParallelParent ? '' : previewStep.instruction,
-    allowedTools: isParallelParent ? [] : resolvePreviewAllowedTools(previewStep, resolution),
+    allowedTools: isParallelParent ? [] : resolvePreviewAllowedTools(previewStep, resolution) ?? [],
     canEdit: isParallelParent ? false : resolvePreviewCanEdit(previewStep),
     ...(providerInfo?.provider !== undefined ? { provider: providerInfo.provider } : {}),
     ...(providerInfo?.model !== undefined ? { model: providerInfo.model } : {}),
@@ -359,7 +360,7 @@ function resolvePreviewProviderResolution(
 function resolvePreviewAllowedTools(
   step: WorkflowStep,
   resolution: PreviewProviderResolution,
-): string[] {
+): string[] | undefined {
   const providerInfo = resolvePreviewProviderInfo(step, resolution);
   const stepProviderOptions = mergeProviderOptions(
     providerInfo.providerOptions,
@@ -401,12 +402,13 @@ function resolvePreviewAllowedTools(
     return resolveInspectToolsForProvider(step.teamLeader.inspectTools, resolvedProvider) ?? [];
   }
 
-  return resolveAllowedToolsForProvider(
+  const allowedTools = resolveAllowedToolsForProvider(
     mergedProviderOptions,
     step.outputContracts !== undefined && step.outputContracts.length > 0,
     step.edit,
     resolvedProvider,
-  ) ?? [];
+  );
+  return allowedTools ?? (resolvedProvider === 'deepseek-harness' ? undefined : []);
 }
 
 function buildStepPreviews(

@@ -338,9 +338,11 @@ export function createPersonaConversationPlan(
       ].join('\n\n'),
       formalSpec: false,
       modelCheckTimeoutSeconds: overrides.modelCheckTimeoutSeconds,
-      allowedTools: firstStep.allowedTools.length > 0
+      allowedTools: ctx.providerType === 'deepseek-harness'
         ? firstStep.allowedTools
-        : ctx.providerType === 'deepseek-harness' ? undefined : DEFAULT_INTERACTIVE_TOOLS,
+        : firstStep.allowedTools?.length
+          ? firstStep.allowedTools
+          : DEFAULT_INTERACTIVE_TOOLS,
       transformPrompt: (message: string, sourceContext?: string) =>
         prependSourceContext(ctx.lang, message, sourceContext),
       introMessage: `${getLabel(

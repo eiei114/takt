@@ -402,7 +402,7 @@ describe('assistant conversation plan', () => {
 });
 
 describe('persona conversation plan', () => {
-  it.each([{ tools: [], expected: undefined }, { tools: ['Read'], expected: ['Read'] }])(
+  it.each([{ tools: undefined, expected: undefined }, { tools: [], expected: [] }, { tools: ['Read'], expected: ['Read'] }])(
     'delegates undeclared DeepSeek tools but preserves explicit persona tools $tools', ({ tools, expected }) => {
       const { strategy } = createPersonaConversationPlan('/repo', {
         personaContent: 'You are a coder.', personaDisplayName: 'Coder', allowedTools: tools,
