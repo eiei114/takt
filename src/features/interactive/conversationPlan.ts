@@ -218,6 +218,7 @@ function resolveConversationSessionContext(
   });
 }
 
+/** Build assistant conversation context, prompt resolvers and command permissions from the selected provider/session. */
 export function createAssistantConversationPlan(
   cwd: string,
   input: AssistantConversationInput,
@@ -316,6 +317,7 @@ export function createAssistantConversationPlan(
   };
 }
 
+/** Build a persona conversation from first-step settings without enabling assistant-only retry commands. */
 export function createPersonaConversationPlan(
   cwd: string,
   firstStep: FirstStepInfo,

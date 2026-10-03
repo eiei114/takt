@@ -119,6 +119,7 @@ export function resolvePartAllowedToolsForProvider(
   return filterAllowedToolsForEditPolicy(allowedTools, false, edit, provider);
 }
 
+/** Resolve inspect defaults versus explicit empty tool lists and reject providers that cannot honor an allowlist. */
 export function resolveInspectToolsForProvider(
   inspectTools: string[] | undefined,
   provider: ProviderType | undefined,

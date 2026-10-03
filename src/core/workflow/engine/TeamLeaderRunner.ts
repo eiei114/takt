@@ -232,6 +232,7 @@ export class TeamLeaderRunner {
     return this.deps.getAbortSignal?.() ?? this.deps.engineOptions.abortSignal;
   }
 
+  /** Run leader/delegation lifecycle using resolved inspect tools while preserving provider failures and session updates. */
   async runTeamLeaderStep(
     step: WorkflowStep,
     state: WorkflowState,

@@ -22,6 +22,7 @@ afterEach(() => {
   temporaryRoots.clear();
 });
 
+/** Create and track an isolated project with a config directory for removed-runtime-option tests. */
 function createTempProjectDir(): string {
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'takt-deepseek-runtime-mode-test-'));
   temporaryRoots.add(projectDir);
@@ -29,6 +30,7 @@ function createTempProjectDir(): string {
   return projectDir;
 }
 
+/** Write the supplied YAML project config into the fixture config directory. */
 function writeProjectConfig(projectDir: string, content: string): void {
   fs.writeFileSync(path.join(getProjectConfigDir(projectDir), 'config.yaml'), content, 'utf-8');
 }

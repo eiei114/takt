@@ -10,6 +10,7 @@ import type { DeepSeekReasoningEffort } from '../../core/models/workflow-types.j
 
 const SUPPORTED_REASONING_EFFORTS: readonly DeepSeekReasoningEffort[] = ['off', 'low', 'high', 'max'];
 
+/** Accept only reasoning effort values supported by the pinned DeepSeek SDK contract. */
 function isDeepSeekReasoningEffort(value: string): value is DeepSeekReasoningEffort {
   return SUPPORTED_REASONING_EFFORTS.includes(value as DeepSeekReasoningEffort);
 }
@@ -67,6 +68,7 @@ function unsupportedConstraintResponse(
   };
 }
 
+/** Return a provider error before execution when a requested reasoning effort cannot be honored. */
 function unsupportedReasoningEffortResponse(
   agentType: string,
 ): AgentResponse {
@@ -98,6 +100,7 @@ export class DeepSeekHarnessProvider implements Provider {
     return true;
   }
 
+  /** Create the provider adapter, validate constraints before startup, and forward supported options to the lazy client. */
   setup(config: AgentSetup): ProviderAgent {
     return {
       call: (prompt: string, options: ProviderCallOptions): Promise<AgentResponse> => {

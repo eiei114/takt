@@ -55,6 +55,7 @@ function formatPreviewMetadata(p: StepPreview, lang: TaskHistoryLocale): string[
   return lines;
 }
 
+/** Render step capabilities while distinguishing provider-default tools from an explicitly empty list. */
 function formatStepPreview(p: StepPreview, label: string, lang: TaskHistoryLocale): string {
   const toolsStr = p.allowedTools === undefined
     ? (lang === 'ja' ? '未指定（provider標準）' : 'Unspecified (provider defaults)')

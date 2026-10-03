@@ -93,6 +93,7 @@ export function normalizeArpeggio(raw: RawStep['arpeggio'], workflowDir: string)
   };
 }
 
+/** Normalize team-leader facets and tool options while preserving omitted versus explicitly empty inspect configuration. */
 export function normalizeTeamLeader(
   raw: RawStep['team_leader'],
   workflowDir: string,

@@ -357,6 +357,7 @@ function resolvePreviewProviderResolution(
   };
 }
 
+/** Resolve effective preview tool constraints and retain DeepSeek native defaults when tools were unspecified. */
 function resolvePreviewAllowedTools(
   step: WorkflowStep,
   resolution: PreviewProviderResolution,

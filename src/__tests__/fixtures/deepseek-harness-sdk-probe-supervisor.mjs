@@ -14,6 +14,7 @@ const failCleanup = process.env.TAKT_DSH_PROBE_FAIL_CLEANUP === '1';
 
 if (runtimePath === undefined) process.exit(72);
 
+/** Check for live non-zombie members of the fixture group and fail closed on uncertain process probes. */
 function processGroupHasLiveMembers(pgid) {
   if (process.platform !== 'win32') {
     const result = spawnSync('ps', ['-axo', 'pgid=,stat='], { encoding: 'utf8' });
@@ -71,6 +72,7 @@ runtime.once('error', () => {
 process.stdin.pipe(runtime.stdin);
 runtime.stdout.pipe(process.stdout);
 
+/** Signal the owned fixture group, ignoring only an already-disappeared process. */
 function signalGroup(signal) {
   if (runtime.pid === undefined) return;
   try {
@@ -80,11 +82,13 @@ function signalGroup(signal) {
   }
 }
 
+/** Report whether the fixture runtime still has live group members. */
 function groupExists() {
   if (runtime.pid === undefined) return false;
   return processGroupHasLiveMembers(runtime.pid);
 }
 
+/** Wait for the direct runtime child to exit without mistaking a group check for child reaping. */
 async function waitForRuntimeExit(timeoutMs) {
   if (runtimeExit === true || runtime.exitCode !== null || runtime.signalCode !== null) return true;
   const deadline = Date.now() + timeoutMs;
@@ -95,6 +99,7 @@ async function waitForRuntimeExit(timeoutMs) {
   return false;
 }
 
+/** Wait for all fixture group members to disappear and return the final state at the deadline. */
 async function waitForGroupGone(timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -104,6 +109,7 @@ async function waitForGroupGone(timeoutMs) {
   return !groupExists();
 }
 
+/** Stop the owned fixture tree once, escalating TERM to KILL and reporting unconfirmed group cleanup. */
 function stopOwnedTree() {
   if (stopping !== undefined) return stopping;
   stopping = (async () => {

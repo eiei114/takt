@@ -134,6 +134,7 @@ class DeepSeekHarnessProtocolError extends Error {
 }
 
 class DeepSeekHarnessTransportError extends Error {
+  /** Attach SDK transport metadata to an error for subsequent diagnostic mapping and redaction. */
   constructor(
     message: string,
     readonly sdkCode?: string,
@@ -997,6 +998,7 @@ class DeepSeekHarnessProcess {
   sessionId: string | undefined;
   private readonly cleanupConfirmationPath: string;
 
+  /** Configure the stock SDK with the managed supervisor executable, credential patch and per-instance exit receipt. */
   constructor(
     private readonly configuration: ResolvedDeepSeekConfiguration,
     private readonly environment: ProcessEnvironmentResolution,
@@ -1264,6 +1266,7 @@ function removeProcess(processRecord: DeepSeekHarnessProcess): void {
 }
 
 class DeepSeekHarnessContinuationError extends Error {
+  /** Create the fixed unsupported-continuation error without exposing raw SDK history details. */
   constructor() {
     super(deepSeekContinuationMessage());
     this.name = 'DeepSeekHarnessContinuationError';

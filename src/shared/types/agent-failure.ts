@@ -108,6 +108,7 @@ export function createProviderErrorFailure(reason: unknown): AgentFailureDetail 
   );
 }
 
+/** Create a terminal continuation failure with a fresh-session recovery hint and sanitized failure detail. */
 export function createSessionContinuationUnsupportedFailure(reason: unknown): AgentFailureDetail {
   return createFailureDetail(
     AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED,

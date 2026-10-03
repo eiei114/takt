@@ -712,6 +712,7 @@ export class OptionsBuilder {
     };
   }
 
+  /** Preserve explicit readonly/tool-free constraints for DeepSeek validation; other providers keep their readonly policy. */
   private resolveReadonlyPhaseConstraints(
     step: WorkflowStep,
     allowedTools: string[] | undefined,

@@ -235,6 +235,7 @@ function isEmptyPhase1Response(response: AgentResponse): boolean {
     && response.content.trim().length === 0;
 }
 
+/** Allow a fresh retry only for provider errors that are not rate limits, aborts, credential changes or unsupported continuation. */
 function isProviderErrorEligibleForFreshRetry(response: AgentResponse): boolean {
   return response.status === 'error'
     && response.errorKind !== 'rate_limit'

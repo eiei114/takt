@@ -18,6 +18,7 @@ const CONTINUATION_MESSAGE =
   'DeepSeek Harness cannot continue this session after runtime replacement or teardown; start a new TAKT session or run.';
 
 export class DeepSeekRuntimeCreationBlockedError extends Error {
+  /** Create the fixed durable-cleanup-blocker error exposed by runtime admission checks. */
   constructor() {
     super(CLEANUP_BLOCKED_MESSAGE);
     this.name = 'DeepSeekRuntimeCreationBlockedError';
@@ -26,6 +27,7 @@ export class DeepSeekRuntimeCreationBlockedError extends Error {
 
 /** A healthy foreign owner holds the shared runtime home; no cleanup failed. */
 export class DeepSeekRuntimeBusyError extends Error {
+  /** Create the distinct busy-home error for a healthy foreign runtime owner. */
   constructor() {
     super(DEEPSEEK_RUNTIME_BUSY_MESSAGE);
     this.name = 'DeepSeekRuntimeBusyError';

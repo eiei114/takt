@@ -24,12 +24,15 @@ vi.mock('@deepseek-ai/dsh-sdk-client', async (importOriginal) => {
     ...actual,
     DeepSeekHarness: class {
       private readonly id = runtimeBehavior.uniqueSessions ? `cache-session-${++runtimeBehavior.instanceCount}` : 'error-mapping-session';
+      /** Capture the mocked SDK environment so cleanup tests can publish the configured exit receipt. */
       constructor(private readonly options: { env?: NodeJS.ProcessEnv }) {}
 
+      /** Count SDK startup calls without creating a runtime process. */
       async start(): Promise<void> {
         runtimeBehavior.startCount += 1;
       }
 
+      /** Simulate SDK events or a controlled rejection, allowing tests to gate execution and inspect failure mapping. */
       async run(
         _prompt: string,
         options?: { onNotification?: (notification: unknown) => void },
@@ -50,6 +53,7 @@ vi.mock('@deepseek-ai/dsh-sdk-client', async (importOriginal) => {
         return { sessionId: this.id, finalResponse: 'ok', finishReason: 'completed' };
       }
 
+      /** Simulate cleanup, optionally write a proven-exit receipt, then inject the configured close failure. */
       async close(): Promise<void> {
         runtimeBehavior.closeCount += 1;
         await runtimeBehavior.onClose?.();

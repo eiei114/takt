@@ -68,6 +68,7 @@ export function assertNoRemovedProviderOptionConfigurationValues(
   );
 }
 
+/** Reject removed Python/runtime-mode environment variables before provider option resolution can ignore them. */
 export function assertNoRemovedProviderOptionEnvironmentVariables(
   environment: NodeJS.ProcessEnv = process.env,
 ): void {

@@ -51,6 +51,7 @@ interface MockEndpoint {
   close: () => Promise<void>;
 }
 
+/** Emit Anthropic-compatible streaming events, optionally requesting a read tool or simulating a provider failure. */
 function writeEventStream(
   response: import('node:http').ServerResponse,
   options: { mode: MockMode; readSourcePath?: string; sequence: number; exposeReadTool: boolean },
@@ -133,6 +134,7 @@ function writeEventStream(
   response.end();
 }
 
+/** Start a credential-store mock that records authorization and supports holding/releasing requests for binding tests. */
 async function startMockEndpoint(readSourcePath: string): Promise<MockEndpoint> {
   const requests: RecordedRequest[] = [];
   let mode: MockMode = 'ok';
@@ -274,6 +276,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     ].join('\n'), 'utf8');
   }
 
+  /** Call the provider with fixture defaults and optional session/environment overrides without contacting a real service. */
   async function runTurn(options: {
     prompt?: string;
     sessionId?: string;

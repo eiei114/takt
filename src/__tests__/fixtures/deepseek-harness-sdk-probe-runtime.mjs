@@ -28,19 +28,23 @@ if (mode === 'spawn-child' || mode === 'hang-after-receipt' || mode === 'shutdow
   }
 }
 
+/** Write a JSON-RPC success response for a fixture request ID. */
 function respond(id, result) {
   process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id, result })}\n`);
 }
 
+/** Write a JSON-RPC notification without an ID to the fixture client. */
 function notify(method, params) {
   process.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`);
 }
 
+/** Append a fixture history entry only when a history path is configured. */
 function appendHistory(entry) {
   if (historyFile === undefined) return;
   appendFileSync(historyFile, `${JSON.stringify(entry)}\n`, 'utf8');
 }
 
+/** Handle probe initialization/session/shutdown requests and inject the selected failure or timeout behavior. */
 function handleRequest(message) {
   if (message.method === 'initialize') {
     if (mode === 'initialize-timeout' || mode === 'stderr-exit') return;

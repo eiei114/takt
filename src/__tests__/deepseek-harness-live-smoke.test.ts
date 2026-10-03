@@ -49,6 +49,7 @@ function runNpm(
   return result.stdout;
 }
 
+/** Execute the installed consumer CLI version command and fail on spawn or nonzero-exit errors. */
 function runPackedVersion(
   packageRoot: string,
   workspace: string,

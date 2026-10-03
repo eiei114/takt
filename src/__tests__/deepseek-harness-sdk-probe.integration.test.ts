@@ -94,15 +94,18 @@ const activeClients: Array<{ close(): Promise<void> }> = [];
 const localMocks: LocalApiMock[] = [];
 const processGroupFiles: string[] = [];
 
+/** Choose the consumer package root when configured, otherwise resolve packages from the checkout. */
 function packageRequireBase(): string {
   const configuredRoot = process.env.TAKT_DSH_SDK_PROBE_PACKAGE_ROOT;
   return configuredRoot === undefined ? process.cwd() : configuredRoot;
 }
 
+/** Read a package manifest for SDK/runtime version and distribution assertions. */
 function readPackageManifest(packagePath: string): PackageManifest {
   return JSON.parse(readFileSync(packagePath, 'utf8')) as PackageManifest;
 }
 
+/** Resolve the SDK from the selected package root and its runtime from the SDK dependency tree. */
 function resolveSdkPackage(): { sdkPath: string; runtimePath: string } {
   const requireFromRoot = createRequire(join(packageRequireBase(), 'package.json'));
   const sdkPath = requireFromRoot.resolve('@deepseek-ai/dsh-sdk-client/package.json');
@@ -111,6 +114,7 @@ function resolveSdkPackage(): { sdkPath: string; runtimePath: string } {
   return { sdkPath, runtimePath };
 }
 
+/** Build a dummy-only child environment with isolated home and optional probe modes; never use live credentials. */
 function dummyEnvironment(
   launchDirectory: string,
   options: {
@@ -148,6 +152,7 @@ function dummyEnvironment(
   return env;
 }
 
+/** Create an isolated SDK client with the chosen runtime fixture and register its process group for teardown. */
 async function createHarness(
   options: {
     mode?: string;
@@ -189,6 +194,7 @@ async function createHarness(
   return { harness, launchDirectory, env };
 }
 
+/** Bound an operation with a labeled timeout and always clear its timer; this does not cancel the operation. */
 async function bounded<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -203,6 +209,7 @@ async function bounded<T>(operation: Promise<T>, timeoutMs: number, label: strin
   }
 }
 
+/** Return the rejected value for exposure assertions and fail if the operation unexpectedly succeeds. */
 async function rejectionOf<T>(operation: Promise<T>): Promise<unknown> {
   try {
     await operation;
@@ -212,6 +219,7 @@ async function rejectionOf<T>(operation: Promise<T>): Promise<unknown> {
   throw new Error('Expected operation to reject');
 }
 
+/** Poll for a probe start marker and fail when the publication deadline expires. */
 async function waitForFile(filePath: string, timeoutMs = 2_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -221,12 +229,14 @@ async function waitForFile(filePath: string, timeoutMs = 2_000): Promise<void> {
   throw new Error('The probe runtime did not publish its start marker before the deadline');
 }
 
+/** Read a fixture PID and reject nonpositive or unsafe integer values before process signaling. */
 function readPidFile(filePath: string): number {
   const pid = Number(readFileSync(filePath, 'utf8'));
   if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('The probe runtime wrote an invalid process id');
   return pid;
 }
 
+/** Test process liveness, excluding observed POSIX zombies and treating uncertain checks as still alive. */
 function processIsAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -241,6 +251,7 @@ function processIsAlive(pid: number): boolean {
   return processState.length > 0 && !processState.startsWith('Z');
 }
 
+/** Test owned-group liveness from process listings, falling back conservatively to a signal probe. */
 function processGroupIsAlive(pgid: number): boolean {
   if (process.platform !== 'win32') {
     const result = spawnSync('ps', ['-axo', 'pgid=,stat='], { encoding: 'utf8' });
@@ -264,6 +275,7 @@ function processGroupIsAlive(pgid: number): boolean {
   }
 }
 
+/** Poll for process disappearance and return the final liveness result at the deadline. */
 async function waitForProcessGone(pid: number, timeoutMs = 2_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -273,6 +285,7 @@ async function waitForProcessGone(pid: number, timeoutMs = 2_000): Promise<boole
   return !processIsAlive(pid);
 }
 
+/** Poll for process-group disappearance and return the final group state at the deadline. */
 async function waitForGroupGone(pgid: number, timeoutMs = 2_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -282,6 +295,7 @@ async function waitForGroupGone(pgid: number, timeoutMs = 2_000): Promise<boolea
   return !processGroupIsAlive(pgid);
 }
 
+/** Force-stop a fixture process group and fail unless its disappearance is confirmed. */
 async function killProcessGroup(pgid: number): Promise<void> {
   try {
     process.kill(process.platform === 'win32' ? pgid : -pgid, 'SIGKILL');
@@ -291,6 +305,7 @@ async function killProcessGroup(pgid: number): Promise<void> {
   if (!(await waitForGroupGone(pgid))) throw new Error('A probe process group remained after forced cleanup');
 }
 
+/** Start a loopback API with selectable tool, reasoning and credential-echo streams; record requests for assertions. */
 async function startLocalApiMock(
   mode: 'success' | 'assistant-message-reasoning' | 'assistant-message-text-only' | 'credential-echo' | 'credential-echo-after-success',
 ): Promise<LocalApiMock> {
@@ -393,6 +408,7 @@ async function startLocalApiMock(
   const mock: LocalApiMock = {
     endpoint: `http://127.0.0.1:${address.port}`,
     requests,
+    /** Close all local mock connections before awaiting server shutdown. */
     async close() {
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => {
@@ -404,10 +420,12 @@ async function startLocalApiMock(
   return mock;
 }
 
+/** Write one SSE event with a JSON payload to the SDK mock response. */
 function writeSse(response: ServerResponse, event: string, payload: Record<string, unknown>): void {
   response.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
 }
 
+/** Expose nested error fields for redaction assertions with bounded recursion, rather than only stringifying messages. */
 function serializeErrorExposure(value: unknown, depth = 0): unknown {
   if (depth > 5 || value === null || value === undefined) return value;
   if (value instanceof Error) {
@@ -427,6 +445,7 @@ function serializeErrorExposure(value: unknown, depth = 0): unknown {
   return value;
 }
 
+/** Collect paths and decoded file contents, including Zstd fixtures, for persisted-secret assertions. */
 async function readFilesRecursively(directory: string): Promise<{ content: string; paths: string[] }> {
   let entries;
   try {
@@ -455,10 +474,12 @@ async function readFilesRecursively(directory: string): Promise<{ content: strin
   return { content: contents.join('\n'), paths };
 }
 
+/** Accept only non-null, non-array objects when interpreting untrusted probe notifications. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Check that an inbox splice notification acknowledges the requested message ID. */
 function isInboxReceiptFor(notification: ProbeNotification, messageId: string): boolean {
   if (notification.method !== 'session.event' || !isRecord(notification.params.event)) return false;
   const event = notification.params.event;
@@ -468,6 +489,7 @@ function isInboxReceiptFor(notification: ProbeNotification, messageId: string): 
   return event.data.inserted.some((entry) => isRecord(entry) && entry.id === messageId);
 }
 
+/** Wait for the matching inbox receipt followed by idle status for the same SDK session, with bounded reads. */
 async function waitForPromptIdle(
   subscription: ProbeNotificationSubscription,
   sessionId: string,
@@ -877,6 +899,7 @@ describe('DeepSeek Harness TypeScript SDK feasibility probes', () => {
     await mkdir(workspace, { recursive: true });
     const sessionId = 'low-level-persisted-session';
 
+    /** Create a restart-test client sharing the test home while isolating launch markers and registering cleanup. */
     async function createClient(): Promise<{
       client: ProbeHarnessClient;
       launchDirectory: string;

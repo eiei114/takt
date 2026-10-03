@@ -18,6 +18,8 @@ The local design records are `.scratch/takt-deepseek-harness-sdk/PRD.md` (histor
 
 ## Dependency and distribution proof
 
+The [lock verification snapshot](deepseek-lock-verification.md) exposes exact root/peer/toolkit lock entries, the nested dependency version inventory, a canonical lock digest, public clean-install CI logs, and separately labeled local packed-consumer receipts. It is review evidence, not an alternative installation lockfile.
+
 Root dependencies, root lock entries and bundles must include every SDK peer, even when npm marks it `inBundle` instead of `peer`: `dsh-llm`, `dsh-session`, `dsh-sdk-protocol` at `0.2.0-rc.2`, and `cordis` at `4.0.4`. `libreoffice-kit` is directly pinned/bundled at `0.1.5`, with its bundled `fflate` declaration aligned to patched `0.8.3`; upstream SDK/runtime code is not modified. This addresses the named fflate advisory, not all dependency advisories.
 
 Run `node scripts/verify-deepseek-sdk-lock.mjs --pack` after installing/building to check pins and actual dry-run inventory, then install the actual `npm pack` tarball in a clean consumer with production dependencies only. Verify SDK/runtime resolution, toolkit metadata and fflate resolution in that consumer. Prepack changes local metadata; run `npm ci` after every pack attempt, including failure/interruption, to restore upstream metadata. PR verification records must report actual commands/results rather than infer distribution correctness from the checkout override.

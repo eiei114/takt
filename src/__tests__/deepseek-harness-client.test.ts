@@ -14,6 +14,7 @@ vi.mock('@deepseek-ai/dsh-sdk-client', async (importOriginal) => {
   return {
     ...sdk,
     DeepSeekHarness: class extends sdk.DeepSeekHarness {
+      /** Record SDK constructor options while retaining the real client implementation for process tests. */
       constructor(options?: DeepSeekHarnessOptions) {
         sdkConstructorOptions.push(options);
         super(options);
@@ -64,10 +65,12 @@ const savedEnvironment = new Map<string, string | undefined>();
 let temporaryRoot: string;
 let localApis: LocalApi[] = [];
 
+/** Write one JSON-encoded SSE event to the local provider response. */
 function writeSse(response: ServerResponse, event: string, data: unknown): void {
   response.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+/** Start a loopback provider with controlled success/error modes and observable requests; register it for teardown. */
 async function startLocalApi(
   mode: LocalApiMode = 'success',
 ): Promise<LocalApi> {
@@ -152,6 +155,7 @@ async function startLocalApi(
   return api;
 }
 
+/** Collect readable file contents for credential-leak assertions, treating a missing root as empty. */
 async function readFiles(root: string): Promise<string> {
   let entries;
   try {
@@ -170,11 +174,13 @@ async function readFiles(root: string): Promise<string> {
   return content;
 }
 
+/** Wait for a spawned parent to exit, including children that exited before the listener was attached. */
 async function waitForExit(child: ReturnType<typeof spawn>): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   await new Promise<void>((resolve) => child.once('exit', () => resolve()));
 }
 
+/** Run an isolated parent with supplied environment, capture stdout, and bound its process-group lifetime. */
 async function runSeparateParentProcess(
   script: string,
   environment: NodeJS.ProcessEnv,
@@ -212,6 +218,7 @@ async function runSeparateParentProcess(
   });
 }
 
+/** Wait until the separate parent publishes a marker; propagate non-ENOENT errors and fail at the deadline. */
 async function waitForFile(path: string, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {

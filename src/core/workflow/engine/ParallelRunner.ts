@@ -419,6 +419,7 @@ export class ParallelRunner {
     }
   }
 
+  /** Run one parallel step attempt, aggregate part results, and preserve terminal continuation/auth failures across phases. */
   private async runParallelStepAttempt(
     step: WorkflowStep,
     state: WorkflowState,

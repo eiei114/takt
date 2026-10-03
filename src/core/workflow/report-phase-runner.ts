@@ -490,6 +490,7 @@ interface ReportRetryableFailure {
   readonly errorMessage: string;
 }
 
+/** Execute one report attempt and preserve terminal provider failures before applying report validation or retry policy. */
 async function runSingleReportAttempt(
   step: WorkflowStep,
   instruction: string,
@@ -723,6 +724,7 @@ function buildReportAttemptSpanOutcome(
   };
 }
 
+/** Classify report failures for retry without treating blocked, rate-limited or terminal session/auth responses as retryable. */
 function classifyRetryableFailure(
   step: WorkflowStep,
   response: AgentResponse,
