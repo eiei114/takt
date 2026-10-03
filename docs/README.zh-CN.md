@@ -374,7 +374,7 @@ auto_routing:
 
 更完整的配置、provider profile、model 解析和 `runtime.yaml` 说明请参阅[配置指南](./configuration.zh-CN.md)。
 
-TAKT 也可以直接使用 provider 凭据（claude-sdk、Codex、OpenCode、Pi 和 DeepSeek Harness 不需要安装 CLI）。DeepSeek SDK/runtime 已包含在 TAKT 的 npm production dependency 中：
+TAKT 也可以直接使用 provider 凭据。DeepSeek SDK/runtime 已包含在 TAKT 的 npm production dependency 中，无需额外安装 DeepSeek CLI。以下是凭据环境变量的示例：
 
 ```bash
 export TAKT_ANTHROPIC_API_KEY=sk-ant-...   # Anthropic（Claude）
