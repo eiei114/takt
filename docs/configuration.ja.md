@@ -1248,6 +1248,8 @@ provider_options:
 
 `runtime_mode` と Python/uv 専用 option は削除され、未知の設定として拒否されます。`base_url` の環境変数 override は `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_BASE_URL`、provider-native endpoint は `DEEPSEEK_BASE_URL` です。non-loopback endpoint は global config または利用者が管理する TAKT 環境変数でのみ指定できます。workflow/project config では loopback のみを許可します。
 
+`TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_RUNTIME_MODE`と`TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH`は解除してください。空文字列でも設定されていれば、project/global configの検証で拒否します。エラーには設定値を表示しません。
+
 credential は公式 store `$DSH_HOME/.credentials.yaml`（既定 `~/.dsh/.credentials.yaml`）または `DEEPSEEK_API_KEY` など選択された環境変数から解決されます。参照名は `$DSH_HOME/settings.yaml` の `llm-deepseek.apiKeyEnv` から読み、未指定時は `DEEPSEEK_API_KEY` を使います。保存された `llm-deepseek.baseURL` は実際の endpoint と一致する必要があります。選択された環境変数は保存 credential より優先されます。TAKT は store の path と参照名を runtime に渡し、secret 値を読み取り・複写・書き換えません。credential source home と TAKT の runtime home は分離されています。既存 session 中の credential binding 変更は拒否されます。
 
 runtime が稼働し、対応設定が同じ間は複数 turn を同一 session で受け付け、FIFO で直列化します。SDK は runtime 終了・再起動後に保存済み履歴を復元できず、設定変更で runtime 交換が必要な場合も履歴を保持できません。その状態での継続要求は固定診断で拒否し、新しい TAKT session/run を案内します。推論強度、model、credential、runtime 設定を変える場合は新しい session identity を使ってください。履歴の reset、session ID の自動変更、過去履歴の再送は行いません。これは意図的な破壊的変更で、runtime をまたぐ履歴保持は後続対応です。
@@ -1256,13 +1258,15 @@ provider error が credential を含んで session file に保存されること
 
 公式SDKのファイル操作・検索・shell・subagent/fork・workflow toolは有効です。他のローカルcoding providerと同じ、信頼するworkspaceでの実行を前提にします。モデルのtoolからcredentialを絶対に読めない保証ではありません。SDKのworkspace-write境界は書き込みを制御しますが、secret fileの読み取り隔離ではありません。認証設定は引き続きstore path/referenceだけを渡し、credential bindingとruntime homeを分離します。明示された未対応のTAKT制約は起動前に拒否し、黙って無視しません。
 
-初期化、turn、shutdown の timeout は別々に扱います。SDK runtime は stderr を破棄し process group を監視する supervisor の下で起動します。cleanup を確認できない場合は、別 session を含むすべての次回 runtime 起動を、旧 process group の終了が確認できるまで拒否します。SDK error は固定診断へ変換し、raw exception message、cause、data、stderr は表示・分類に使いません。
+初期化のtimeoutは30秒固定です。turnの`request_timeout_ms`、shutdownの`shutdown_timeout_ms`とは独立しています。SDK runtime は stderr を破棄し process group を監視する supervisor の下で起動します。cleanup を確認できない場合は、別 session を含むすべての次回 runtime 起動を、旧 process group の終了が確認できるまで拒否します。SDK error は固定診断へ変換し、raw exception message、cause、data、stderr は表示・分類に使いません。
 
 共有runtime-state lockを取得したprocessが強制終了した場合も、起動が拒否されることがあります。lockは自動復旧しません。TAKT config directoryの`deepseek-harness/state/`内に残るlockを手動で整理する場合、先に旧runtime・supervisor・tool processがすべて終了したことを確認してください。cleanup失敗を迂回するためだけにlockを削除してはいけません。
 
 SDK に permission control はないため、permission mode/callback、`bypassPermissions`、明示的な allowed-tools list を求める呼び出しは runtime 起動前に失敗します。空でない MCP server map、`maxTurns`、structured output、image attachment も適用できないため拒否します。provider の setup 時に渡す agent-level `systemPrompt` は SDK plugin 経由で runtime に適用されます。未対応の制約が必要な場合は対応する provider を使ってください。SDK notification/result は既存の text、thinking、tool、completion、error event へ正規化されます。
 
 以前の Python/uv managed file と install command は使われません。TAKT は利用者の file を移行・削除しません。旧 managed environment を削除したい場合は内容を確認して手動で整理し、`~/.dsh` の credential store は別途管理してください。互換期間はありません。
+
+通常の対話ではSDK標準toolを使います。`[]`を含む明示allowlistは未対応です。report/status phaseではtool禁止の空allowlistを維持し、resume、新sessionでのretry、DeepSeekへのfallbackのすべてでSDK起動前に拒否します。tool実行後の検出ではなく、副作用を実行前に防ぎます。これらのphaseには対応するproviderを使ってください。
 
 #### ネットワークアクセス (`network_access`)
 

@@ -125,6 +125,8 @@ TAKT disables the runtime's JSONL session-persistence plugin so newly written se
 
 The standard SDK file/search, shell, and delegated-execution tools are enabled for coding. As with other local coding providers, use trusted workspaces and prompts. A credential reference is not an OS-level read-isolation boundary: local tools may access files and environment variables permitted by the host and SDK policy.
 
+Default interactive conversations use these native tools without a TAKT allowlist. Explicit tool restrictions (including `[]`) are rejected before SDK startup. DeepSeek cannot enforce the tool-free report/status phases, so those phases fail before execution; use a compatible provider for workflows requiring them.
+
 Credentials use the official store at `$DSH_HOME/.credentials.yaml` (default `~/.dsh/.credentials.yaml`) or the selected environment variable such as `DEEPSEEK_API_KEY`. TAKT keeps that credential source separate from its managed runtime home and never reads, copies, or rewrites stored secret values. See the [Configuration Guide](./docs/configuration.md#deepseek-harness-deepseek-harness) for settings and session limits.
 
 These providers require an external CLI:

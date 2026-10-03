@@ -6,6 +6,12 @@
 
 ## 未リリース
 
+### 修正
+
+- DeepSeekの通常の対話ではSDK標準toolを使い、TAKTの既定toolを未対応の利用者制約として渡さないようにしました。空tool listと呼び出しごとのpermission modeを含む明示制約は引き続き拒否します。report/statusのtool禁止も黙って外さず、SDK起動前に拒否します。
+- turnのtimeoutを短くしても、初期化のtimeoutは独立した30秒を維持します。削除済みPython-path環境変数は空文字列も含めてproject/global configで拒否します。
+- SDK保存ログの検査で連結Zstdの全frameを読むようにしました。公式SDK単体の保存ログに認証情報のechoが残ることを正しく確認できます。TAKT側のJSONL保存無効化は維持し、テストで保護を確認します。
+
 ### 破壊的変更
 
 - DeepSeek Harness の Python/uv bridge を公式 TypeScript SDK と対応 runtime `0.2.0-rc.2` に置き換え、npm production dependency として固定しました。`takt deepseek-harness install`、Python bridge、uv-managed environment、Python/uv 専用設定を削除しました。旧 managed file は残り、自動削除されません。必要な場合は確認後に手動で整理してください。

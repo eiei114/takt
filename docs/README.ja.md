@@ -125,6 +125,8 @@ credential を含む provider error が session file に残ることを防ぐた
 
 コード編集にはSDK標準のファイル操作・検索・shell・委任実行toolを使えます。他のローカルcoding providerと同じく、信頼するworkspaceとpromptで実行してください。credential referenceはOS上の読み取り隔離ではなく、toolはhostとSDK policyで許されたfileや環境変数へアクセスできます。
 
+通常の対話ではTAKTのallowlistを付けず、SDK標準toolを使います。`[]`を含む明示的なtool制約はSDK起動前に拒否します。DeepSeekではreport/status phaseのtool禁止を強制できないため、このphaseは実行前に失敗します。これらのphaseが必要なworkflowでは、対応するproviderを使ってください。
+
 credential は公式 store `$DSH_HOME/.credentials.yaml`（既定 `~/.dsh/.credentials.yaml`）または選択された `DEEPSEEK_API_KEY` などの環境変数を使います。TAKT は credential source と管理 runtime home を分離し、保存済み secret 値を読み取り・複写・書き換えません。設定と session 制約は[設定ガイド](./configuration.ja.md#deepseek-harness-deepseek-harness)を参照してください。
 
 次のプロバイダーを使う場合は外部 CLI のインストールが必要です:

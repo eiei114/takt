@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- Default DeepSeek interactive plans now use native SDK tools without converting framework defaults into unsupported user constraints. Explicit restrictions, including empty tool lists and per-call permission modes, remain fail-closed. Tool-free report/status routes refuse before SDK startup instead of dropping their restrictions.
+- DeepSeek initialization retains its independent 30-second deadline even with a shorter turn timeout. Removed Python-path environment overrides now fail project/global config validation, including empty values.
+- SDK persistence probes scan every concatenated Zstd frame. They now accurately characterize credential echoes in unpatched upstream session files; TAKT's JSONL-persistence suppression remains enabled and tested.
+
 ### Breaking changes
 
 - Replaced the DeepSeek Harness Python/uv bridge with the official TypeScript SDK and matching runtime `0.2.0-rc.2`, pinned as production npm dependencies. The `takt deepseek-harness install` command, Python bridge, uv-managed environment, and Python/uv-only settings have been removed. Existing old managed files are left untouched; inspect and remove them manually if desired.

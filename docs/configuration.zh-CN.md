@@ -936,6 +936,8 @@ provider_options:
 
 `runtime_mode` 和 Python/uv 专用选项已删除，作为未知配置拒绝。`base_url` 的环境变量覆盖项是 `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_BASE_URL`；provider 原生 endpoint 设置为 `DEEPSEEK_BASE_URL`。非 loopback endpoint 只能在 global config 或用户管理的 TAKT 环境变量中设置，workflow/project 配置仅允许 loopback。
 
+请取消设置 `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_RUNTIME_MODE` 和 `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PYTHON_PATH`。即使值为空，只要存在就会导致 project/global config 验证失败；错误消息不会回显这些值。
+
 认证从官方 store `$DSH_HOME/.credentials.yaml`（默认 `~/.dsh/.credentials.yaml`）或选定的环境变量（例如 `DEEPSEEK_API_KEY`）解析。参照名来自 `$DSH_HOME/settings.yaml` 中的 `llm-deepseek.apiKeyEnv`，未设置时使用 `DEEPSEEK_API_KEY`。若保存了 `llm-deepseek.baseURL`，它必须与有效 endpoint 一致。选定的环境变量优先于已保存的 credential。TAKT 将 store path 和参照名传给 runtime，不读取、复制或改写 secret 值。credential source home 与 TAKT 管理的 runtime home 分开。已有 session 中改变 credential binding 会被拒绝。
 
 runtime 在运行且支持的配置未改变时，可在同一 session 中执行多个 turn，并按 FIFO 顺序串行处理。SDK 无法在 runtime 终止/重启后恢复已保存历史，也无法在配置变化要求替换 runtime 时保留历史。此类继续请求会收到固定诊断，并提示启动新的 TAKT session/run。要更改 reasoning effort、model、credential 或 runtime 设置，请使用新的 session identity。TAKT 不会重置历史、自动更换 session ID 或重新发送旧历史。这是有意的破坏性缩减；跨 runtime 的历史保留延期支持。
@@ -944,13 +946,15 @@ runtime 在运行且支持的配置未改变时，可在同一 session 中执行
 
 官方 SDK 的文件操作、搜索、shell、subagent/fork 和 workflow 工具保持启用。与其他本地 coding provider 一样，只应在可信 workspace 中运行；这不保证模型工具无法读取 credential。SDK 的 workspace-write 边界控制写入，而不是 secret 文件读取隔离。认证配置仍只传递 store path/reference，并将 credential binding 与 runtime home 分开。显式要求但不支持的 TAKT 控制仍在启动前拒绝，绝不静默忽略。
 
-初始化、turn、shutdown 使用不同的 timeout。SDK runtime 在 supervisor 下启动，该 supervisor 丢弃 stderr 并跟踪 process group。若无法确认 cleanup，所有后续 runtime 启动（包括新 session）都会被阻止，直到旧 process group 确认退出。SDK error 转换为固定诊断；不显示或分类 raw exception message、cause、data 或 stderr。
+初始化 timeout 固定为 30 秒，与 turn 的 `request_timeout_ms` 和 shutdown 的 `shutdown_timeout_ms` 相互独立。SDK runtime 在 supervisor 下启动，该 supervisor 丢弃 stderr 并跟踪 process group。若无法确认 cleanup，所有后续 runtime 启动（包括新 session）都会被阻止，直到旧 process group 确认退出。SDK error 转换为固定诊断；不显示或分类 raw exception message、cause、data 或 stderr。
 
 持有共享 runtime-state lock 的进程被强制终止后，也可能继续阻止启动。lock 不会自动恢复。手动清理 TAKT config directory 中 `deepseek-harness/state/` 下残留的 lock 前，必须先确认旧 runtime、supervisor 和工具进程全部退出。不得仅为绕过 cleanup 失败而删除 lock。
 
 SDK 不提供此 provider 所需的 permission control，因此请求 permission mode/callback、`bypassPermissions` 或显式 allowed-tools list 的调用会在启动 runtime 前失败。非空 MCP server map、`maxTurns`、structured output 和 image attachment 也无法应用，因此会被拒绝。provider setup 时提供的 agent-level `systemPrompt` 会通过 SDK plugin 应用到 runtime。需要未支持的控制功能时，请使用兼容的 provider。SDK notification/result 会转换为既有的 text、thinking、tool、completion 和 error event。
 
 旧 Python/uv managed files 和旧安装命令不再使用。TAKT 不会迁移或删除用户文件。如需删除旧 managed environment，请先检查再手动处理；`~/.dsh` credential store 仍由用户管理。没有兼容过渡期。
+
+默认交互会话使用 SDK 标准工具；显式 allowlist（包括 `[]`）仍不受支持。report/status phase 保留禁用工具的空 allowlist，在 resume、新 session 重试及 DeepSeek fallback 路径中均会在 SDK 启动前拒绝。这是在执行前防止工具副作用，而不是执行后才检测。请为这些 phase 使用兼容的 provider。
 
 #### 网络访问（`network_access`）
 
