@@ -4,28 +4,6 @@
 
 このプロジェクトの注目すべき変更はすべてこのファイルに記録されます。
 
-## 未リリース
-
-### 修正
-
-- DeepSeekのreportで認証先変更が起きた場合、単独・並列stepともstatus判定やfallbackへ進まず終了します。idle SDK runtimeは最大8件を保持し、実行中・待機中のturnは保護します。別processの正常なhome占有はcleanup失敗と区別し、ownerが残らないSDK closeエラーで永久barrierを作らないようにしました。previewでもtool未指定と明示空listを区別します。SDK peerと修正版office toolkitを明示固定・bundle化し、実pack一覧の検証とpack後のmetadata復旧手順を追加しました。
-
-- DeepSeek TeamLeaderのtool未指定と明示空listを、正規化・preview読み込みでも区別します。認証先変更は専用の再試行不可エラーで拒否し、対話・workflowのfresh-session回復へ流しません。未登録の保存IDもSDK起動前に拒否し、旧IDで履歴なしの新sessionを作りません。
-
-- personaの明示的なDeepSeek空allowlistを、tool未指定と区別して保持します。DeepSeekの対話ではstale-session retryを行いません。継続未対応なら保存IDを解除し、次の利用者turnは履歴を復元しない新しいSDK sessionになることを明記します。runtime交換後の履歴・ID保持はSDK対応待ちです。
-
-- DeepSeekの通常の対話ではSDK標準toolを使い、TAKTの既定toolを未対応の利用者制約として渡さないようにしました。空tool listと呼び出しごとのpermission modeを含む明示制約は引き続き拒否します。report/statusのtool禁止も黙って外さず、SDK起動前に拒否します。
-- turnのtimeoutを短くしても、初期化のtimeoutは独立した30秒を維持します。削除済みPython-path環境変数は空文字列も含めてproject/global configで拒否します。
-- SDK保存ログの検査で連結Zstdの全frameを読むようにしました。公式SDK単体の保存ログに認証情報のechoが残ることを正しく確認できます。TAKT側のJSONL保存無効化は維持し、テストで保護を確認します。
-
-### 破壊的変更
-
-- DeepSeek Harness の Python/uv bridge を公式 TypeScript SDK と対応 runtime `0.2.0-rc.2` に置き換え、npm production dependency として固定しました。`takt deepseek-harness install`、Python bridge、uv-managed environment、Python/uv 専用設定を削除しました。旧 managed file は残り、自動削除されません。必要な場合は確認後に手動で整理してください。
-- DeepSeek Harness は同一 runtime が稼働し、対応設定が変わらない間だけ FIFO の複数 turn をサポートします。runtime 再起動・終了後、または runtime 交換を要する設定変更後の同一 ID 継続は拒否されます。新設定には新しい session identity の TAKT session/run を開始してください。runtime をまたぐ session 履歴保持は後続対応です。
-- provider error が credential を session file へ保存する可能性があるため、TAKT は runtime の JSONL session-persistence plugin を無効にします。同一 runtime 内の turn は引き続き利用でき、既存の DeepSeek session file はそのまま残します。
-- DeepSeekは信頼するworkspaceでSDK標準のcoding toolを使います。credential referenceはsecretの読み取り隔離ではありません。強制終了後に残るruntime-state lockは、旧runtimeの終了確認後に手動で復旧する必要があります。
-- 固定したDeepSeek SDK/runtimeを修正版`fflate@0.8.3`と一緒にnpm bundleで配布します。pack時にoffice toolkitの依存宣言だけを調整し、SDK/runtimeのコードは変更しません。利用者自身のoverrideなしで修正版を導入できます。
-
 フォーマットは [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) に基づいています。
 
 ## [0.68.0] - 2026-10-03

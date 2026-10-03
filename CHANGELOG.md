@@ -4,28 +4,6 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
-
-### Fixed
-
-- DeepSeek report credential-binding failures now abort single and parallel steps before status judgment or fallback. Idle SDK runtimes have an eight-entry LRU bound; active and queued turns remain protected. Healthy foreign managed-home ownership is reported as busy, and SDK close errors with no remaining owners no longer create permanent cleanup barriers. Preview text distinguishes provider-default tools from an explicit empty list. SDK peers and the patched office toolkit are explicitly pinned/bundled, with actual pack-inventory verification and documented post-pack metadata recovery.
-
-- DeepSeek TeamLeader first-step tools preserve undeclared versus explicit empty lists through normalization and preview loading. Credential binding changes use distinct non-retryable failures without fresh-session recovery in interactive conversations or workflows. Unregistered saved session IDs are rejected before SDK startup instead of creating history-free sessions under an old ID.
-
-- Persona plans preserve explicit empty DeepSeek allowlists instead of treating them as native defaults. Undeclared first-step tools remain distinct. DeepSeek interactive refusals no longer use stale-session retries; unsupported continuation clears the saved ID and warns that the next user turn starts a fresh SDK session without restoring history. ID preservation across runtime replacement remains deferred pending SDK support.
-
-- Default DeepSeek interactive plans now use native SDK tools without converting framework defaults into unsupported user constraints. Explicit restrictions, including empty tool lists and per-call permission modes, remain fail-closed. Tool-free report/status routes refuse before SDK startup instead of dropping their restrictions.
-- DeepSeek initialization retains its independent 30-second deadline even with a shorter turn timeout. Removed Python-path environment overrides now fail project/global config validation, including empty values.
-- SDK persistence probes scan every concatenated Zstd frame. They now accurately characterize credential echoes in unpatched upstream session files; TAKT's JSONL-persistence suppression remains enabled and tested.
-
-### Breaking changes
-
-- Replaced the DeepSeek Harness Python/uv bridge with the official TypeScript SDK and matching runtime `0.2.0-rc.2`, pinned as production npm dependencies. The `takt deepseek-harness install` command, Python bridge, uv-managed environment, and Python/uv-only settings have been removed. Existing old managed files are left untouched; inspect and remove them manually if desired.
-- DeepSeek Harness supports multiple FIFO turns only while the same runtime remains alive with the same supported configuration. It refuses same-ID continuation after runtime restart/teardown or a configuration change that requires runtime replacement. Start a new TAKT session/run with a new session identity to use new settings. Cross-runtime session-history preservation is deferred.
-- TAKT disables the runtime's JSONL session-persistence plugin because a provider error can echo a credential into a newly written session file. Same-runtime turns remain available in memory, and existing DeepSeek session files are left untouched.
-- DeepSeek uses the standard SDK coding tools in trusted workspaces. Credential references are not secret-read isolation boundaries. Abandoned runtime-state locks require manual recovery after confirming all previous runtimes have exited.
-- The pinned DeepSeek SDK/runtime are npm bundled dependencies with patched `fflate@0.8.3`. Packaging adjusts the office toolkit's dependency declaration, without changing SDK/runtime code, so normal consumers receive the fixed dependency instead of needing their own override.
-
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [0.68.0] - 2026-10-03
