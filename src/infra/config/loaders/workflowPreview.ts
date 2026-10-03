@@ -399,7 +399,8 @@ function resolvePreviewAllowedTools(
   });
 
   if (step.teamLeader) {
-    return resolveInspectToolsForProvider(step.teamLeader.inspectTools, resolvedProvider) ?? [];
+    return resolveInspectToolsForProvider(step.teamLeader.inspectTools, resolvedProvider)
+      ?? (resolvedProvider === 'deepseek-harness' ? undefined : []);
   }
 
   const allowedTools = resolveAllowedToolsForProvider(

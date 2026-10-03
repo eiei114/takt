@@ -125,7 +125,8 @@ export function resolveInspectToolsForProvider(
 ): string[] | undefined {
   if (inspectTools !== undefined && inspectTools.length === 0) {
     const supportsAllowlist = provider !== undefined
-      && (providerSupportsOpenCodeAllowedTools(provider) === true
+      && (provider === 'deepseek-harness'
+        || providerSupportsOpenCodeAllowedTools(provider) === true
         || providerSupportsClaudeAllowedTools(provider) === true);
     return supportsAllowlist ? [] : undefined;
   }

@@ -46,7 +46,9 @@ function normalizeTeamLeaderInspectTools(
     return normalizedTool;
   });
 
-  return normalizedTools.length > 0 ? normalizedTools : undefined;
+  // Provider-specific defaults are resolved later. Preserve an explicit empty
+  // constraint rather than turning it into an undeclared tool list here.
+  return normalizedTools;
 }
 
 export function normalizeOutputContract(

@@ -1223,14 +1223,14 @@ async function getOrCreateProcess(
       }
       if (priorBinding.identity !== identity) throw new DeepSeekHarnessContinuationError();
       if (priorProcess !== undefined && !priorProcess.isClosed) return priorProcess;
-      throw new DeepSeekHarnessContinuationError();
     }
+    // A supplied ID is a continuation request, never permission to mint a new
+    // SDK session. Preserve cleanup-barrier diagnostics before refusing it.
+    await assertDeepSeekRuntimeCreationAllowed();
+    throw new DeepSeekHarnessContinuationError();
   }
 
   await assertDeepSeekRuntimeCreationAllowed();
-  if (options.sessionId !== undefined && !(await markDeepSeekSessionUsed(options.sessionId))) {
-    throw new DeepSeekHarnessContinuationError();
-  }
   const credentialPatch = await createDeepSeekCredentialPatch(binding, configuration.systemPrompt);
   let processRecord: DeepSeekHarnessProcess | undefined;
   try {
@@ -1242,12 +1242,6 @@ async function getOrCreateProcess(
       binding.fingerprint,
     );
     processes.set(sessionKey, processRecord);
-    if (options.sessionId !== undefined) {
-      sessionBindings.set(options.sessionId, {
-        identity,
-        credentialFingerprint: binding.fingerprint,
-      });
-    }
     return processRecord;
   } catch (error) {
     if (processRecord !== undefined) removeProcess(processRecord);
@@ -1345,9 +1339,6 @@ function failureDetail(
       credentialFailureContext,
     );
     if (diagnostic !== undefined) {
-      if (error.classification === 'binding-changed') {
-        return createSessionContinuationUnsupportedFailure(diagnostic.reason);
-      }
       return diagnostic;
     }
   }
@@ -1596,6 +1587,7 @@ export async function callDeepSeekHarness(
       && (
         processRecord !== undefined
         || detail.category === AGENT_FAILURE_CATEGORIES.SESSION_CONTINUATION_UNSUPPORTED
+        || (error instanceof DeepSeekCredentialDiagnosticError && error.classification === 'binding-changed')
       );
     emitFailure(
       turnOptions.onStream,

@@ -11,7 +11,8 @@ import { createAssistantConversationPlan } from '../features/interactive/convers
 import { createConversationSession } from '../features/interactive/conversationSession.js';
 import { OptionsBuilder } from '../core/workflow/engine/OptionsBuilder.js';
 import { runAgent } from '../agents/runner.js';
-import { loadPersonaSessions, resolvePersonaSessionId } from '../infra/config/project/sessionStore.js';
+import { loadPersonaSessions, resolvePersonaSessionId, updatePersonaSession } from '../infra/config/project/sessionStore.js';
+import { hasDeepSeekSessionMarker } from '../infra/deepseek-harness/runtime-state.js';
 import type { WorkflowStep } from '../core/models/types.js';
 import {
   callDeepSeekHarness,
@@ -441,10 +442,75 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     expect(JSON.stringify(endpoint.requests[1]?.messages)).not.toContain('UNIQUE_OLD_SESSION_HISTORY_SENTINEL');
   });
 
+  it('refuses an unregistered saved ID before SDK startup and creates a fresh ID only on the next user turn', async () => {
+    vi.stubEnv('DEEPSEEK_BASE_URL', endpoint.baseUrl);
+    const oldId = 'saved-unregistered-sdk-session';
+    updatePersonaSession(workspace, 'interactive', oldId, 'deepseek-harness');
+    expect(await hasDeepSeekSessionMarker(oldId)).toBe(false);
+    const plan = createAssistantConversationPlan(workspace, {
+      assistantMode: 'assistant', formalSpec: false, formalSpecComments: false,
+      modelCheckTimeoutSeconds: 30, provider: 'deepseek-harness', model: 'deepseek-v4-flash',
+    });
+    const session = createConversationSession({
+      cwd: workspace, ctx: { ...plan.ctx, sessionId: oldId }, strategy: plan.strategy,
+      formalSpec: false, modelCheckTimeoutSeconds: 30, outputMode: 'silent',
+    });
+    const start = vi.spyOn(DeepSeekHarness.prototype, 'start');
+    const refused = await session.handleUserMessage({ text: 'UNREGISTERED_CONTINUATION_MUST_NOT_RUN' });
+    expect(refused).toMatchObject({ kind: 'error', message: expect.stringContaining('next turn will start a new SDK session') });
+    expect(start).not.toHaveBeenCalled();
+    expect(endpoint.requests).toHaveLength(0);
+    expect(session.getSessionId()).toBeUndefined();
+    expect(resolvePersonaSessionId(loadPersonaSessions(workspace, 'deepseek-harness'), 'interactive', 'deepseek-harness')).toBeUndefined();
+    expect(await hasDeepSeekSessionMarker(oldId)).toBe(false);
+    const next = await session.handleUserMessage({ text: 'NEXT_USER_TURN_STARTS_WITH_NO_ID' });
+    expect(next.kind).toBe('assistant_response');
+    expect(new Set(start.mock.contexts).size).toBe(1);
+    expect(session.getSessionId()).toEqual(expect.any(String));
+    expect(session.getSessionId()).not.toBe(oldId);
+    expect(endpoint.requests).toHaveLength(1);
+    expect(JSON.stringify(endpoint.requests[0]?.messages)).not.toContain('UNREGISTERED_CONTINUATION_MUST_NOT_RUN');
+  });
+
+  it('keeps credential-binding refusal out of interactive fresh-session recovery on repeated turns', async () => {
+    vi.stubEnv('DEEPSEEK_BASE_URL', endpoint.baseUrl);
+    const plan = createAssistantConversationPlan(workspace, {
+      assistantMode: 'assistant', formalSpec: false, formalSpecComments: false,
+      modelCheckTimeoutSeconds: 30, provider: 'deepseek-harness', model: 'deepseek-v4-flash',
+    });
+    const session = createConversationSession({
+      cwd: workspace, ctx: plan.ctx, strategy: plan.strategy, formalSpec: false,
+      modelCheckTimeoutSeconds: 30, outputMode: 'silent',
+    });
+    const start = vi.spyOn(DeepSeekHarness.prototype, 'start');
+    expect((await session.handleUserMessage({ text: 'Start with the original binding.' })).kind).toBe('assistant_response');
+    const startCalls = start.mock.calls.length;
+    expect(startCalls).toBeGreaterThan(0);
+    const originalId = session.getSessionId();
+    const changedKey = 'dummy-changed-binding-credential';
+    await writeStore(`version: 1\nrefs:\n  DEEPSEEK_API_KEY: ${STORE_KEY}\n  CUSTOM_DSH_KEY: ${changedKey}\n`);
+    await writeSettings(endpoint.baseUrl, 'CUSTOM_DSH_KEY');
+    for (const text of ['Reject the new binding.', 'Still refuse; do not start a fresh session.']) {
+      const refused = await session.handleUserMessage({ text });
+      expect(refused).toMatchObject({ kind: 'error', message: expect.stringContaining('start a new run or session') });
+      expect(JSON.stringify(refused)).not.toContain('next turn will start a new SDK session');
+      expect(JSON.stringify(refused)).not.toContain(changedKey);
+      expect(session.getSessionId()).toBe(originalId);
+      expect(resolvePersonaSessionId(loadPersonaSessions(workspace, 'deepseek-harness'), 'interactive', 'deepseek-harness')).toBe(originalId);
+      expect(endpoint.requests).toHaveLength(1);
+      expect(start).toHaveBeenCalledTimes(startCalls);
+    }
+    await writeSettings(endpoint.baseUrl);
+    expect((await session.handleUserMessage({ text: 'Use the original binding again.' })).kind).toBe('assistant_response');
+    expect(session.getSessionId()).toBe(originalId);
+    expect(endpoint.requests).toHaveLength(2);
+    expect(new Set(start.mock.contexts).size).toBe(1);
+  });
+
   it('terminates a real coding-tool child on abort before allowing another runtime', async () => {
     endpoint.setMode('held-tool');
     const controller = new AbortController();
-    const turn = runTurn({ sessionId: 'coding-tool-abort', abortSignal: controller.signal });
+    const turn = runTurn({ abortSignal: controller.signal });
     let childPid: number | undefined;
     try {
       await vi.waitFor(async () => {
@@ -457,7 +523,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
         expect(() => process.kill(childPid!, 0)).toThrow();
       }, { timeout: 5_000, interval: 50 });
       endpoint.setMode('ok');
-      expect((await runTurn({ sessionId: 'after-coding-child-exit' })).status).toBe('done');
+      expect((await runTurn()).status).toBe('done');
     } finally {
       controller.abort();
       await turn;
@@ -468,10 +534,9 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
   });
 
   it('maps real SDK assistant/message reasoning to thinking and text-only content to text', async () => {
-    const sessionId = 'assistant-message-stream-session';
     endpoint.setMode('assistant-message-reasoning');
     const reasoningEvents: StreamEvent[] = [];
-    const reasoning = await runTurn({ sessionId, onStream: (event) => reasoningEvents.push(event) });
+    const reasoning = await runTurn({ onStream: (event) => reasoningEvents.push(event) });
 
     expect(reasoning.status).toBe('done');
     expect(reasoningEvents.some((event) => event.type === 'thinking' && event.data.thinking === 'local mock reasoning'))
@@ -480,7 +545,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
 
     endpoint.setMode('assistant-message-text-only');
     const textEvents: StreamEvent[] = [];
-    const textOnly = await runTurn({ sessionId, onStream: (event) => textEvents.push(event) });
+    const textOnly = await runTurn({ sessionId: reasoning.sessionId!, onStream: (event) => textEvents.push(event) });
 
     expect(textOnly.status).toBe('done');
     expect(textEvents.some((event) => event.type === 'text' && event.data.text === 'confirmed')).toBe(true);
@@ -507,7 +572,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
   });
 
   it('reflects a store update on a later turn of the same session', async () => {
-    const first = await runTurn({ sessionId: 'store-update-session', prompt: 'First turn.' });
+    const first = await runTurn({ prompt: 'First turn.' });
     expect(first.status).toBe('done');
     expect(endpoint.requests.at(-1)?.apiKey).toContain(STORE_KEY);
 
@@ -516,16 +581,16 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     let attempts = 0;
     await vi.waitFor(async () => {
       attempts += 1;
-      const turn = await runTurn({ sessionId: 'store-update-session', prompt: `Reload check ${attempts}.` });
+      const turn = await runTurn({ sessionId: first.sessionId!, prompt: `Reload check ${attempts}.` });
       expect(turn.status).toBe('done');
       expect(endpoint.requests.at(-1)?.apiKey).toContain(UPDATED_STORE_KEY);
     }, { timeout: WATCHER_TIMEOUT_MS, interval: WATCHER_POLL_INTERVAL_MS });
   });
 
   it('refuses a changed credential binding for an active session without another request', async () => {
-    const sessionId = 'credential-binding-change-session';
-    const first = await runTurn({ sessionId, prompt: 'Start with the original binding.' });
+    const first = await runTurn({ prompt: 'Start with the original binding.' });
     expect(first.status).toBe('done');
+    const sessionId = first.sessionId!;
     expect(endpoint.requests).toHaveLength(1);
 
     await writeSettings(endpoint.baseUrl, 'CUSTOM_DSH_KEY');
@@ -538,14 +603,14 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     expect(changed).toMatchObject({
       status: 'error',
       sessionId,
-      failureCategory: 'session_continuation_unsupported',
+      failureCategory: 'provider_error',
     });
     expect(changed.content).toContain('changed during this session');
     expect(endpoint.requests).toHaveLength(1);
   });
 
   it('fails a later turn after the store entry is deleted without sending another request', async () => {
-    const first = await runTurn({ sessionId: 'store-delete-session', prompt: 'First turn.' });
+    const first = await runTurn({ prompt: 'First turn.' });
     expect(first.status).toBe('done');
 
     await rm(storePath);
@@ -556,7 +621,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     await vi.waitFor(async () => {
       turnsAfterDeletion += 1;
       const requestsBeforeTurn = endpoint.requests.length;
-      const turn = await runTurn({ sessionId: 'store-delete-session', prompt: `After deletion ${turnsAfterDeletion}.` });
+      const turn = await runTurn({ sessionId: first.sessionId!, prompt: `After deletion ${turnsAfterDeletion}.` });
       if (turn.status !== 'done') {
         failed = turn;
         requestsBeforeFailure = requestsBeforeTurn;
@@ -601,7 +666,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
 
   it('keeps an in-flight request on its initial credential and reloads for later turns', async () => {
     const held = endpoint.holdNextResponse();
-    const pending = runTurn({ sessionId: 'snapshot-session' });
+    const pending = runTurn();
     try {
       await Promise.race([
         held.received,
@@ -613,25 +678,27 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     } finally {
       held.release();
     }
-    expect((await pending).status).toBe('done');
+    const first = await pending;
+    expect(first.status).toBe('done');
     expect(endpoint.requests).toHaveLength(1);
     await vi.waitFor(async () => {
-      expect((await runTurn({ sessionId: 'snapshot-session' })).status).toBe('done');
+      expect((await runTurn({ sessionId: first.sessionId! })).status).toBe('done');
       expect(endpoint.requests.at(-1)?.apiKey).toContain(UPDATED_STORE_KEY);
     }, { timeout: WATCHER_TIMEOUT_MS, interval: WATCHER_POLL_INTERVAL_MS });
   });
 
   it('observes malformed live reload independently from deletion and recovers after repair', async () => {
-    expect((await runTurn({ sessionId: 'malformed-reload' })).status).toBe('done');
+    const first = await runTurn();
+    expect(first.status).toBe('done');
     await writeStore('version: 1\nrefs: [broken\n');
     // Wait past the official watcher's debounce, then observe its last-good policy.
     await new Promise((resolve) => setTimeout(resolve, 1500));
-    const afterCorruption = await runTurn({ sessionId: 'malformed-reload' });
+    const afterCorruption = await runTurn({ sessionId: first.sessionId! });
     expect(afterCorruption.status).toBe('done');
     expect(endpoint.requests.at(-1)?.apiKey).toContain(STORE_KEY);
     await writeStore(`version: 1\nrefs:\n  DEEPSEEK_API_KEY: ${UPDATED_STORE_KEY}\n`);
     await vi.waitFor(async () => {
-      expect((await runTurn({ sessionId: 'malformed-reload' })).status).toBe('done');
+      expect((await runTurn({ sessionId: first.sessionId! })).status).toBe('done');
       expect(endpoint.requests.at(-1)?.apiKey).toContain(UPDATED_STORE_KEY);
     }, { timeout: WATCHER_TIMEOUT_MS, interval: WATCHER_POLL_INTERVAL_MS });
   });

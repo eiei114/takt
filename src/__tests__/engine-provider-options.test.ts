@@ -337,6 +337,12 @@ describe('WorkflowEngine provider_options resolution', () => {
     expect(result).toBeUndefined();
   });
 
+  it('preserves explicit empty DeepSeek inspect tools so its unsupported constraint is not silently removed', () => {
+    expect(resolveInspectToolsForProvider([], 'deepseek-harness')).toEqual([]);
+    expect(resolveInspectToolsForProvider(undefined, 'deepseek-harness')).toBeUndefined();
+    expect(() => resolveInspectToolsForProvider(['read'], 'deepseek-harness')).toThrow('does not support');
+  });
+
   it('Given empty inspect tools and an allowlist-capable provider, When resolving tools, Then it keeps an empty allowlist instead of the default', () => {
     expect(resolveInspectToolsForProvider([], 'opencode')).toEqual([]);
     expect(resolveInspectToolsForProvider([], 'claude')).toEqual([]);

@@ -47,9 +47,12 @@ interface ApiRequest {
 interface LocalApi {
   endpoint: string;
   requests: ApiRequest[];
+  setMode(mode: LocalApiMode): void;
   waitForFirstRequest(): Promise<void>;
   close(): Promise<void>;
 }
+
+type LocalApiMode = 'success' | 'credential-error' | 'credential-echo-after-success' | 'hold-response';
 
 const SUPPORTED_RUNTIME = (
   (process.platform === 'linux' && (process.arch === 'x64' || process.arch === 'arm64'))
@@ -66,7 +69,7 @@ function writeSse(response: ServerResponse, event: string, data: unknown): void 
 }
 
 async function startLocalApi(
-  mode: 'success' | 'credential-error' | 'credential-echo-after-success' | 'hold-response' = 'success',
+  mode: LocalApiMode = 'success',
 ): Promise<LocalApi> {
   const requests: ApiRequest[] = [];
   let resolveFirstRequest: () => void = () => {};
@@ -139,6 +142,7 @@ async function startLocalApi(
   const api: LocalApi = {
     endpoint: `http://127.0.0.1:${address.port}`,
     requests,
+    setMode: (next) => { mode = next; },
     waitForFirstRequest: () => firstRequestObserved,
     close: () => new Promise<void>((resolve, reject) => {
       server.close((error) => error ? reject(error) : resolve());
@@ -341,59 +345,64 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
   }, 90_000);
 
   it.skipIf(!SUPPORTED_RUNTIME)('refuses the same session ID after a failed turn tears down its runtime', async () => {
-    const api = await startLocalApi('credential-error');
+    const api = await startLocalApi();
     process.env.DEEPSEEK_BASE_URL = api.endpoint;
     const workspace = join(temporaryRoot, 'failed-turn-workspace');
     await mkdir(workspace, { recursive: true });
     const options = {
       cwd: workspace,
-      sessionId: 'failed-turn-session',
       providerOptions: { requestTimeoutMs: 30_000, baseUrl: api.endpoint },
     };
-
-    const failed = await callDeepSeekHarness('worker', 'fail the authenticated turn', options);
-    const refused = await callDeepSeekHarness('worker', 'must not resume the failed turn', options);
+    const initial = await callDeepSeekHarness('worker', 'start a live session', options);
+    expect(initial).toMatchObject({ status: 'done', sessionId: expect.any(String) });
+    const sessionId = initial.sessionId!;
+    api.setMode('credential-error');
+    const failed = await callDeepSeekHarness('worker', 'fail the authenticated turn', { ...options, sessionId });
+    const refused = await callDeepSeekHarness('worker', 'must not resume the failed turn', { ...options, sessionId });
 
     expect(failed.status).not.toBe('done');
-    expect(api.requests).toHaveLength(1);
+    expect(api.requests).toHaveLength(2);
     expect(refused).toMatchObject({
       status: 'error',
       failureCategory: 'session_continuation_unsupported',
       content: 'DeepSeek Harness cannot continue this session after runtime replacement or teardown; start a new TAKT session or run.',
     });
-    expect(api.requests).toHaveLength(1);
+    expect(api.requests).toHaveLength(2);
   }, 90_000);
 
   it.skipIf(!SUPPORTED_RUNTIME)('refuses the same session ID after an active turn is aborted and its runtime is torn down', async () => {
-    const api = await startLocalApi('hold-response');
+    const api = await startLocalApi();
     process.env.DEEPSEEK_BASE_URL = api.endpoint;
     const workspace = join(temporaryRoot, 'aborted-turn-workspace');
     await mkdir(workspace, { recursive: true });
     const abortController = new AbortController();
     const continuationOptions = {
       cwd: workspace,
-      sessionId: 'aborted-turn-session',
       providerOptions: { requestTimeoutMs: 30_000, baseUrl: api.endpoint },
     };
-    const options = {
+    const initial = await callDeepSeekHarness('worker', 'start before aborting', continuationOptions);
+    expect(initial).toMatchObject({ status: 'done', sessionId: expect.any(String) });
+    const sessionId = initial.sessionId!;
+    api.setMode('hold-response');
+    const abortedTurn = callDeepSeekHarness('worker', 'abort the active model request', {
       ...continuationOptions,
+      sessionId,
       abortSignal: abortController.signal,
-    };
-    const abortedTurn = callDeepSeekHarness('worker', 'abort the active model request', options);
-    await api.waitForFirstRequest();
+    });
+    await vi.waitFor(() => expect(api.requests).toHaveLength(2), { timeout: 10_000, interval: 25 });
     abortController.abort(new Error('test aborted active DeepSeek turn'));
 
     const aborted = await abortedTurn;
-    const refused = await callDeepSeekHarness('worker', 'must not resume the aborted turn', continuationOptions);
+    const refused = await callDeepSeekHarness('worker', 'must not resume the aborted turn', { ...continuationOptions, sessionId });
 
     expect(aborted.failureCategory).toBe('external_abort');
-    expect(api.requests).toHaveLength(1);
+    expect(api.requests).toHaveLength(2);
     expect(refused).toMatchObject({
       status: 'error',
       failureCategory: 'session_continuation_unsupported',
       content: 'DeepSeek Harness cannot continue this session after runtime replacement or teardown; start a new TAKT session or run.',
     });
-    expect(api.requests).toHaveLength(1);
+    expect(api.requests).toHaveLength(2);
   }, 90_000);
 
   it.skipIf(!SUPPORTED_RUNTIME)('applies per-call effort to a new session and refuses changing it for a live session', async () => {
@@ -402,7 +411,7 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     const workspace = join(temporaryRoot, 'effort-workspace');
     await mkdir(workspace, { recursive: true });
     const agent = new DeepSeekHarnessProvider().setup({ name: 'worker' });
-    const callOptions = (sessionId: string, effort?: 'low' | 'high') => ({
+    const callOptions = (sessionId: string | undefined, effort?: 'low' | 'high') => ({
       cwd: workspace,
       model: 'deepseek-v4-flash',
       sessionId,
@@ -410,19 +419,19 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     });
 
     const first = await agent.call('first effort-bound turn', {
-      ...callOptions('provider-effort-change-session', 'low'),
+      ...callOptions(undefined, 'low'),
     });
     const changed = await agent.call('must not run with changed effort', {
-      ...callOptions('provider-effort-change-session', 'high'),
+      ...callOptions(first.sessionId, 'high'),
     });
     const removed = await agent.call('must not run after removing explicit effort', {
-      ...callOptions('provider-effort-change-session'),
+      ...callOptions(first.sessionId),
     });
     const newSession = await agent.call('new session uses requested effort', {
-      ...callOptions('provider-new-effort-session', 'high'),
+      ...callOptions(undefined, 'high'),
     });
 
-    expect(first).toMatchObject({ status: 'done', sessionId: 'provider-effort-change-session' });
+    expect(first).toMatchObject({ status: 'done', sessionId: expect.any(String) });
     expect(changed).toMatchObject({
       status: 'error',
       failureCategory: 'session_continuation_unsupported',
@@ -433,7 +442,8 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       failureCategory: 'session_continuation_unsupported',
       content: 'DeepSeek Harness cannot continue this session after runtime replacement or teardown; start a new TAKT session or run.',
     });
-    expect(newSession).toMatchObject({ status: 'done', sessionId: 'provider-new-effort-session' });
+    expect(newSession).toMatchObject({ status: 'done', sessionId: expect.any(String) });
+    expect(newSession.sessionId).not.toBe(first.sessionId);
     expect(api.requests).toHaveLength(2);
     expect(api.requests.map((request) => request.body.model)).toEqual([
       'deepseek-v4-flash',
@@ -451,24 +461,25 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     const workspace = join(temporaryRoot, 'model-change-workspace');
     await mkdir(workspace, { recursive: true });
 
-    const call = (sessionId: string, model: string) => callDeepSeekHarness('worker', `run with ${model}`, {
+    const call = (sessionId: string | undefined, model: string) => callDeepSeekHarness('worker', `run with ${model}`, {
       cwd: workspace,
       model,
       sessionId,
       providerOptions: { baseUrl: api.endpoint, reasoningEffort: 'low' },
     });
 
-    const first = await call('model-change-session', 'deepseek-v4-flash');
-    const changed = await call('model-change-session', 'deepseek-v4-pro');
-    const newSession = await call('new-model-session', 'deepseek-v4-pro');
+    const first = await call(undefined, 'deepseek-v4-flash');
+    const changed = await call(first.sessionId, 'deepseek-v4-pro');
+    const newSession = await call(undefined, 'deepseek-v4-pro');
 
-    expect(first).toMatchObject({ status: 'done', sessionId: 'model-change-session' });
+    expect(first).toMatchObject({ status: 'done', sessionId: expect.any(String) });
     expect(changed).toMatchObject({
       status: 'error',
       failureCategory: 'session_continuation_unsupported',
       content: 'DeepSeek Harness cannot continue this session after runtime replacement or teardown; start a new TAKT session or run.',
     });
-    expect(newSession).toMatchObject({ status: 'done', sessionId: 'new-model-session' });
+    expect(newSession).toMatchObject({ status: 'done', sessionId: expect.any(String) });
+    expect(newSession.sessionId).not.toBe(first.sessionId);
     expect(api.requests.map((request) => request.body.model)).toEqual([
       'deepseek-v4-flash',
       'deepseek-v4-pro',
@@ -495,19 +506,20 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     const firstRunScript = [
       `const client = await import(${JSON.stringify(clientModuleUrl)});`,
       'let response;',
-      'try { response = await client.callDeepSeekHarness(\'worker\', \'persist this test session\', { cwd: process.env.TEST_WORKSPACE, sessionId: \'parent-restart-session\' }); }',
+      'try { response = await client.callDeepSeekHarness(\'worker\', \'persist this test session\', { cwd: process.env.TEST_WORKSPACE }); }',
       'finally { await client.closeDeepSeekHarnessProcesses(); }',
       'process.stdout.write(JSON.stringify(response));',
     ].join('\n');
     const firstRun = await runSeparateParentProcess(firstRunScript, testEnvironment);
     expect(firstRun.timedOut).toBe(false);
     expect(firstRun.exitCode).toBe(0);
-    expect(JSON.parse(firstRun.stdout)).toMatchObject({ status: 'done', sessionId: 'parent-restart-session' });
+    const initialResponse: { status: string; sessionId?: string } = JSON.parse(firstRun.stdout);
+    expect(initialResponse).toMatchObject({ status: 'done', sessionId: expect.any(String) });
     expect(api.requests).toHaveLength(1);
 
     const restartScript = [
       `const client = await import(${JSON.stringify(clientModuleUrl)});`,
-      `const response = await client.callDeepSeekHarness('worker', 'must not restart persisted session', { cwd: process.env.TEST_WORKSPACE, sessionId: 'parent-restart-session' });`,
+      `const response = await client.callDeepSeekHarness('worker', 'must not restart persisted session', { cwd: process.env.TEST_WORKSPACE, sessionId: ${JSON.stringify(initialResponse.sessionId)} });`,
       'process.stdout.write(JSON.stringify(response));',
     ].join('\n');
     const restart = await runSeparateParentProcess(restartScript, testEnvironment);
@@ -527,7 +539,6 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     const events: unknown[] = [];
     const response = await callDeepSeekHarness('worker', 'trigger a rejected request', {
       cwd: temporaryRoot,
-      sessionId: 'sdk-client-error-session',
       onStream: (event) => events.push(event),
     });
 
@@ -544,11 +555,10 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     const events: unknown[] = [];
     const options = {
       cwd: temporaryRoot,
-      sessionId: 'sdk-client-credential-echo-session',
       onStream: (event: unknown) => events.push(event),
     };
     const first = await callDeepSeekHarness('worker', 'complete before the rejected request', options);
-    const second = await callDeepSeekHarness('worker', 'trigger the credential echo', options);
+    const second = await callDeepSeekHarness('worker', 'trigger the credential echo', { ...options, sessionId: first.sessionId });
     const savedSessions = await readFiles(getDeepSeekRuntimePaths().dshHome);
 
     expect(first.status).toBe('done');
@@ -710,7 +720,6 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
 
     const providerResponse = await callDeepSeekHarness('worker', 'must not overlap the failed cleanup', {
       cwd: workspace,
-      sessionId: 'cross-parent-cleanup-barrier-session',
     });
     expect(providerResponse).toMatchObject({
       status: 'error',
@@ -861,7 +870,6 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
 
     const response = await callDeepSeekHarness('worker', 'provider cleanup boundary', {
       cwd: workspace,
-      sessionId: 'supervisor-gate-cleanup-session',
     });
 
     expect(response).toMatchObject({
