@@ -1401,6 +1401,10 @@ export function resolveEffectiveProviderOptions(
   return effective;
 }
 
+/**
+ * Copies provider options for a team-leader part while dropping Claude `allowedTools`, so a
+ * Claude-specific tool list cannot leak into a non-Claude part's resolved options.
+ */
 function stripClaudeAllowedTools(
   providerOptions: StepProviderOptions | undefined,
 ): StepProviderOptions | undefined {
