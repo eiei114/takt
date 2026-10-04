@@ -98,6 +98,7 @@ type RawProviderOptions = {
     guards?: RawProviderGuardOptions;
     extensions?: string[];
     thinking_level?: string;
+    system_prompt_mode?: 'append' | 'replace';
     no_extensions?: boolean;
     no_skills?: boolean;
     no_prompt_templates?: boolean;
@@ -447,6 +448,9 @@ export function normalizeProviderOptions(
     const pi: PiProviderOptions = {
       ...(options.pi.extensions !== undefined ? { extensions: [...options.pi.extensions] } : {}),
       ...(options.pi.thinking_level !== undefined ? { thinkingLevel: options.pi.thinking_level } : {}),
+      ...(options.pi.system_prompt_mode !== undefined
+        ? { systemPromptMode: options.pi.system_prompt_mode }
+        : {}),
       ...(options.pi.no_extensions !== undefined ? { noExtensions: options.pi.no_extensions } : {}),
       ...(options.pi.no_skills !== undefined ? { noSkills: options.pi.no_skills } : {}),
       ...(options.pi.no_prompt_templates !== undefined
@@ -639,6 +643,7 @@ export function mergeProviderOptions(
           : {}),
         ...(layer.pi.extensions !== undefined ? { extensions: [...layer.pi.extensions] } : {}),
         ...(layer.pi.thinkingLevel !== undefined ? { thinkingLevel: layer.pi.thinkingLevel } : {}),
+        ...(layer.pi.systemPromptMode !== undefined ? { systemPromptMode: layer.pi.systemPromptMode } : {}),
         ...(layer.pi.noExtensions !== undefined ? { noExtensions: layer.pi.noExtensions } : {}),
         ...(layer.pi.noSkills !== undefined ? { noSkills: layer.pi.noSkills } : {}),
         ...(layer.pi.noPromptTemplates !== undefined
@@ -1113,6 +1118,12 @@ export function resolveEffectiveProviderOptions(
     stepOptions?.pi?.thinkingLevel,
     resolveProviderOptionOrigin(originResolver, 'pi.thinkingLevel', source),
   );
+  const piSystemPromptMode = selectProviderValue(
+    resolvedConfigOptions.pi?.systemPromptMode,
+    personaOptions?.pi?.systemPromptMode,
+    stepOptions?.pi?.systemPromptMode,
+    resolveProviderOptionOrigin(originResolver, 'pi.systemPromptMode', source),
+  );
   const piNoExtensions = selectProviderValue(
     resolvedConfigOptions.pi?.noExtensions,
     personaOptions?.pi?.noExtensions,
@@ -1352,6 +1363,7 @@ export function resolveEffectiveProviderOptions(
               : {}),
             ...(piExtensions !== undefined ? { extensions: [...piExtensions] } : {}),
             ...(piThinkingLevel !== undefined ? { thinkingLevel: piThinkingLevel } : {}),
+            ...(piSystemPromptMode !== undefined ? { systemPromptMode: piSystemPromptMode } : {}),
             ...(piNoExtensions !== undefined ? { noExtensions: piNoExtensions } : {}),
             ...(piNoSkills !== undefined ? { noSkills: piNoSkills } : {}),
             ...(piNoPromptTemplates !== undefined ? { noPromptTemplates: piNoPromptTemplates } : {}),
@@ -1449,6 +1461,9 @@ function stripClaudeAllowedTools(
             ...(providerOptions.pi.thinkingLevel !== undefined
               ? { thinkingLevel: providerOptions.pi.thinkingLevel }
               : {}),
+            ...(providerOptions.pi.systemPromptMode !== undefined
+              ? { systemPromptMode: providerOptions.pi.systemPromptMode }
+              : {}),
             ...(providerOptions.pi.noExtensions !== undefined
               ? { noExtensions: providerOptions.pi.noExtensions }
               : {}),
@@ -1541,6 +1556,7 @@ export const PROVIDER_OPTION_PATHS = [
   'deepseekHarness.reasoningEffort',
   'pi.extensions',
   'pi.thinkingLevel',
+  'pi.systemPromptMode',
   'pi.guards.callTimeoutMs',
   'pi.noExtensions',
   'pi.noSkills',

@@ -661,6 +661,33 @@ export default function registerLifecycleTool(pi) {
     });
   });
 
+  it('appends the TAKT system prompt to the Pi prompt by default', async () => {
+    mocks.resetTransient();
+
+    await callPi('worker', 'implement', {
+      ...sessionOptions('pi-system-prompt-default'),
+      systemPrompt: 'TAKT runtime prompt',
+    });
+
+    const loaderOptions = mocks.getLoaderOptions() as Record<string, unknown>;
+    expect(loaderOptions.appendSystemPrompt).toEqual(['TAKT runtime prompt']);
+    expect(loaderOptions.systemPrompt).toBeUndefined();
+  });
+
+  it('replaces the Pi system prompt when systemPromptMode is replace', async () => {
+    mocks.resetTransient();
+
+    await callPi('worker', 'implement', {
+      ...sessionOptions('pi-system-prompt-replace'),
+      systemPrompt: 'TAKT runtime prompt',
+      providerOptions: { systemPromptMode: 'replace' },
+    });
+
+    const loaderOptions = mocks.getLoaderOptions() as Record<string, unknown>;
+    expect(loaderOptions.systemPrompt).toBe('TAKT runtime prompt');
+    expect(loaderOptions.appendSystemPrompt).toBeUndefined();
+  });
+
   it('reuses an existing user-scope npm extension without resolving the npm source', async () => {
     mocks.resetTransient();
     const userInstallPath = path.join(tmpdir(), 'pi-agent-test', 'npm', 'node_modules', 'example-extension');

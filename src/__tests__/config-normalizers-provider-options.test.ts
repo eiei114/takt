@@ -407,6 +407,7 @@ describe('denormalizeProviderOptions', () => {
       pi: {
         extensions: ['npm:example-extension'],
         thinking_level: 'high',
+        system_prompt_mode: 'replace',
         no_extensions: true,
         no_skills: false,
         no_prompt_templates: false,
@@ -422,6 +423,7 @@ describe('denormalizeProviderOptions', () => {
       pi: {
         extensions: ['npm:example-extension'],
         thinkingLevel: 'high',
+        systemPromptMode: 'replace',
         noExtensions: true,
         noSkills: false,
         noPromptTemplates: false,

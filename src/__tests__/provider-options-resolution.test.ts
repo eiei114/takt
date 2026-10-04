@@ -927,6 +927,7 @@ describe('resolveProviderOptionsSources (all paths)', () => {
         pi: {
           extensions: ['npm:example-extension'],
           thinkingLevel: 'high',
+          systemPromptMode: 'replace',
           noExtensions: true,
           noSkills: true,
           noPromptTemplates: true,
@@ -943,6 +944,7 @@ describe('resolveProviderOptionsSources (all paths)', () => {
     expect(result).toEqual({
       'pi.extensions': 'step',
       'pi.thinkingLevel': 'step',
+      'pi.systemPromptMode': 'step',
       'pi.noExtensions': 'step',
       'pi.noSkills': 'step',
       'pi.noPromptTemplates': 'step',
@@ -1047,6 +1049,7 @@ describe('providerOptionsContract', () => {
       'provider_options.deepseek_harness.reasoning_effort',
       'provider_options.pi.extensions',
       'provider_options.pi.thinking_level',
+      'provider_options.pi.system_prompt_mode',
       'provider_options.pi.guards.call_timeout_ms',
       'provider_options.pi.no_extensions',
       'provider_options.pi.no_skills',

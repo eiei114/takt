@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- Pi provider: TAKT now appends its runtime prompt to Pi's own system prompt instead of replacing it. Pi keeps its built-in instructions, including documentation pointers, tool guidance, and the skill catalog, which matches the CLI-harness providers that never discard their own instructions when TAKT supplies a runtime prompt. Set `provider_options.pi.system_prompt_mode: replace` to keep the previous behavior.
+
 ## [0.68.0] - 2026-10-03
 
 ### Changed
