@@ -146,6 +146,27 @@ describe('resolveEffectiveProviderOptions', () => {
     )).toBe('env');
   });
 
+  it('preserves a mode-only Pi system prompt option through effective resolution', () => {
+    const configOptions = asProviderOptions({ pi: { systemPromptMode: 'replace' } });
+
+    expect(mergeProviderOptions(configOptions)).toEqual({ pi: { systemPromptMode: 'replace' } });
+    expect(resolveEffectiveProviderOptions('project', undefined, configOptions)).toEqual({
+      pi: { systemPromptMode: 'replace' },
+    });
+    expect(resolveEffectiveProviderOptions(
+      'project',
+      undefined,
+      asProviderOptions({}),
+      asProviderOptions({ pi: { systemPromptMode: 'append' } }),
+    )).toEqual({ pi: { systemPromptMode: 'append' } });
+    expect(resolveEffectiveProviderOptions(
+      'project',
+      (path) => (path === 'pi.systemPromptMode' ? 'env' : 'local'),
+      asProviderOptions({ pi: { systemPromptMode: 'replace' } }),
+      asProviderOptions({ pi: { systemPromptMode: 'append' } }),
+    )).toEqual({ pi: { systemPromptMode: 'replace' } });
+  });
+
   it.each([true, false])('preserves Codex fastMode=%s when a later layer overrides it', (fastMode) => {
     expect(mergeProviderOptions(
       asProviderOptions({ codex: { fastMode: true } }),

@@ -1350,6 +1350,7 @@ export function resolveEffectiveProviderOptions(
       : {}),
     ...(piExtensions !== undefined
       || piThinkingLevel !== undefined
+      || piSystemPromptMode !== undefined
       || piCallTimeoutMs !== undefined
       || piNoExtensions !== undefined
       || piNoSkills !== undefined

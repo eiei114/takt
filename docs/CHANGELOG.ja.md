@@ -10,7 +10,7 @@
 
 ### Changed
 
-- Pi provider: TAKT の runtime prompt を Pi の system prompt に置き換えるのではなく、Pi 自身の system prompt の後に追加するようになりました。Pi 組み込みの指示（ドキュメント案内、tool の作法、skill catalog）が保持され、TAKT の prompt を渡しても自前の指示を失わない CLI 型ハーネスの provider と挙動が揃います。従来の挙動に戻す場合は `provider_options.pi.system_prompt_mode: replace` を指定してください。
+- BREAKING: Pi provider: TAKT の runtime prompt を Pi の system prompt に置き換えるのではなく、Pi 自身の system prompt の後に追加するようになりました。Pi 組み込みの指示（ドキュメント案内、tool の作法、skill catalog）が保持され、TAKT の prompt を渡しても自前の指示を失わない CLI 型ハーネスの provider と挙動が揃います。その分 prompt は長くなります。従来の挙動に戻す場合は `provider_options.pi.system_prompt_mode: replace` を指定してください。
 
 ## [0.68.0] - 2026-10-03
 

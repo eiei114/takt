@@ -35,6 +35,21 @@ describe('provider option schema', () => {
   ])('rejects a %s Pi thinking_level value', (_label, thinkingLevel) => {
     expect(() => StepProviderOptionsObjectSchema.parse({ pi: { thinking_level: thinkingLevel } })).toThrow();
   });
+
+  it.each(['append', 'replace'])('accepts the Pi system_prompt_mode value: %s', (systemPromptMode) => {
+    expect(StepProviderOptionsObjectSchema.parse({ pi: { system_prompt_mode: systemPromptMode } })).toEqual({
+      pi: { system_prompt_mode: systemPromptMode },
+    });
+  });
+
+  it.each([
+    ['unknown mode', 'prepend'],
+    ['non-string', true],
+    ['empty string', ''],
+  ])('rejects a %s Pi system_prompt_mode value', (_label, systemPromptMode) => {
+    expect(() => StepProviderOptionsObjectSchema.parse({ pi: { system_prompt_mode: systemPromptMode } }))
+      .toThrow();
+  });
 });
 
 describe('formal specification assistant normalization', () => {
