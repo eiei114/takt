@@ -714,27 +714,31 @@ export default function registerLifecycleTool(pi) {
 
     const codingAgent = await vi.importActual<PiCodingAgentModule>('@earendil-works/pi-coding-agent');
     const root = mkdtempSync(path.join(tmpdir(), 'takt-pi-append-discovery-'));
-    const cwd = path.join(root, 'project');
-    const agentDir = path.join(root, 'agent');
-    mkdirSync(path.join(cwd, '.pi'), { recursive: true });
-    mkdirSync(agentDir, { recursive: true });
-    writeFileSync(path.join(cwd, '.pi', 'APPEND_SYSTEM.md'), 'DISCOVERED-PROJECT-APPEND\n');
+    try {
+      const cwd = path.join(root, 'project');
+      const agentDir = path.join(root, 'agent');
+      mkdirSync(path.join(cwd, '.pi'), { recursive: true });
+      mkdirSync(agentDir, { recursive: true });
+      writeFileSync(path.join(cwd, '.pi', 'APPEND_SYSTEM.md'), 'DISCOVERED-PROJECT-APPEND\n');
 
-    const settingsManager = codingAgent.SettingsManager.inMemory({}, { projectTrusted: true });
-    const resourceLoader = new codingAgent.DefaultResourceLoader({
-      cwd,
-      agentDir,
-      settingsManager,
-      ...(loaderOptions.appendSystemPromptOverride !== undefined
-        ? { appendSystemPromptOverride: loaderOptions.appendSystemPromptOverride }
-        : {}),
-    });
-    await resourceLoader.reload();
+      const settingsManager = codingAgent.SettingsManager.inMemory({}, { projectTrusted: true });
+      const resourceLoader = new codingAgent.DefaultResourceLoader({
+        cwd,
+        agentDir,
+        settingsManager,
+        ...(loaderOptions.appendSystemPromptOverride !== undefined
+          ? { appendSystemPromptOverride: loaderOptions.appendSystemPromptOverride }
+          : {}),
+      });
+      await resourceLoader.reload();
 
-    expect(resourceLoader.getAppendSystemPrompt()).toEqual([
-      'DISCOVERED-PROJECT-APPEND\n',
-      'TAKT runtime prompt',
-    ]);
+      expect(resourceLoader.getAppendSystemPrompt()).toEqual([
+        'DISCOVERED-PROJECT-APPEND\n',
+        'TAKT runtime prompt',
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('reuses an existing user-scope npm extension without resolving the npm source', async () => {

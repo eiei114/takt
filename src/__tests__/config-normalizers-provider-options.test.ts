@@ -7,7 +7,7 @@ import {
   normalizeTaktSelectorProvider,
 } from '../infra/config/configNormalizers.js';
 import { normalizeProviderOptions } from '../infra/config/providerOptions.js';
-import { StepProviderOptionsObjectSchema } from '../core/models/schema-base.js';
+import { NormalizedTaktSelectorProviderEntrySchema, StepProviderOptionsObjectSchema } from '../core/models/schema-base.js';
 import { FormalSpecSettingSchema } from '../core/models/config-schemas.js';
 import { getGlobalTracedSchema, getProjectTracedSchema } from '../infra/config/traced/tracedConfigSchema.js';
 import type { StepProviderOptions } from '../core/models/workflow-provider-options.js';
@@ -537,6 +537,35 @@ describe('buildRawTaktProvidersOrThrow', () => {
         provider_options: { pi: { thinking_level: 'high' } },
       },
     });
+  });
+
+  it('should round-trip Pi system prompt mode through selector provider options', () => {
+    const normalized = normalizeTaktSelectorProvider({
+      provider: 'pi',
+      provider_options: { pi: { system_prompt_mode: 'replace' } },
+    });
+
+    expect(normalized).toEqual({
+      provider: 'pi',
+      providerOptions: { pi: { systemPromptMode: 'replace' } },
+    });
+    expect(buildRawTaktProvidersOrThrow({ selector: normalized })).toEqual({
+      selector: {
+        provider: 'pi',
+        provider_options: { pi: { system_prompt_mode: 'replace' } },
+      },
+    });
+  });
+
+  it('should reject an unknown Pi system prompt mode in a selector', () => {
+    expect(() => NormalizedTaktSelectorProviderEntrySchema.parse({
+      provider: 'pi',
+      providerOptions: { pi: { systemPromptMode: 'prepend' } },
+    })).toThrow();
+    expect(() => NormalizedTaktSelectorProviderEntrySchema.parse({
+      provider: 'pi',
+      providerOptions: { pi: { systemPromptMode: '' } },
+    })).toThrow();
   });
 
   it('should preserve DeepSeek Harness selector options through the strict normalized schema', () => {

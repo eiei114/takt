@@ -8,6 +8,7 @@ import {
   resolveProviderOptionOrigin,
   resolveProviderOptionSource,
   resolveProviderOptionsSources,
+  selectEnvironmentProviderOptions,
 } from '../infra/config/providerOptions.js';
 import * as providerOptionsModule from '../infra/config/providerOptions.js';
 import {
@@ -150,9 +151,16 @@ describe('resolveEffectiveProviderOptions', () => {
     const configOptions = asProviderOptions({ pi: { systemPromptMode: 'replace' } });
 
     expect(mergeProviderOptions(configOptions)).toEqual({ pi: { systemPromptMode: 'replace' } });
-    expect(resolveEffectiveProviderOptions('project', undefined, configOptions)).toEqual({
+    expect(resolveEffectiveProviderOptions('project', undefined, configOptions, undefined)).toEqual({
       pi: { systemPromptMode: 'replace' },
     });
+    expect(resolveEffectiveProviderOptions(
+      'project',
+      undefined,
+      asProviderOptions({}),
+      undefined,
+      asProviderOptions({ pi: { systemPromptMode: 'replace' } }),
+    )).toEqual({ pi: { systemPromptMode: 'replace' } });
     expect(resolveEffectiveProviderOptions(
       'project',
       undefined,
@@ -161,10 +169,52 @@ describe('resolveEffectiveProviderOptions', () => {
     )).toEqual({ pi: { systemPromptMode: 'append' } });
     expect(resolveEffectiveProviderOptions(
       'project',
+      undefined,
+      asProviderOptions({ pi: { systemPromptMode: 'append' } }),
+      asProviderOptions({ pi: { systemPromptMode: 'replace' } }),
+      asProviderOptions({ pi: { systemPromptMode: 'append' } }),
+    )).toEqual({ pi: { systemPromptMode: 'replace' } });
+    expect(resolveEffectiveProviderOptions(
+      'project',
       (path) => (path === 'pi.systemPromptMode' ? 'env' : 'local'),
       asProviderOptions({ pi: { systemPromptMode: 'replace' } }),
       asProviderOptions({ pi: { systemPromptMode: 'append' } }),
     )).toEqual({ pi: { systemPromptMode: 'replace' } });
+  });
+
+  it('selects only environment Pi system prompt options for the allowed roots', () => {
+    const providerOptions = asProviderOptions({
+      pi: { systemPromptMode: 'replace', thinkingLevel: 'high' },
+      codex: { fastMode: true },
+    });
+    const originResolver = (path: string) => (path === 'pi.systemPromptMode' ? 'env' : 'local');
+
+    expect(selectEnvironmentProviderOptions(providerOptions, originResolver, ['pi'])).toEqual({
+      pi: { systemPromptMode: 'replace' },
+    });
+    expect(selectEnvironmentProviderOptions(providerOptions, originResolver, ['codex'])).toBeUndefined();
+    expect(selectEnvironmentProviderOptions(providerOptions, () => 'local', ['pi'])).toBeUndefined();
+  });
+
+  it('preserves Pi systemPromptMode in a team-leader part while removing Claude allowed tools', () => {
+    const result = resolveEffectiveTeamLeaderPartProviderOptions(
+      'project',
+      undefined,
+      {
+        pi: { systemPromptMode: 'append', thinkingLevel: 'medium' },
+        claude: { allowedTools: ['Read', 'Glob'] },
+      },
+      {
+        pi: { systemPromptMode: 'replace', thinkingLevel: 'high' },
+        claude: { allowedTools: ['Read', 'Edit'] },
+      },
+      'pi',
+      ['Read', 'Edit'],
+    );
+
+    expect(result?.pi?.systemPromptMode).toBe('replace');
+    expect(result?.pi?.thinkingLevel).toBe('high');
+    expect(result?.claude?.allowedTools).toBeUndefined();
   });
 
   it.each([true, false])('preserves Codex fastMode=%s when a later layer overrides it', (fastMode) => {
@@ -1260,6 +1310,7 @@ describe('providerOptionsContract', () => {
         guards: { callTimeoutMs: 420_000 },
         extensions: ['npm:example-extension'],
         thinkingLevel: 'high',
+        systemPromptMode: 'replace',
         noExtensions: true,
         noSkills: true,
         noPromptTemplates: true,
@@ -1268,10 +1319,11 @@ describe('providerOptionsContract', () => {
       },
     });
 
-    expect(paths).toHaveLength(8);
+    expect(paths).toHaveLength(9);
     expect(paths).toEqual(expect.arrayContaining([
       'pi.extensions',
       'pi.thinkingLevel',
+      'pi.systemPromptMode',
       'pi.guards.callTimeoutMs',
       'pi.noExtensions',
       'pi.noSkills',
