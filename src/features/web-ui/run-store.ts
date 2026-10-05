@@ -1,7 +1,7 @@
 import { persistFilesystemId, type PersistedFilesystemId } from '../../shared/utils/filesystem-identity.js';
+import { openVerifiedRegularFile } from '../../shared/utils/verified-file.js';
 
-import { constants } from 'node:fs';
-import { lstat, open, readdir, realpath } from 'node:fs/promises';
+import { lstat, readdir, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { StatePaths } from '../../core/execution/locations.js';
@@ -32,7 +32,6 @@ import {
   formatWorkflowRuleCondition,
   type WorkflowRuleCondition,
 } from '../../core/models/workflow-rule-condition.js';
-const NOFOLLOW = (constants as { readonly O_NOFOLLOW?: number }).O_NOFOLLOW;
 
 const RUN_STATUSES = new Set(['running', 'completed', 'aborted', 'failed']);
 const MAX_RUNS = 50;
@@ -325,7 +324,7 @@ async function verifyRunsRootSnapshot(
 }
 
 /**
- * Read a regular file without following symbolic links.
+ * Read a verified regular file, rejecting observed links and identity changes.
  *
  * @param path - File path to read
  * @param label - Label used in validation errors
@@ -333,15 +332,11 @@ async function verifyRunsRootSnapshot(
  * @throws Error if safe no-follow access is unavailable, the path is missing, contains a symbolic link, is not a regular file, or any filesystem operation required to open, inspect, read, or close it fails
  */
 async function readRegularFile(path: string, label: string): Promise<string> {
-  if (NOFOLLOW === undefined) throw new Error(`${label} cannot be opened safely on this platform`);
-  const expected = resolve(path);
-  if (await realpath(expected) !== expected) throw new Error(`${label} contains a symbolic link`);
-  const handle = await open(expected, constants.O_RDONLY | NOFOLLOW);
+  const { handle, assertIdentity } = await openVerifiedRegularFile(path, label);
   try {
-    if (await realpath(expected) !== expected) throw new Error(`${label} contains a symbolic link`);
-    const stats = await handle.stat();
-    if (!stats.isFile()) throw new Error(`${label} must be a regular file`);
-    return await handle.readFile('utf8');
+    const content = await handle.readFile('utf8');
+    await assertIdentity();
+    return content;
   } finally {
     await handle.close();
   }

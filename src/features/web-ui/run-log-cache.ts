@@ -1,8 +1,6 @@
-import { constants } from 'node:fs';
-import { open, realpath } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
-import { resolve } from 'node:path';
 import { TextDecoder } from 'node:util';
+import { openVerifiedRegularFile, type FileIdentity } from '../../shared/utils/verified-file.js';
 import { parseCanonicalWorkflowResumeFrame } from '../../shared/types/workflow-resume.js';
 import {
   parseNdjsonParallelMetadata,
@@ -24,7 +22,6 @@ export const MAX_OCCURRENCE_PROMPT_BODY_BYTES = 2 * 1024 * 1024;
 const PROMPT_OWNERSHIP_SCHEMA_VERSION = 1;
 const READ_CHUNK_BYTES = 64 * 1024;
 const FINGERPRINT_BYTES = 4 * 1024;
-const NOFOLLOW = (constants as { readonly O_NOFOLLOW?: number }).O_NOFOLLOW;
 const LIFECYCLE_EVENT_TYPES = new Set([
   'step_start',
   'step_complete',
@@ -125,11 +122,6 @@ export interface RunPromptReadResult {
 export type RunLogArtifactsDiagnostics = RunLogArtifacts & {
   readonly scan: RunLogScanStats;
 };
-
-interface FileIdentity {
-  readonly dev: number;
-  readonly ino: number;
-}
 
 interface ScannedRecord {
   readonly event: RunLogEvent;
@@ -837,34 +829,15 @@ async function matchesFingerprint(
   return currentNearOffset.equals(nearOffset);
 }
 
-async function openSessionLog(path: string): Promise<FileHandle> {
-  if (NOFOLLOW === undefined) throw new Error('Session log cannot be opened safely on this platform');
-  const expected = resolve(path);
-  if (await realpath(expected) !== expected) throw new Error('Session log contains a symbolic link');
-  const handle = await open(expected, constants.O_RDONLY | NOFOLLOW);
-  try {
-    if (await realpath(expected) !== expected) {
-      throw new Error('Session log contains a symbolic link');
-    }
-    const stats = await handle.stat();
-    if (!stats.isFile()) throw new Error('Session log must be a regular file');
-    return handle;
-  } catch (error) {
-    await handle.close();
-    throw error;
-  }
-}
-
 async function scanFile(
   cache: RunLogCache,
   path: string,
   verifySnapshot: () => Promise<void>,
 ): Promise<{ readonly bytesRead: number; readonly reusedBytes: number }> {
   await verifySnapshot();
-  const handle = await openSessionLog(path);
+  const { handle, identity, assertIdentity } = await openVerifiedRegularFile(path, 'Session log');
   try {
     const stats = await handle.stat();
-    const identity = { dev: stats.dev, ino: stats.ino };
     let state = cache.files.get(path);
     const legacyOwnershipSchema = state !== undefined && !hasCurrentPromptOwnershipSchema(state);
     const identityChanged = state !== undefined && (
@@ -889,6 +862,8 @@ async function scanFile(
     if (stats.size <= state.offset) {
       state.size = stats.size;
       state.modifiedAt = stats.mtimeMs;
+      await assertIdentity();
+      await verifySnapshot();
       setPromptOwnershipComplete(state, true);
       return { bytesRead: 0, reusedBytes: stats.size };
     }
@@ -908,6 +883,7 @@ async function scanFile(
     }
     state.size = state.offset;
     state.modifiedAt = stats.mtimeMs;
+    await assertIdentity();
     await verifySnapshot();
     setPromptOwnershipComplete(state, true);
     return { bytesRead, reusedBytes: Math.max(0, stats.size - bytesRead) };
@@ -1139,7 +1115,7 @@ async function readPromptLogFile(
   lifecycle: RunOccurrenceLifecycle,
 ): Promise<void> {
   await verifySnapshot();
-  const handle = await openSessionLog(path);
+  const { handle, assertIdentity } = await openVerifiedRegularFile(path, 'Session log');
   try {
     const stats = await handle.stat();
     const decoder = new TextDecoder();
@@ -1217,6 +1193,7 @@ async function readPromptLogFile(
     }
     append(decoder.decode());
     if (!discardingOversize && pending.length > 0) consumeLine(pending, lineNumber);
+    await assertIdentity();
     await verifySnapshot();
   } finally {
     await handle.close();

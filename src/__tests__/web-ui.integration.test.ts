@@ -2067,11 +2067,12 @@ describe('Web UI run artifacts', () => {
   it('rejects an ordinary runs-root replacement with the expected inode', async () => {
     const statePaths = await createArtifactState();
     await mkdir(statePaths.runsDirectory, { recursive: true });
-    const original = await lstat(statePaths.runsDirectory);
+    const original = await lstat(statePaths.runsDirectory, { bigint: true });
     const pinned = {
       ...statePaths,
-      runsRootFingerprint: { dev: original.dev, ino: original.ino },
+      runsRootFingerprint: { dev: original.dev.toString(), ino: original.ino.toString() },
     };
+    await expect(readRunCollection(pinned)).resolves.toEqual({ runs: [], warnings: [] });
     // Create the replacement while the original is still present. This makes
     // the differing inode deterministic on filesystems that eagerly reuse
     // deleted directory inodes.
@@ -2079,7 +2080,7 @@ describe('Web UI run artifacts', () => {
     await mkdir(replacementPath);
     await rm(statePaths.runsDirectory, { recursive: true, force: true });
     await rename(replacementPath, statePaths.runsDirectory);
-    const replacement = await lstat(statePaths.runsDirectory);
+    const replacement = await lstat(statePaths.runsDirectory, { bigint: true });
     expect(replacement.ino).not.toBe(original.ino);
 
     await expect(readRunCollection(pinned)).rejects.toThrow(/fingerprint|identity/i);
