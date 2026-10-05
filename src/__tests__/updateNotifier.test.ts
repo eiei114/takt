@@ -36,7 +36,7 @@ describe('checkForUpdates', () => {
     process.argv = ['node', 'takt'];
     expect(checkForUpdates()).toBeUndefined();
     expect(mockSpawnSync).toHaveBeenCalledWith(process.execPath,
-      [expect.stringMatching(/shared\/utils\/updateNotifierWorker\.js$/)], {
+      [expect.stringMatching(/shared[\\/]utils[\\/]updateNotifierWorker\.js$/)], {
         stdio: ['ignore', 'inherit', 'pipe'],
         encoding: 'utf8',
         timeout: 2000,

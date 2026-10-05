@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
@@ -50,6 +53,11 @@ vi.mock('node:fs/promises', async () => {
     rm: rmMock,
   };
 });
+
+// Match the process seam used by the Windows cross-platform spawn wrapper.
+vi.mock('cross-spawn', async () => ({
+  default: (await import('node:child_process')).spawn,
+}));
 
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
@@ -167,7 +175,7 @@ describe('callClaudeHeadless', () => {
     });
 
     await callClaudeHeadless('agent', 'hi', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       skillsEnabled: false,
     });
 
@@ -182,7 +190,7 @@ describe('callClaudeHeadless', () => {
     });
 
     await callClaudeHeadless('agent', 'hi', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       sessionId: 'existing-session',
       skillsEnabled: false,
     });
@@ -197,7 +205,7 @@ describe('callClaudeHeadless', () => {
     });
 
     await callClaudeHeadless('agent', 'hi', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       skillsEnabled: true,
     });
 
@@ -211,7 +219,7 @@ describe('callClaudeHeadless', () => {
     );
 
     const result = await callClaudeHeadless('agent', 'hi', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       skillsEnabled: false,
       claudeCliPath: 'claude-unsupported',
     });
@@ -236,7 +244,7 @@ describe('callClaudeHeadless', () => {
       ],
       closeCode: 0,
     });
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp', onActivity });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp'), onActivity });
     expect(res.status).toBe('done');
     expect(res.content).toBe('ok');
     expect(onActivity).toHaveBeenCalledOnce();
@@ -255,7 +263,7 @@ describe('callClaudeHeadless', () => {
     });
 
     await callClaudeHeadless('agent', 'hi', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       childProcessEnv: {
         TAKT_OBSERVABILITY: '{"enabled":true}',
         OTEL_EXPORTER_OTLP_ENDPOINT: 'https://snapshot-collector.example.test',
@@ -284,7 +292,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('done');
     expect(res.providerUsage).toEqual({
@@ -316,7 +324,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('done');
     expect(res.content).toBe('final answer');
@@ -340,7 +348,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('done');
     expect(res.content).toBe('final answer');
@@ -359,7 +367,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('error');
     expect(res.error).toContain('partial answer');
@@ -372,7 +380,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 1,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('rate_limited');
     expect(res.errorKind).toBe('rate_limit');
@@ -388,7 +396,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 1,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp', onStream });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp'), onStream });
 
     expect(res).toMatchObject({
       status: 'rate_limited',
@@ -416,7 +424,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 1,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res).toMatchObject({
       status: 'rate_limited',
@@ -437,7 +445,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 1,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp', onStream });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp'), onStream });
 
     expect(res).toMatchObject({
       status: 'rate_limited',
@@ -475,7 +483,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 1,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp', onStream });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp'), onStream });
 
     expect(res).toMatchObject({
       status: 'rate_limited',
@@ -506,7 +514,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 1,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp', onStream });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp'), onStream });
     const expectedError = 'Claude CLI failed (1): Claude CLI exited with code 1';
 
     expect(res).toMatchObject({
@@ -539,7 +547,7 @@ describe('callClaudeHeadless', () => {
         ? { stdoutChunks: [retainedText, 'x'] }
         : { stderrChunks: [retainedText, 'x'] });
 
-      const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp', onStream });
+      const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp'), onStream });
       const expectedError = `Claude CLI ${stream} exceeded buffer limit`;
 
       expect(res).toMatchObject({
@@ -573,7 +581,7 @@ describe('callClaudeHeadless', () => {
     });
 
     const res = await callClaudeHeadless('agent', 'hi', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       abortSignal: abortController.signal,
       onStream,
     });
@@ -608,7 +616,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('rate_limited');
     expect(res.errorKind).toBe('rate_limit');
@@ -629,7 +637,7 @@ describe('callClaudeHeadless', () => {
       keepOpen: true,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp', onStream });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp'), onStream });
 
     expect(res.status).toBe('rate_limited');
     expect(res.errorKind).toBe('rate_limit');
@@ -670,7 +678,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp', onStream });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp'), onStream });
 
     expect(res.status).toBe('done');
     expect(res.content).toBe(reply);
@@ -690,7 +698,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('done');
     expect(res.content).toBe('ok');
@@ -705,7 +713,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res).toMatchObject({
       status: 'rate_limited',
@@ -723,7 +731,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('done');
     expect(res.content).toBe('ok');
@@ -759,7 +767,7 @@ describe('callClaudeHeadless', () => {
       return proc as ChildProcess;
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('rate_limited');
     expect(res.error).toBe(markerText);
@@ -776,7 +784,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 1,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res).toMatchObject({
       status: 'rate_limited',
@@ -794,7 +802,7 @@ describe('callClaudeHeadless', () => {
       keepOpen: true,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res).toMatchObject({
       status: 'rate_limited',
@@ -812,7 +820,7 @@ describe('callClaudeHeadless', () => {
     const error = new Error(limitText) as NodeJS.ErrnoException;
     stubSpawn({ error });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res).toMatchObject({
       status: 'rate_limited',
@@ -838,7 +846,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('rate_limited');
     expect(res.errorKind).toBe('rate_limit');
@@ -858,7 +866,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('done');
     expect(res.content).toBe('Documented rate limit fallback behavior for issue 429.');
@@ -882,7 +890,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('error');
     expect(res.error).toBe('final failure');
@@ -907,7 +915,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('done');
     expect(res.error).toBeUndefined();
@@ -928,7 +936,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('error');
     expect(res.error).toBe('explicit failure');
@@ -947,7 +955,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('done');
     expect(res.content).toBe('');
@@ -972,7 +980,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('done');
     expect(res.content).toBe('');
@@ -996,7 +1004,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('done');
     expect(res.content).toBe('');
@@ -1017,7 +1025,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
 
     expect(res.status).toBe('done');
     expect(res.content).toBe('partial answer');
@@ -1030,7 +1038,7 @@ describe('callClaudeHeadless', () => {
       stdoutChunks: ['ordinary provider output'],
       closeCode: 1,
     });
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp', onStream });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp'), onStream });
     const expectedError = 'Claude CLI failed (1): Claude CLI exited with code 1';
     expect(res).toMatchObject({
       status: 'error',
@@ -1054,7 +1062,7 @@ describe('callClaudeHeadless', () => {
       stdoutChunks: [`${JSON.stringify({ type: 'text', text: 'x' })}\n`],
       closeCode: null,
     });
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
     expect(res.status).toBe('error');
     expect(res.error).toContain('without an exit code');
     expect(res.error).not.toContain('unknown');
@@ -1063,7 +1071,7 @@ describe('callClaudeHeadless', () => {
   it('maps ENOENT to claude CLI not found message', async () => {
     const err = Object.assign(new Error('spawn claude ENOENT'), { code: 'ENOENT' as const });
     stubSpawn({ error: err });
-    const res = await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    const res = await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
     expect(res.status).toBe('error');
     expect(res.error).toMatch(/claude CLI not found/i);
   });
@@ -1078,7 +1086,7 @@ describe('callClaudeHeadless', () => {
       stdoutChunks: [`${JSON.stringify({ type: 'text', text: 'ok' })}\n`],
       closeCode: 0,
     });
-    await callClaudeHeadless('agent', 'hi', { cwd: '/tmp' });
+    await callClaudeHeadless('agent', 'hi', { cwd: nativeFixturePath('/tmp') });
     const argv = lastSpawnArgv();
     expect(argv[0]).toBe('-p');
     expect(argv).toEqual(
@@ -1107,7 +1115,7 @@ describe('callClaudeHeadless', () => {
     });
 
     const res = await callClaudeHeadless('agent', 'user prompt', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       systemPrompt: 'system prompt',
     });
 
@@ -1127,7 +1135,7 @@ describe('callClaudeHeadless', () => {
     });
 
     const res = await callClaudeHeadless('agent', 'user prompt', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
     });
 
     expect(res.status).toBe('done');
@@ -1139,7 +1147,7 @@ describe('callClaudeHeadless', () => {
       stdoutChunks: [`${JSON.stringify({ type: 'text', text: 'x' })}\n`],
       closeCode: 0,
     });
-    await callClaudeHeadless('agent', 'p', { cwd: '/tmp', permissionMode: 'edit' });
+    await callClaudeHeadless('agent', 'p', { cwd: nativeFixturePath('/tmp'), permissionMode: 'edit' });
     const argv = lastSpawnArgv();
     const i = argv.indexOf('--permission-mode');
     expect(i).toBeGreaterThanOrEqual(0);
@@ -1151,7 +1159,7 @@ describe('callClaudeHeadless', () => {
       stdoutChunks: [`${JSON.stringify({ type: 'text', text: 'x' })}\n`],
       closeCode: 0,
     });
-    await callClaudeHeadless('agent', 'p', { cwd: '/tmp', permissionMode: 'full' });
+    await callClaudeHeadless('agent', 'p', { cwd: nativeFixturePath('/tmp'), permissionMode: 'full' });
     const argv = lastSpawnArgv();
     const i = argv.indexOf('--permission-mode');
     expect(argv[i + 1]).toBe('bypassPermissions');
@@ -1162,7 +1170,7 @@ describe('callClaudeHeadless', () => {
       stdoutChunks: [`${JSON.stringify({ type: 'text', text: 'x' })}\n`],
       closeCode: 0,
     });
-    await callClaudeHeadless('agent', 'p', { cwd: '/tmp', permissionMode: 'readonly', bypassPermissions: true });
+    await callClaudeHeadless('agent', 'p', { cwd: nativeFixturePath('/tmp'), permissionMode: 'readonly', bypassPermissions: true });
     const argv = lastSpawnArgv();
     const i = argv.indexOf('--permission-mode');
     expect(argv[i + 1]).toBe('bypassPermissions');
@@ -1173,7 +1181,7 @@ describe('callClaudeHeadless', () => {
       stdoutChunks: [`${JSON.stringify({ type: 'text', text: 'x' })}\n`],
       closeCode: 0,
     });
-    await callClaudeHeadless('agent', 'p', { cwd: '/tmp', model: 'opus-4' });
+    await callClaudeHeadless('agent', 'p', { cwd: nativeFixturePath('/tmp'), model: 'opus-4' });
     const argv = lastSpawnArgv();
     const i = argv.indexOf('--model');
     expect(i).toBeGreaterThanOrEqual(0);
@@ -1186,7 +1194,7 @@ describe('callClaudeHeadless', () => {
       stdoutChunks: [`${JSON.stringify({ type: 'text', text: 'x' })}\n`],
       closeCode: 0,
     });
-    await callClaudeHeadless('agent', 'p', { cwd: '/tmp', sessionId });
+    await callClaudeHeadless('agent', 'p', { cwd: nativeFixturePath('/tmp'), sessionId });
     const argv = lastSpawnArgv();
     const i = argv.indexOf('--resume');
     expect(i).toBeGreaterThanOrEqual(0);
@@ -1210,7 +1218,7 @@ describe('callClaudeHeadless', () => {
     });
 
     const res = await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       outputSchema,
     });
 
@@ -1242,7 +1250,7 @@ describe('callClaudeHeadless', () => {
     });
 
     const res = await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       outputSchema,
     });
 
@@ -1260,7 +1268,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
 
-    const first = await callClaudeHeadless('agent', 'first prompt', { cwd: '/tmp' });
+    const first = await callClaudeHeadless('agent', 'first prompt', { cwd: nativeFixturePath('/tmp') });
     expect(first.sessionId).toBe('22222222-2222-4222-8222-222222222222');
 
     stubSpawn({
@@ -1271,7 +1279,7 @@ describe('callClaudeHeadless', () => {
     });
 
     const second = await callClaudeHeadless('agent', 'second prompt', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       sessionId: first.sessionId,
     });
 
@@ -1290,7 +1298,7 @@ describe('callClaudeHeadless', () => {
     });
 
     await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       mcpServers: {
         local: {
           command: 'node',
@@ -1302,7 +1310,10 @@ describe('callClaudeHeadless', () => {
     const argv = lastSpawnArgv();
     const mcpIndex = argv.indexOf('--mcp-config');
     expect(mcpIndex).toBeGreaterThanOrEqual(0);
-    expect(capturedMcpConfigMode).toBe(0o600);
+    // Windows stat mode bits do not describe its ACL; retain POSIX enforcement checks.
+    if (process.platform !== 'win32') {
+      expect(capturedMcpConfigMode).toBe(0o600);
+    }
     expect(JSON.parse(capturedMcpConfigContent!)).toEqual({
       mcpServers: {
         local: {
@@ -1324,7 +1335,7 @@ describe('callClaudeHeadless', () => {
     writeFileMock.mockRejectedValueOnce(new Error('write failed'));
 
     const res = await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       mcpServers: {
         local: {
           command: 'node',
@@ -1349,7 +1360,7 @@ describe('callClaudeHeadless', () => {
     const onStream = vi.fn();
 
     const res = await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       mcpServers: {
         local: {
           command: 'node',
@@ -1397,7 +1408,7 @@ describe('callClaudeHeadless', () => {
     const onStream = vi.fn();
 
     await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       onStream,
     });
 
@@ -1440,7 +1451,7 @@ describe('callClaudeHeadless', () => {
     });
     const onStream = vi.fn();
 
-    await callClaudeHeadless('agent', 'p', { cwd: '/tmp', onStream });
+    await callClaudeHeadless('agent', 'p', { cwd: nativeFixturePath('/tmp'), onStream });
 
     expect(onStream).toHaveBeenNthCalledWith(1, {
       type: 'tool_use',
@@ -1491,7 +1502,7 @@ describe('callClaudeHeadless', () => {
     });
     const onStream = vi.fn();
 
-    await callClaudeHeadless('agent', 'p', { cwd: '/tmp', onStream });
+    await callClaudeHeadless('agent', 'p', { cwd: nativeFixturePath('/tmp'), onStream });
 
     expect(onStream).toHaveBeenNthCalledWith(1, {
       type: 'tool_use',
@@ -1518,7 +1529,7 @@ describe('callClaudeHeadless', () => {
     });
 
     await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       mcpServers: {},
     });
 
@@ -1534,7 +1545,7 @@ describe('callClaudeHeadless', () => {
     });
 
     await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       sandbox: {
         allowUnsandboxedCommands: true,
         excludedCommands: ['./gradlew', 'npm test'],
@@ -1559,7 +1570,7 @@ describe('callClaudeHeadless', () => {
     });
 
     const res = await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       sessionId: 'resume-session-from-report-phase',
     });
 
@@ -1573,7 +1584,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
     await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       model: 'sonnet',
       allowedTools: ['Read', 'Grep', 'Edit'],
       effort: 'high',
@@ -1600,7 +1611,7 @@ describe('callClaudeHeadless', () => {
     });
 
     await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       anthropicApiKey: 'sk-ant-from-config',
     });
 
@@ -1613,7 +1624,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
     const callOptions = {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       baseUrl: 'http://127.0.0.1:8787',
       childProcessEnv: {
         ANTHROPIC_BASE_URL: 'http://ambient.example.test',
@@ -1632,7 +1643,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
     await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       allowedTools: [],
     });
     const argv = lastSpawnArgv();
@@ -1647,7 +1658,7 @@ describe('callClaudeHeadless', () => {
     });
 
     const response = await callClaudeHeadless('reporter', 'write the report', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       sessionId,
       allowedTools: [],
       permissionMode: 'readonly',
@@ -1686,7 +1697,7 @@ describe('callClaudeHeadless', () => {
 
     try {
       const response = await callClaudeHeadless('reporter', 'write the report', {
-        cwd: '/tmp',
+        cwd: nativeFixturePath('/tmp'),
         allowedTools,
         internalAgentIsolation,
         permissionMode: 'readonly',
@@ -1715,7 +1726,7 @@ describe('callClaudeHeadless', () => {
     });
 
     await callClaudeHeadless('selector', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       permissionMode: 'readonly',
       skillsEnabled: true,
     });
@@ -1735,7 +1746,7 @@ describe('callClaudeHeadless', () => {
     });
 
     await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       permissionMode: 'readonly',
     });
 
@@ -1752,7 +1763,7 @@ describe('callClaudeHeadless', () => {
     });
 
     await callClaudeHeadless('selector', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       internalAgentIsolation: 'strict-readonly',
       allowedTools: ['Read'],
       mcpServers: {
@@ -1785,7 +1796,7 @@ describe('callClaudeHeadless', () => {
     });
 
     await callClaudeHeadless('selector', 'read verification files', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       internalAgentIsolation: 'strict-readonly',
       allowReadonlyFileRead: true,
       readonlyFileReadPaths: [fileURLToPath(import.meta.url)],
@@ -1860,7 +1871,7 @@ describe('callClaudeHeadless', () => {
       closeCode: 0,
     });
     await callClaudeHeadless('agent', 'p', {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       allowedTools: [],
       effort: 'low',
     });

@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import type { MockInstance } from 'vitest';
 import type {
   ResolvedRuntimeEnvironment,
@@ -193,11 +196,11 @@ describe('previewPrompts', () => {
   });
 
   it('workflow未設定時はDEFAULT_WORKFLOW_NAMEでロードする', async () => {
-    await previewPrompts('/project', undefined, undefined);
+    await previewPrompts(nativeFixturePath('/project'), undefined, undefined);
 
-    expect(mockLoadWorkflowByIdentifier).toHaveBeenCalledWith('default', '/project');
+    expect(mockLoadWorkflowByIdentifier).toHaveBeenCalledWith('default', nativeFixturePath('/project'));
     expect(mockResolveAuxiliaryRuntimeEnvironment).toHaveBeenCalledWith(
-      '/project',
+      nativeFixturePath('/project'),
       expect.objectContaining({ name: 'default' }),
     );
     expect(mockInfo).toHaveBeenCalledWith('Companion review mode: completion');
@@ -208,7 +211,7 @@ describe('previewPrompts', () => {
     runtimeEnvironment.companionReviewMode = 'live';
     mockResolveAuxiliaryRuntimeEnvironment.mockReturnValueOnce(runtimeEnvironment);
 
-    await previewPrompts('/project');
+    await previewPrompts(nativeFixturePath('/project'));
 
     expect(mockInfo).toHaveBeenCalledWith('Companion review mode: live');
   });
@@ -233,12 +236,12 @@ describe('previewPrompts', () => {
       }],
     });
 
-    await previewPrompts('/project');
+    await previewPrompts(nativeFixturePath('/project'));
 
     const calls = mockInstructionBuild.mock.calls;
     const prompt = calls[calls.length - 1]?.[0];
     expect(prompt).toContain('## Companion inbox');
-    expect(prompt).toContain('/project/.takt/runs/preview/companion/implement');
+    expect(prompt).toContain(nativeFixturePath('/project/.takt/runs/preview/companion/implement'));
   });
 
   // takt prompt は診断ツール。レビュー範囲を解決できなくてもプロンプト本体の
@@ -248,7 +251,7 @@ describe('previewPrompts', () => {
       throw new Error('spawnSync git ENOENT');
     });
 
-    await expect(previewPrompts('/project', undefined, undefined)).resolves.toBeUndefined();
+    await expect(previewPrompts(nativeFixturePath('/project'), undefined, undefined)).resolves.toBeUndefined();
     expect(mockResolveReviewScopeBaseRange).toHaveBeenCalled();
   });
 
@@ -257,9 +260,9 @@ describe('previewPrompts', () => {
       throw new Error('git ls-files --others: repository path is not reversibly UTF-8 encoded');
     });
 
-    await expect(previewPrompts('/project', undefined, undefined)).resolves.toBeUndefined();
+    await expect(previewPrompts(nativeFixturePath('/project'), undefined, undefined)).resolves.toBeUndefined();
 
-    expect(mockResolveReviewScopeBaseRange).toHaveBeenCalledWith('/project');
+    expect(mockResolveReviewScopeBaseRange).toHaveBeenCalledWith(nativeFixturePath('/project'));
   });
 
   it('合成ステップのPhase 1プレビューにはworkflow-wide ruleを渡さない', async () => {
@@ -289,7 +292,7 @@ describe('previewPrompts', () => {
       ],
     });
 
-    await previewPrompts('/project');
+    await previewPrompts(nativeFixturePath('/project'));
 
     expect(mockInstructionBuilder).toHaveBeenNthCalledWith(
       1,
@@ -341,7 +344,7 @@ describe('previewPrompts', () => {
       }],
     });
 
-    await previewPrompts('/project');
+    await previewPrompts(nativeFixturePath('/project'));
     const output = JSON.stringify(mockInfo.mock.calls);
 
     expect(output).not.toContain('selector-user');
@@ -374,13 +377,13 @@ describe('previewPrompts', () => {
       }],
     });
 
-    await previewPrompts('/project', undefined, overrides);
+    await previewPrompts(nativeFixturePath('/project'), undefined, overrides);
 
     expect(mockResolveWorkflowSelector).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'dynamic-preview' }),
       {
-        projectCwd: '/project',
-        lookupCwd: '/project',
+        projectCwd: nativeFixturePath('/project'),
+        lookupCwd: nativeFixturePath('/project'),
         overrides,
         companionEnabled: true,
         providerEnvironment: expect.objectContaining({
@@ -394,14 +397,14 @@ describe('previewPrompts', () => {
   it('未存在ワークフローでは workflow 用語のエラーを表示し他の UI を出さない', async () => {
     mockLoadWorkflowByIdentifier.mockReturnValueOnce(undefined);
 
-    await previewPrompts('/project', 'missing-workflow');
+    await previewPrompts(nativeFixturePath('/project'), 'missing-workflow');
 
     expect(mockInfo).not.toHaveBeenCalled();
     expect(mockError).toHaveBeenCalled();
   });
 
   it('共通判定が不要とした step では Phase 3 prompt を表示しない', async () => {
-    await previewPrompts('/project');
+    await previewPrompts(nativeFixturePath('/project'));
 
     expect(mockNeedsStatusJudgmentPhase).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'implement' }),
@@ -413,7 +416,7 @@ describe('previewPrompts', () => {
   it('共通判定が必要とした step では Phase 3 prompt を表示する', async () => {
     mockNeedsStatusJudgmentPhase.mockReturnValueOnce(true);
 
-    await previewPrompts('/project');
+    await previewPrompts(nativeFixturePath('/project'));
 
     expect(mockJudgmentBuild).toHaveBeenCalledOnce();
   });

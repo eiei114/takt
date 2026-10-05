@@ -3,10 +3,18 @@
  */
 
 import { EventEmitter } from 'node:events';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockSpawn } = vi.hoisted(() => ({
   mockSpawn: vi.fn(),
+}));
+
+// Match the process seam used by the Windows cross-platform spawn wrapper.
+vi.mock('cross-spawn', async () => ({
+  default: (await import('node:child_process')).spawn,
 }));
 
 vi.mock('node:child_process', () => ({
@@ -138,7 +146,7 @@ describe('callCursor', () => {
     });
 
     const result = await callCursor('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       model: 'cursor/gpt-5',
       sessionId: 'sess-prev',
       permissionMode: 'full',
@@ -159,7 +167,7 @@ describe('callCursor', () => {
       '--output-format',
       'stream-json',
       '--workspace',
-      '/repo',
+      nativeFixturePath('/repo'),
       '--model',
       'cursor/gpt-5',
       '--resume',
@@ -179,7 +187,7 @@ describe('callCursor', () => {
     });
 
     const result = await callCursor('coder', '--workspace=/', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
     });
 
     expect(result.status).toBe('done');
@@ -197,7 +205,7 @@ describe('callCursor', () => {
     });
 
     const result = await callCursor('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'edit',
     });
 
@@ -217,7 +225,7 @@ describe('callCursor', () => {
     });
 
     const result = await callCursor('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'edit',
     });
 
@@ -236,7 +244,7 @@ describe('callCursor', () => {
     });
 
     const result = await callCursor('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       childProcessEnv: {
         TAKT_OBSERVABILITY: '{"enabled":true}',
         OTEL_EXPORTER_OTLP_ENDPOINT: 'https://snapshot-collector.example.test',
@@ -255,7 +263,7 @@ describe('callCursor', () => {
       error: { code: 'ENOENT', message: 'spawn cursor-agent ENOENT' },
     });
 
-    const result = await callCursor('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCursor('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('cursor-agent binary not found');
@@ -269,7 +277,7 @@ describe('callCursor', () => {
       stderr: 'Authentication required. Please login.',
     });
 
-    const result = await callCursor('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCursor('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('cursor-agent login');
@@ -284,7 +292,7 @@ describe('callCursor', () => {
       stderr: 'unexpected failure',
     });
 
-    const result = await callCursor('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCursor('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('code 2');
@@ -299,7 +307,7 @@ describe('callCursor', () => {
       signal: 'SIGTERM',
     });
 
-    const result = await callCursor('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCursor('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('signal SIGTERM');
@@ -312,7 +320,7 @@ describe('callCursor', () => {
       signal: null,
     });
 
-    const result = await callCursor('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCursor('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('no exit code or signal');
@@ -334,7 +342,7 @@ describe('callCursor', () => {
     ]);
 
     const resultPromise = callCursor('coding-review', 'review changes', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'sess-before-retry',
       onActivity,
     });
@@ -372,7 +380,7 @@ describe('callCursor', () => {
     ]);
 
     const resultPromise = callCursor('coding-review', 'review changes', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'sess-aborted-retry',
       abortSignal: abortController.signal,
       onStream,
@@ -406,7 +414,7 @@ describe('callCursor', () => {
       stderr: CURSOR_CONFIG_NON_RENAME_ENOENT,
     });
 
-    const result = await callCursor('coding-review', 'review changes', { cwd: '/repo' });
+    const result = await callCursor('coding-review', 'review changes', { cwd: nativeFixturePath('/repo') });
 
     expect(mockSpawn).toHaveBeenCalledTimes(1);
     expect(result.status).toBe('error');
@@ -424,7 +432,7 @@ describe('callCursor', () => {
     })));
 
     const resultPromise = callCursor('coding-review', 'review changes', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'sess-retry-exhausted',
       onStream,
     });
@@ -455,7 +463,7 @@ describe('callCursor', () => {
     });
 
     const result = await callCursor('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'sess-parse-error',
       onStream,
     });
@@ -482,7 +490,7 @@ describe('callCursor', () => {
       ].join('\n'),
     });
 
-    const result = await callCursor('coder', 'inspect task', { cwd: '/repo' });
+    const result = await callCursor('coder', 'inspect task', { cwd: nativeFixturePath('/repo') });
 
     expect(result).toMatchObject({ status: 'done', content: 'assistant answer' });
   });
@@ -499,7 +507,7 @@ describe('callCursor', () => {
       ].join('\n'),
     });
 
-    const result = await callCursor('coder', 'inspect task', { cwd: '/repo', onStream });
+    const result = await callCursor('coder', 'inspect task', { cwd: nativeFixturePath('/repo'), onStream });
 
     expect(result).toMatchObject({ status: 'done', content: 'answer' });
     expect(onStream).toHaveBeenCalledWith({ type: 'tool_use', data: {
@@ -522,7 +530,7 @@ describe('callCursor', () => {
       ].join('\n'),
     });
 
-    const result = await callCursor('coder', 'inspect task', { cwd: '/repo', onStream });
+    const result = await callCursor('coder', 'inspect task', { cwd: nativeFixturePath('/repo'), onStream });
 
     expect(result).toMatchObject({ status: 'done', content: 'The run could not be found.' });
     expect(onStream).toHaveBeenCalledWith({ type: 'tool_result', data: {
@@ -581,7 +589,7 @@ describe('callCursor', () => {
       code: 0,
     });
 
-    const result = await callCursor('coder', 'inspect task', { cwd: '/repo', onStream });
+    const result = await callCursor('coder', 'inspect task', { cwd: nativeFixturePath('/repo'), onStream });
 
     expect(result).toMatchObject({ status: 'done', content: 'answer', sessionId: 'cursor-session' });
     expect(onStream).toHaveBeenCalledWith({
@@ -623,7 +631,7 @@ describe('callCursor', () => {
       stderr: splitUtf8Occurrences(`diagnostic ${character}`, character, byteOffset),
     });
 
-    const result = await callCursor('coder', 'inspect task', { cwd: '/repo', onStream });
+    const result = await callCursor('coder', 'inspect task', { cwd: nativeFixturePath('/repo'), onStream });
 
     expect(result).toMatchObject({ status: 'done', content: `answer ${character}`, sessionId: 'utf8-session' });
     expect(onStream).toHaveBeenCalledWith({ type: 'tool_use', data: {
@@ -642,7 +650,7 @@ describe('callCursor', () => {
       code: 2,
     });
 
-    const result = await callCursor('coder', 'inspect task', { cwd: '/repo' });
+    const result = await callCursor('coder', 'inspect task', { cwd: nativeFixturePath('/repo') });
 
     expect(result).toMatchObject({ status: 'error', content: `Cursor Agent CLI exited with code 2: ${diagnostic}` });
   });
@@ -653,7 +661,7 @@ describe('callCursor', () => {
       code: 2,
     });
 
-    const result = await callCursor('coder', 'inspect task', { cwd: '/repo' });
+    const result = await callCursor('coder', 'inspect task', { cwd: nativeFixturePath('/repo') });
 
     expect(result).toMatchObject({ status: 'error', content: 'Cursor Agent CLI exited with code 2: diagnostic �' });
   });
@@ -673,7 +681,7 @@ describe('callCursor', () => {
     ];
     mockSpawnWithScenario({ stdout: '{"content":"done"}', [stream]: chunks });
 
-    const result = await callCursor('coder', 'inspect task', { cwd: '/repo' });
+    const result = await callCursor('coder', 'inspect task', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe(extraBytes === 0 ? 'done' : 'error');
     if (extraBytes > 0) {

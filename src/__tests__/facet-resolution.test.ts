@@ -10,7 +10,10 @@
  * - Facet directory path helpers
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -43,7 +46,7 @@ describe('isResourcePath', () => {
   });
 
   it('should return true for absolute paths', () => {
-    expect(isResourcePath('/home/user/coder.md')).toBe(true);
+    expect(isResourcePath(nativeFixturePath('/home/user/coder.md'))).toBe(true);
   });
 
   it('should return true for home directory paths', () => {
@@ -737,7 +740,7 @@ describe('resolvePersona with layer resolution', () => {
 
 describe('facet directory path helpers', () => {
   it('getProjectFacetDir should return .takt/{type}/ path', () => {
-    const dir = getProjectFacetDir('/my/project', 'personas');
+    const dir = getProjectFacetDir(nativeFixturePath('/my/project'), 'personas');
     expect(dir).toContain('.takt');
     expect(dir).toContain('personas');
   });

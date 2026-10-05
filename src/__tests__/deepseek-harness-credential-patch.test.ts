@@ -78,7 +78,10 @@ describe('DeepSeek Harness credential patch', () => {
           config: { prompt: systemPrompt },
         }],
       });
-      expect(statSync(patch.path).mode & 0o777).toBe(0o600);
+      // Windows stat mode bits do not describe its ACL; retain POSIX enforcement checks.
+      if (process.platform !== 'win32') {
+        expect(statSync(patch.path).mode & 0o777).toBe(0o600);
+      }
     } finally {
       await patch.dispose();
     }
@@ -89,8 +92,11 @@ describe('DeepSeek Harness credential patch', () => {
       createBinding(path.join(root, '.credentials.yaml'), 'DEEPSEEK_API_KEY'),
     );
     try {
-      expect(statSync(patch.path).mode & 0o777).toBe(0o600);
-      expect(statSync(path.dirname(patch.path)).mode & 0o777).toBe(0o700);
+      // Windows stat mode bits do not describe its ACL; retain POSIX enforcement checks.
+      if (process.platform !== 'win32') {
+        expect(statSync(patch.path).mode & 0o777).toBe(0o600);
+        expect(statSync(path.dirname(patch.path)).mode & 0o777).toBe(0o700);
+      }
     } finally {
       await patch.dispose();
     }

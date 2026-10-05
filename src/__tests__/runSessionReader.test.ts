@@ -458,7 +458,7 @@ describe('loadRunSessionContext', () => {
     expect(context.reports).toEqual([
       { filename: '00-parent.md', content: '# Parent' },
       {
-        filename: 'subworkflows/delegate/01-child.md',
+        filename: join('subworkflows', 'delegate', '01-child.md'),
         content: '# Child',
       },
     ]);
@@ -805,9 +805,17 @@ describe('loadRunSessionContext', () => {
     const stableReportPath = writeReportFile(reportsDirectory, 'stable.md', 'STABLE_REPORT');
     fsControl.replaceReportAfterRead.targetPath = stableReportPath;
     fsControl.replaceReportAfterRead.run = () => {
+      if (process.platform === 'win32') {
+        // Windows denies replacing a report while its verified read handle is open.
+        expect(() => writeReportFile(reportsDirectory, 'stable.md', 'PUBLISHED_REPORT'))
+          .toThrow(/EPERM: operation not permitted/);
+        return;
+      }
       writeReportFile(reportsDirectory, 'stable.md', 'PUBLISHED_REPORT');
     };
 
+    // The writer's history publication changes the snapshot even when Windows
+    // prevents replacement of the currently open report.
     expect(() => loadRunSessionContext(tmpDir, slug)).toThrow(
       /Report directory snapshot changed while reading/,
     );
@@ -815,7 +823,7 @@ describe('loadRunSessionContext', () => {
 
     const context = loadRunSessionContext(tmpDir, slug);
     expect(context.reports).toEqual([
-      { filename: 'stable.md', content: 'PUBLISHED_REPORT' },
+      { filename: 'stable.md', content: process.platform === 'win32' ? 'STABLE_REPORT' : 'PUBLISHED_REPORT' },
     ]);
   });
 
@@ -1275,7 +1283,7 @@ describe('formatRunSessionForPrompt', () => {
       stepLogs: [],
       reports: [
         {
-          filename: 'subworkflows/delegate/01-child.md',
+          filename: join('subworkflows', 'delegate', '01-child.md'),
           content: reportContent,
         },
       ],
@@ -1283,7 +1291,7 @@ describe('formatRunSessionForPrompt', () => {
 
     const result = formatRunSessionForPrompt(ctx);
 
-    expect(result.runReports).toContain('subworkflows/delegate/01-child.md');
+    expect(result.runReports).toContain(join('subworkflows', 'delegate', '01-child.md'));
     expect(result.runReports).toContain(reportContent);
   });
 

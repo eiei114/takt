@@ -3,6 +3,9 @@
  */
 
 import { EventEmitter } from 'node:events';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,6 +16,11 @@ const { mockSpawn, mockMkdtemp, mockReadFile, mockRm } = vi.hoisted(() => ({
   mockMkdtemp: vi.fn(),
   mockReadFile: vi.fn(),
   mockRm: vi.fn(),
+}));
+
+// Match the process seam used by the Windows cross-platform spawn wrapper.
+vi.mock('cross-spawn', async () => ({
+  default: (await import('node:child_process')).spawn,
 }));
 
 vi.mock('node:child_process', () => ({
@@ -27,6 +35,8 @@ vi.mock('node:fs/promises', () => ({
 
 import { callCopilot, extractSessionIdFromShareFile } from '../infra/copilot/client.js';
 import { formatTaskStateReferenceMarker } from '../shared/task-state-reference.js';
+
+const tmpEnvKey = process.platform === 'win32' ? 'TEMP' : 'TMPDIR';
 
 type SpawnScenario = {
   stdout?: string;
@@ -87,7 +97,7 @@ describe('callCopilot', () => {
     delete process.env.COPILOT_MCP_CONFIG;
     delete process.env.TAKT_OBSERVABILITY;
     delete process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
-    mockMkdtemp.mockResolvedValue('/tmp/takt-copilot-XXXXXX');
+    mockMkdtemp.mockResolvedValue(nativeFixturePath('/tmp/takt-copilot-XXXXXX'));
     mockReadFile.mockResolvedValue(
       '# 🤖 Copilot CLI Session\n\n> **Session ID:** `aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee`\n',
     );
@@ -106,7 +116,7 @@ describe('callCopilot', () => {
     });
 
     const result = await callCopilot('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       model: 'claude-sonnet-4.6',
       sessionId: 'sess-prev',
       permissionMode: 'full',
@@ -142,7 +152,7 @@ describe('callCopilot', () => {
       code: 0,
     });
 
-    const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     const [, args] = mockSpawn.mock.calls[0] as [string, string[]];
@@ -156,7 +166,7 @@ describe('callCopilot', () => {
     });
 
     await callCopilot('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'edit',
     });
 
@@ -174,7 +184,7 @@ describe('callCopilot', () => {
     });
 
     await callCopilot('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'readonly',
     });
 
@@ -192,7 +202,7 @@ describe('callCopilot', () => {
     });
 
     const result = await callCopilot('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
     });
 
     expect(result.status).toBe('done');
@@ -211,7 +221,7 @@ describe('callCopilot', () => {
     });
 
     await callCopilot('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       childProcessEnv: {
         TAKT_OBSERVABILITY: '{"enabled":true}',
         OTEL_EXPORTER_OTLP_ENDPOINT: 'https://snapshot-collector.example.test',
@@ -230,12 +240,12 @@ describe('callCopilot', () => {
     });
 
     await callCopilot('coder', 'implement', {
-      cwd: '/repo',
-      copilotCliPath: '/custom/bin/copilot',
+      cwd: nativeFixturePath('/repo'),
+      copilotCliPath: nativeFixturePath('/custom/bin/copilot'),
     });
 
     const [command] = mockSpawn.mock.calls[0] as [string];
-    expect(command).toBe('/custom/bin/copilot');
+    expect(command).toBe(nativeFixturePath('/custom/bin/copilot'));
   });
 
   it('should not include --autopilot or --max-autopilot-continues flags', async () => {
@@ -245,7 +255,7 @@ describe('callCopilot', () => {
     });
 
     await callCopilot('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'readonly',
     });
 
@@ -263,7 +273,7 @@ describe('callCopilot', () => {
     const systemPrompt = 'custom system prompt';
     const userPrompt = 'custom user prompt';
     await callCopilot('reviewer', userPrompt, {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       systemPrompt,
     });
 
@@ -278,7 +288,7 @@ describe('callCopilot', () => {
       error: { code: 'ENOENT', message: 'spawn copilot ENOENT' },
     });
 
-    const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('copilot binary not found');
@@ -291,7 +301,7 @@ describe('callCopilot', () => {
       stderr: 'Authentication required. Not logged in.',
     });
 
-    const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('Copilot authentication failed');
@@ -311,7 +321,7 @@ describe('callCopilot', () => {
     });
     mockSpawnWithScenario({ code: 1, stdout: `${filler}\n${sessionError}\n` });
 
-    const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('rate_limited');
     expect(result.errorKind).toBe('rate_limit');
@@ -325,7 +335,7 @@ describe('callCopilot', () => {
       stderr: 'Error: Rate limit exceeded after 5 retries. Please try again later.',
     });
 
-    const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('rate_limited');
     expect(result.error).toContain('Rate limit exceeded');
@@ -338,7 +348,7 @@ describe('callCopilot', () => {
     });
     mockSpawnWithScenario({ code: 1, stdout: `${sessionError}\n` });
 
-    const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
   });
@@ -349,7 +359,7 @@ describe('callCopilot', () => {
       stderr: 'unexpected failure',
     });
 
-    const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('code 2');
@@ -362,7 +372,7 @@ describe('callCopilot', () => {
       signal: 'SIGTERM',
     });
 
-    const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('signal SIGTERM');
@@ -375,7 +385,7 @@ describe('callCopilot', () => {
       signal: null,
     });
 
-    const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('no exit code or signal');
@@ -388,7 +398,7 @@ describe('callCopilot', () => {
       code: 0,
     });
 
-    const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('copilot returned empty output');
@@ -402,7 +412,7 @@ describe('callCopilot', () => {
 
     const onStream = vi.fn();
     const result = await callCopilot('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       onStream,
     });
 
@@ -426,7 +436,7 @@ describe('callCopilot', () => {
       code: 0,
     });
 
-    const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.content).toBe(output);
@@ -440,7 +450,7 @@ describe('callCopilot', () => {
 
     const onStream = vi.fn();
     await callCopilot('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       onStream,
     });
 
@@ -465,7 +475,7 @@ describe('callCopilot', () => {
 
     const onStream = vi.fn();
     await callCopilot('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       onStream,
     });
 
@@ -493,7 +503,7 @@ describe('callCopilot', () => {
     });
 
     const result = await callCopilot('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       abortSignal: controller.signal,
     });
 
@@ -517,7 +527,7 @@ describe('callCopilot', () => {
     });
 
     const result = await callCopilot('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       abortSignal: controller.signal,
     });
 
@@ -533,13 +543,13 @@ describe('callCopilot', () => {
     });
 
     const result = await callCopilot('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'fallback-session-id',
     });
 
     expect(result.status).toBe('done');
     expect(result.sessionId).toBe('fallback-session-id');
-    expect(mockRm).toHaveBeenCalledWith('/tmp/takt-copilot-XXXXXX', { recursive: true, force: true });
+    expect(mockRm).toHaveBeenCalledWith(nativeFixturePath('/tmp/takt-copilot-XXXXXX'), { recursive: true, force: true });
   });
 
   it('should extract session ID from --share file on success', async () => {
@@ -552,7 +562,7 @@ describe('callCopilot', () => {
     });
 
     const result = await callCopilot('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
     });
 
     expect(result.status).toBe('done');
@@ -570,7 +580,7 @@ describe('callCopilot', () => {
       return child;
     });
     let settled = false;
-    const call = callCopilot('coder', 'implement', { cwd: '/repo' });
+    const call = callCopilot('coder', 'implement', { cwd: nativeFixturePath('/repo') });
     void call.finally(() => {
       settled = true;
     });
@@ -597,7 +607,7 @@ describe('callCopilot', () => {
       return child;
     });
     let settled = false;
-    const call = callCopilot('coder', 'implement', { cwd: '/repo' });
+    const call = callCopilot('coder', 'implement', { cwd: nativeFixturePath('/repo') });
     void call.finally(() => {
       settled = true;
     });
@@ -626,7 +636,7 @@ describe('callCopilot', () => {
     });
 
     const result = await callCopilot('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       abortSignal: controller.signal,
     });
 
@@ -642,7 +652,7 @@ describe('callCopilot', () => {
     });
 
     const result = await callCopilot('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'existing-session-id',
     });
 
@@ -651,10 +661,10 @@ describe('callCopilot', () => {
   });
 
   it('should create a missing TMPDIR before preparing the share file', async () => {
-    const originalTmpDir = process.env.TMPDIR;
+    const originalTmpDir = process.env[tmpEnvKey];
     const parentDir = mkdtempSync(join(tmpdir(), 'takt-copilot-missing-tmp-parent-'));
     const missingTmpDir = join(parentDir, 'missing', 'tmp');
-    process.env.TMPDIR = missingTmpDir;
+    process.env[tmpEnvKey] = missingTmpDir;
     mockMkdtemp.mockImplementationOnce(async (prefix: string) => {
       expect(prefix).toBe(join(missingTmpDir, 'takt-copilot-'));
       expect(existsSync(missingTmpDir)).toBe(true);
@@ -666,33 +676,33 @@ describe('callCopilot', () => {
     });
 
     try {
-      const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+      const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
       expect(result.status).toBe('done');
       expect(mockMkdtemp).toHaveBeenCalledWith(join(missingTmpDir, 'takt-copilot-'));
     } finally {
       if (originalTmpDir === undefined) {
-        delete process.env.TMPDIR;
+        delete process.env[tmpEnvKey];
       } else {
-        process.env.TMPDIR = originalTmpDir;
+        process.env[tmpEnvKey] = originalTmpDir;
       }
       rmSync(parentDir, { recursive: true, force: true });
     }
   });
 
   it('should continue without --share when TMPDIR cannot be created', async () => {
-    const originalTmpDir = process.env.TMPDIR;
+    const originalTmpDir = process.env[tmpEnvKey];
     const parentDir = mkdtempSync(join(tmpdir(), 'takt-copilot-invalid-tmp-parent-'));
     const fileTmpDir = join(parentDir, 'tmp-file');
     writeFileSync(fileTmpDir, 'not a directory\n', 'utf-8');
-    process.env.TMPDIR = fileTmpDir;
+    process.env[tmpEnvKey] = fileTmpDir;
     mockSpawnWithScenario({
       stdout: 'done',
       code: 0,
     });
 
     try {
-      const result = await callCopilot('coder', 'implement feature', { cwd: '/repo' });
+      const result = await callCopilot('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
       const [, args] = mockSpawn.mock.calls[0] as [string, string[]];
 
       expect(result.status).toBe('done');
@@ -701,9 +711,9 @@ describe('callCopilot', () => {
       expect(args).not.toContain('--share');
     } finally {
       if (originalTmpDir === undefined) {
-        delete process.env.TMPDIR;
+        delete process.env[tmpEnvKey];
       } else {
-        process.env.TMPDIR = originalTmpDir;
+        process.env[tmpEnvKey] = originalTmpDir;
       }
       rmSync(parentDir, { recursive: true, force: true });
     }
@@ -715,7 +725,7 @@ describe('callCopilot', () => {
       stderr: 'config error: secret ghp_abcdefghijklmnopqrstuvwxyz1234567890 is wrong',
     });
 
-    const result = await callCopilot('coder', 'implement', { cwd: '/repo' });
+    const result = await callCopilot('coder', 'implement', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).not.toContain('ghp_abcdefghijklmnopqrstuvwxyz1234567890');
@@ -726,7 +736,7 @@ describe('callCopilot', () => {
     const child = createMockChildProcess();
     mockSpawn.mockReturnValue(child);
     const onStream = vi.fn();
-    const call = callCopilot('coder', 'inspect task', { cwd: '/repo', onStream });
+    const call = callCopilot('coder', 'inspect task', { cwd: nativeFixturePath('/repo'), onStream });
     await vi.waitFor(() => expect(mockSpawn).toHaveBeenCalledOnce());
     try {
       const toolUse = JSON.stringify({ type: 'tool.execution_start', data: {
@@ -793,7 +803,7 @@ describe('callCopilot', () => {
       code: 0,
     });
 
-    const result = await callCopilot('coder', 'inspect task', { cwd: '/repo', onStream });
+    const result = await callCopilot('coder', 'inspect task', { cwd: nativeFixturePath('/repo'), onStream });
 
     expect(result).toMatchObject({ status: 'done', content: 'answer', sessionId: 'copilot-session' });
     expect(onStream).toHaveBeenCalledWith({

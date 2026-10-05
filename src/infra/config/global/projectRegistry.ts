@@ -15,12 +15,14 @@ import {
 import { basename, join } from 'node:path';
 import { UUID_PATTERN } from '../../../core/execution/locations.js';
 
+import { isPersistedFilesystemId, persistFilesystemId, type PersistedFilesystemId } from '../../../shared/utils/filesystem-identity.js';
+
 const REGISTRY_VERSION = 2;
 const LOCATION_ID_PATTERN = /^[a-f0-9]{64}$/u;
 
 export interface DirectoryFingerprint {
-  readonly dev: number;
-  readonly ino: number;
+  readonly dev: PersistedFilesystemId;
+  readonly ino: PersistedFilesystemId;
 }
 
 interface StoredProjectRegistration {
@@ -76,10 +78,10 @@ function parseFingerprint(value: unknown): DirectoryFingerprint {
     throw new Error('fingerprint is invalid');
   }
   const raw = value as Readonly<Record<string, unknown>>;
-  if (!Number.isSafeInteger(raw.dev) || !Number.isSafeInteger(raw.ino)) {
+  if (!isPersistedFilesystemId(raw.dev) || !isPersistedFilesystemId(raw.ino)) {
     throw new Error('fingerprint is invalid');
   }
-  return { dev: raw.dev as number, ino: raw.ino as number };
+  return { dev: raw.dev, ino: raw.ino };
 }
 
 function parseRegistration(value: unknown, expectedLocationId: string): StoredProjectRegistration {
@@ -159,11 +161,11 @@ function toPublicProject(stored: StoredProjectRegistration, available: boolean):
 }
 
 async function readDirectoryFingerprint(directory: string): Promise<DirectoryFingerprint> {
-  const stats = await lstat(directory);
+  const stats = await lstat(directory, { bigint: true });
   if (!stats.isDirectory() || stats.isSymbolicLink()) {
     throw new Error('Project directory must be a regular directory');
   }
-  return { dev: stats.dev, ino: stats.ino };
+  return { dev: persistFilesystemId(stats.dev), ino: persistFilesystemId(stats.ino) };
 }
 
 async function isAvailableDirectory(stored: StoredProjectRegistration): Promise<boolean> {
@@ -172,7 +174,7 @@ async function isAvailableDirectory(stored: StoredProjectRegistration): Promise<
     if (canonical !== stored.canonicalDirectory) return false;
     await access(canonical, constants.R_OK | constants.X_OK);
     const fingerprint = await readDirectoryFingerprint(canonical);
-    return fingerprint.dev === stored.fingerprint.dev && fingerprint.ino === stored.fingerprint.ino;
+    return String(fingerprint.dev) === String(stored.fingerprint.dev) && String(fingerprint.ino) === String(stored.fingerprint.ino);
   } catch {
     return false;
   }
@@ -241,8 +243,8 @@ export async function registerProject(options: {
   }
   if (existing !== undefined && (
     existing.canonicalDirectory !== canonicalDirectory
-    || existing.fingerprint.dev !== fingerprint.dev
-    || existing.fingerprint.ino !== fingerprint.ino
+    || String(existing.fingerprint.dev) !== String(fingerprint.dev)
+    || String(existing.fingerprint.ino) !== String(fingerprint.ino)
   )) {
     // The path name is a lookup key, not permission to attach to a replacement
     // directory. Keep the old state for an explicit relink in a later release.

@@ -21,6 +21,7 @@ type ExecFilePromisified = (
 ) => Promise<{ stdout: string; stderr: string }>;
 
 const originalPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
+const tmpEnvKey = process.platform === 'win32' ? 'TEMP' : 'TMPDIR';
 let originalTmpDir: string | undefined;
 const tempRoots = new Set<string>();
 
@@ -41,7 +42,7 @@ function setExecFilePromisified(implementation: ExecFilePromisified): void {
 describe('readClipboardImage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    originalTmpDir = process.env.TMPDIR;
+    originalTmpDir = process.env[tmpEnvKey];
     setPlatform('darwin');
   });
 
@@ -52,9 +53,9 @@ describe('readClipboardImage', () => {
       Object.defineProperty(process, 'platform', originalPlatform);
     }
     if (originalTmpDir === undefined) {
-      delete process.env.TMPDIR;
+      delete process.env[tmpEnvKey];
     } else {
-      process.env.TMPDIR = originalTmpDir;
+      process.env[tmpEnvKey] = originalTmpDir;
     }
     for (const root of tempRoots) {
       rmSync(root, { recursive: true, force: true });
@@ -66,7 +67,7 @@ describe('readClipboardImage', () => {
     const parentDir = mkdtempSync(join(tmpdir(), 'takt-clipboard-missing-tmp-parent-'));
     tempRoots.add(parentDir);
     const missingTmpDir = join(parentDir, 'missing', 'tmp');
-    process.env.TMPDIR = missingTmpDir;
+    process.env[tmpEnvKey] = missingTmpDir;
 
     const execFileAsync = vi.fn(async (file: string, args: string[]) => {
       if (file !== 'osascript') {

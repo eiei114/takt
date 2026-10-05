@@ -1,4 +1,7 @@
 import type { Command } from 'commander';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const initializationMocks = vi.hoisted(() => ({
@@ -81,8 +84,8 @@ describe('CLI execution context', () => {
   });
 
   it('should explain a global and project configuration directory collision', async () => {
-    const projectDir = '/test/project';
-    initializationMocks.getConfigDirCollision.mockReturnValue(`${projectDir}/.takt`);
+    const projectDir = nativeFixturePath('/test/project');
+    initializationMocks.getConfigDirCollision.mockReturnValue(nativeFixturePath(`${projectDir}/.takt`));
     const { assertConfigDirsDoNotCollide } = await import('../app/cli/initialization.js');
 
     let caughtError: unknown;
@@ -95,25 +98,25 @@ describe('CLI execution context', () => {
     expect(caughtError).toBeInstanceOf(Error);
     expect(initializationMocks.getConfigDirCollision).toHaveBeenCalledWith(projectDir);
     const message = (caughtError as Error).message;
-    expect(message).toContain('/test/project/.takt');
+    expect(message).toContain(nativeFixturePath('/test/project/.takt'));
     expect(message).toMatch(/global.*project|project.*global/i);
     expect(message).toMatch(/TAKT_CONFIG_DIR|different|another/i);
   });
 
   it.each([false, true])('should initialize global, project, and Git state when pipeline mode is %s', async (pipelineMode) => {
-    vi.spyOn(process, 'cwd').mockReturnValue('/test/project');
+    vi.spyOn(process, 'cwd').mockReturnValue(nativeFixturePath('/test/project'));
     const program = { opts: () => ({ pipeline: pipelineMode, quiet: false }) } as Command;
     const { initializeCliExecutionContext } = await import('../app/cli/initialization.js');
 
     await initializeCliExecutionContext(program, '1.0.0');
 
     expect(initializationMocks.initGlobalDirs).toHaveBeenCalledWith({ nonInteractive: pipelineMode });
-    expect(initializationMocks.initProjectDirs).toHaveBeenCalledWith('/test/project');
-    expect(initializationMocks.initGitProvider).toHaveBeenCalledWith('/test/project');
+    expect(initializationMocks.initProjectDirs).toHaveBeenCalledWith(nativeFixturePath('/test/project'));
+    expect(initializationMocks.initGitProvider).toHaveBeenCalledWith(nativeFixturePath('/test/project'));
     expect(initializationMocks.createLogger).toHaveBeenCalledWith('cli');
     expect(initializationMocks.loggerInfo).toHaveBeenCalledWith('TAKT CLI starting', {
       version: '1.0.0',
-      cwd: '/test/project',
+      cwd: nativeFixturePath('/test/project'),
       verbose: false,
       pipelineMode,
       quietMode: false,
@@ -121,7 +124,7 @@ describe('CLI execution context', () => {
   });
 
   it('should validate and retain the selected runtime file during initialization', async () => {
-    vi.spyOn(process, 'cwd').mockReturnValue('/test/project');
+    vi.spyOn(process, 'cwd').mockReturnValue(nativeFixturePath('/test/project'));
     const program = {
       opts: () => ({
         pipeline: false,
@@ -135,21 +138,21 @@ describe('CLI execution context', () => {
     await initializeCliExecutionContext(program, '1.0.0');
 
     expect(initializationMocks.prepareRuntimeAssignmentInvocation)
-      .toHaveBeenCalledWith('/test/project', 'cost', 'configs/runtime.cost.yaml');
+      .toHaveBeenCalledWith(nativeFixturePath('/test/project'), 'cost', 'configs/runtime.cost.yaml');
     expect(initializationMocks.initializeRuntimeAssignmentInvocation)
-      .toHaveBeenCalledWith('/test/project', 'cost', 'configs/runtime.cost.yaml');
+      .toHaveBeenCalledWith(nativeFixturePath('/test/project'), 'cost', 'configs/runtime.cost.yaml');
   });
 
   it('should use info logging when verbose mode and logging config are unset', async () => {
-    vi.spyOn(process, 'cwd').mockReturnValue('/test/project');
+    vi.spyOn(process, 'cwd').mockReturnValue(nativeFixturePath('/test/project'));
     const program = { opts: () => ({ pipeline: false, quiet: false }) } as Command;
     const { initializeCliExecutionContext } = await import('../app/cli/initialization.js');
 
     await initializeCliExecutionContext(program, '1.0.0');
 
     expect(initializationMocks.resolveConfigValues)
-      .toHaveBeenCalledWith('/test/project', ['logging', 'minimalOutput']);
-    expect(initializationMocks.initDebugLogger).toHaveBeenCalledWith(undefined, '/test/project');
+      .toHaveBeenCalledWith(nativeFixturePath('/test/project'), ['logging', 'minimalOutput']);
+    expect(initializationMocks.initDebugLogger).toHaveBeenCalledWith(undefined, nativeFixturePath('/test/project'));
     expect(initializationMocks.setVerboseConsole).not.toHaveBeenCalled();
     expect(initializationMocks.setLogLevel).toHaveBeenCalledWith('info');
   });
@@ -159,13 +162,13 @@ describe('CLI execution context', () => {
       logging: { level: 'warn', trace: false },
       minimalOutput: false,
     });
-    vi.spyOn(process, 'cwd').mockReturnValue('/test/project');
+    vi.spyOn(process, 'cwd').mockReturnValue(nativeFixturePath('/test/project'));
     const program = { opts: () => ({ pipeline: false, quiet: false }) } as Command;
     const { initializeCliExecutionContext } = await import('../app/cli/initialization.js');
 
     await initializeCliExecutionContext(program, '1.0.0');
 
-    expect(initializationMocks.initDebugLogger).toHaveBeenCalledWith(undefined, '/test/project');
+    expect(initializationMocks.initDebugLogger).toHaveBeenCalledWith(undefined, nativeFixturePath('/test/project'));
     expect(initializationMocks.setVerboseConsole).not.toHaveBeenCalled();
     expect(initializationMocks.setLogLevel).toHaveBeenCalledWith('warn');
   });
@@ -176,14 +179,14 @@ describe('CLI execution context', () => {
       logging: { level: 'warn', trace: true },
       minimalOutput: false,
     });
-    vi.spyOn(process, 'cwd').mockReturnValue('/test/project');
+    vi.spyOn(process, 'cwd').mockReturnValue(nativeFixturePath('/test/project'));
     const program = { opts: () => ({ pipeline: false, quiet: false }) } as Command;
     const { initializeCliExecutionContext } = await import('../app/cli/initialization.js');
 
     await initializeCliExecutionContext(program, '1.0.0');
 
     expect(initializationMocks.initDebugLogger)
-      .toHaveBeenCalledWith({ enabled: true, trace: true }, '/test/project');
+      .toHaveBeenCalledWith({ enabled: true, trace: true }, nativeFixturePath('/test/project'));
     expect(initializationMocks.setVerboseConsole).toHaveBeenCalledWith(true);
     expect(initializationMocks.setLogLevel).toHaveBeenCalledWith('debug');
   });
@@ -197,7 +200,7 @@ describe('CLI execution context', () => {
       logging: undefined,
       minimalOutput: configQuiet,
     });
-    vi.spyOn(process, 'cwd').mockReturnValue('/test/project');
+    vi.spyOn(process, 'cwd').mockReturnValue(nativeFixturePath('/test/project'));
     const program = { opts: () => ({ pipeline: false, quiet: cliQuiet }) } as Command;
     const { initializeCliExecutionContext } = await import('../app/cli/initialization.js');
 
@@ -208,7 +211,7 @@ describe('CLI execution context', () => {
 
   it('should stop initialization and context publication when global directory setup fails', async () => {
     initializationMocks.initGlobalDirs.mockRejectedValueOnce(new Error('global setup failed'));
-    vi.spyOn(process, 'cwd').mockReturnValue('/test/project');
+    vi.spyOn(process, 'cwd').mockReturnValue(nativeFixturePath('/test/project'));
     const program = { opts: () => ({ pipeline: false, quiet: false }) } as Command;
     const { getCliExecutionContext, initializeCliExecutionContext } = await import('../app/cli/initialization.js');
 

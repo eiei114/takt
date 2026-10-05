@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -64,8 +67,8 @@ vi.mock('../../infra/config/paths.js', () => ({
   getBuiltinLanguageStepsDir: (lang: string) => `${mockPaths.root}/builtins/${lang}/steps`,
   getGlobalProviderOptionsDir: () => `${mockPaths.root}/home/.takt/provider-options`,
   getGlobalStepsDir: () => `${mockPaths.root}/home/.takt/steps`,
-  getProjectProviderOptionsDir: (projectDir: string) => `${projectDir}/.takt/provider-options`,
-  getProjectStepsDir: (projectDir: string) => `${projectDir}/.takt/steps`,
+  getProjectProviderOptionsDir: (projectDir: string) => nativeFixturePath(`${projectDir}/.takt/provider-options`),
+  getProjectStepsDir: (projectDir: string) => nativeFixturePath(`${projectDir}/.takt/steps`),
   getRepertoireDir: () => `${mockPaths.root}/home/.takt/repertoire`,
   getRepertoirePackageDir: (owner: string, repo: string) => `${mockPaths.root}/home/.takt/repertoire/@${owner}/${repo}`,
 }));
@@ -151,11 +154,11 @@ describe('repertoireAddCommand install summary integration', () => {
 
   it('should not confirm or install when package collection cannot read a discovered step fragment directory', async () => {
     mockPaths.root = mkdirTempRoot();
-    mockFsFailure.readdirPathSuffix = '/extract/steps';
+    mockFsFailure.readdirPathSuffix = join('extract', 'steps');
     mockExecFileSync.mockImplementation(createPackageCommandHandler);
 
     await expect(repertoireAddCommand('github:owner/repo@main'))
-      .rejects.toThrow(/Failed to read package directory: .*\/extract\/steps/);
+      .rejects.toThrow(/Failed to read package directory: .*[/\\]extract[/\\]steps/);
 
     expect(mockConfirm).not.toHaveBeenCalled();
   });
@@ -163,11 +166,11 @@ describe('repertoireAddCommand install summary integration', () => {
   it('should not confirm or install when package collection cannot inspect an enumerated step fragment', async () => {
     mockPaths.root = mkdirTempRoot();
     stepFragmentFileName = 'review.yaml';
-    mockFsFailure.lstatPathSuffix = '/extract/steps/review.yaml';
+    mockFsFailure.lstatPathSuffix = join('extract', 'steps', 'review.yaml');
     mockExecFileSync.mockImplementation(createPackageCommandHandler);
 
     await expect(repertoireAddCommand('github:owner/repo@main'))
-      .rejects.toThrow(/Failed to inspect package entry: .*\/extract\/steps\/review\.yaml/);
+      .rejects.toThrow(/Failed to inspect package entry: .*[/\\]extract[/\\]steps[/\\]review\.yaml/);
 
     expect(mockConfirm).not.toHaveBeenCalled();
   });
@@ -175,7 +178,7 @@ describe('repertoireAddCommand install summary integration', () => {
   it('should include the step fragment path and preserve its cause when reading a collected fragment fails', async () => {
     mockPaths.root = mkdirTempRoot();
     stepFragmentFileName = 'review.yaml';
-    mockFsFailure.readFilePathSuffix = '/extract/steps/review.yaml';
+    mockFsFailure.readFilePathSuffix = join('extract', 'steps', 'review.yaml');
     mockExecFileSync.mockImplementation(createPackageCommandHandler);
 
     const error = await captureError(() => repertoireAddCommand('github:owner/repo@main'));

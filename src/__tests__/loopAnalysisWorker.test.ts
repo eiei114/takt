@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve, sep } from 'node:path';
@@ -82,8 +85,8 @@ import type { CommentLoopAnalysisReportOptions } from '../features/tasks/execute
 
 const baseJob = {
   version: 1 as const,
-  projectCwd: '/project',
-  sourceRunDirectory: '/project/.takt/runs/source-run',
+  projectCwd: nativeFixturePath('/project'),
+  sourceRunDirectory: nativeFixturePath('/project/.takt/runs/source-run'),
   output: 'file' as const,
   parentPid: 1234,
 };
@@ -201,15 +204,15 @@ describe('loop analysis worker', () => {
         version: 1,
         sourceRunDirectory: baseJob.sourceRunDirectory,
         projectCwd: baseJob.projectCwd,
-        analysisReportPath: '/project/.takt/runs/analysis-run/reports/loop-analysis.md',
+        analysisReportPath: nativeFixturePath('/project/.takt/runs/analysis-run/reports/loop-analysis.md'),
         archivedAt: '2026-08-25T00:00:00.000Z',
       },
     });
     mockRunLoopAnalysisWorkflowExecution.mockResolvedValue({
       success: true,
-      runDirectory: '/project/.takt/runs/analysis-run',
-      reportDirectory: '/project/.takt/runs/analysis-run/reports',
-      ndjsonLogPath: '/project/.takt/runs/analysis-run/logs/session.ndjson',
+      runDirectory: nativeFixturePath('/project/.takt/runs/analysis-run'),
+      reportDirectory: nativeFixturePath('/project/.takt/runs/analysis-run/reports'),
+      ndjsonLogPath: nativeFixturePath('/project/.takt/runs/analysis-run/logs/session.ndjson'),
     });
     mockCommentLoopAnalysisReportOnPr.mockResolvedValue(undefined);
   });
@@ -223,30 +226,30 @@ describe('loop analysis worker', () => {
   });
 
   it('Given file output, When the worker runs, Then it saves the analysis report without PR operations', async () => {
-    await executeLoopAnalysisJob('/project/source.job.json');
+    await executeLoopAnalysisJob(nativeFixturePath('/project/source.job.json'));
 
     expect(mockRunLoopAnalysisWorkflowExecution).toHaveBeenCalledWith({
-      task: expect.stringContaining('/project/.takt/runs/source-run'),
-      cwd: '/project',
-      projectCwd: '/project',
+      task: expect.stringContaining(nativeFixturePath('/project/.takt/runs/source-run')),
+      cwd: nativeFixturePath('/project'),
+      projectCwd: nativeFixturePath('/project'),
       workflowIdentifier: 'loop-analysis',
       outputMode: 'silent',
     });
     expect(mockExistsSync).toHaveBeenNthCalledWith(
       1,
-      '/project/.takt/runs/analysis-run/reports',
+      nativeFixturePath('/project/.takt/runs/analysis-run/reports'),
     );
     expect(mockLstatSync).toHaveBeenCalledWith(
-      '/project/.takt/runs/analysis-run/reports/loop-analysis.md',
+      nativeFixturePath('/project/.takt/runs/analysis-run/reports/loop-analysis.md'),
       { throwIfNoEntry: false },
     );
     expect(mockArchiveLoopAnalysisReport).toHaveBeenCalledWith({
-      sourceRunDirectory: '/project/.takt/runs/source-run',
-      projectCwd: '/project',
-      analysisReportPath: '/project/.takt/runs/analysis-run/reports/loop-analysis.md',
+      sourceRunDirectory: nativeFixturePath('/project/.takt/runs/source-run'),
+      projectCwd: nativeFixturePath('/project'),
+      analysisReportPath: nativeFixturePath('/project/.takt/runs/analysis-run/reports/loop-analysis.md'),
     });
     expect(mockPrepareLoopAnalysisReportFileForPublication).toHaveBeenCalledWith(
-      '/project/.takt/runs/analysis-run/reports/loop-analysis.md',
+      nativeFixturePath('/project/.takt/runs/analysis-run/reports/loop-analysis.md'),
       'source-run',
     );
     expect(mockInitGitProvider).not.toHaveBeenCalled();
@@ -273,7 +276,7 @@ describe('loop analysis worker', () => {
 
     expect(readFileSync(context.archivedReportPath, 'utf8')).toBe(fullReport);
     const publishedReport = readFileSync(context.reportPath, 'utf8');
-    expect(publishedReport).not.toContain('/Users/jane/private/report.md');
+    expect(publishedReport).not.toContain(nativeFixturePath('/Users/jane/private/report.md'));
     expect(publishedReport).toContain('[path]');
     expect(publishedReport).toContain('reports/subworkflows/**/plan.md');
     expect(publishedReport).toContain('[REDACTED]');
@@ -371,19 +374,19 @@ describe('loop analysis worker', () => {
       ...baseJob,
       output: 'pr-comment',
       branch: 'takt/source-run',
-      publicationMarkerPath: '/project/source.publication.json',
+      publicationMarkerPath: nativeFixturePath('/project/source.publication.json'),
     });
     mockReadLoopAnalysisPublicationMarker.mockReturnValue('settled');
 
-    await executeLoopAnalysisJob('/project/source.job.json');
+    await executeLoopAnalysisJob(nativeFixturePath('/project/source.job.json'));
 
     expect(mockReadLoopAnalysisPublicationMarker).toHaveBeenCalledTimes(1);
-    expect(mockInitGitProvider).toHaveBeenCalledWith('/project');
+    expect(mockInitGitProvider).toHaveBeenCalledWith(nativeFixturePath('/project'));
     expect(mockCommentLoopAnalysisReportOnPr).toHaveBeenCalledTimes(1);
     expect(mockCommentLoopAnalysisReportOnPr).toHaveBeenCalledWith({
-      projectCwd: '/project',
+      projectCwd: nativeFixturePath('/project'),
       branch: 'takt/source-run',
-      reportPath: '/project/.takt/runs/analysis-run/reports/loop-analysis.md',
+      reportPath: nativeFixturePath('/project/.takt/runs/analysis-run/reports/loop-analysis.md'),
       sourceRunSlug: 'source-run',
     });
   });
@@ -451,7 +454,7 @@ describe('loop analysis worker', () => {
     expect(postedReports).toEqual([
       { reportPath: context.reportPath, content: publishedReport },
     ]);
-    expect(publishedReport).not.toContain('/Users/jane/pr.md');
+    expect(publishedReport).not.toContain(nativeFixturePath('/Users/jane/pr.md'));
     expect(publishedReport).toContain('reports/subworkflows/**/plan.md');
     expect(publishedReport.match(/^source run: pr-run$/gm)).toEqual([
       'source run: pr-run',
@@ -513,14 +516,14 @@ describe('loop analysis worker', () => {
       ...baseJob,
       output: 'pr-comment',
       branch: 'takt/source-run',
-      publicationMarkerPath: '/project/source.publication.json',
+      publicationMarkerPath: nativeFixturePath('/project/source.publication.json'),
     });
     mockReadLoopAnalysisPublicationMarker
       .mockReturnValueOnce('pending')
       .mockReturnValueOnce('settled');
     vi.spyOn(process, 'kill').mockImplementation((() => true) as typeof process.kill);
 
-    const execution = executeLoopAnalysisJob('/project/source.job.json');
+    const execution = executeLoopAnalysisJob(nativeFixturePath('/project/source.job.json'));
     await vi.advanceTimersByTimeAsync(0);
 
     expect(mockCommentLoopAnalysisReportOnPr).not.toHaveBeenCalled();
@@ -537,7 +540,7 @@ describe('loop analysis worker', () => {
       ...baseJob,
       output: 'pr-comment',
       branch: 'takt/source-run',
-      publicationMarkerPath: '/project/source.publication.json',
+      publicationMarkerPath: nativeFixturePath('/project/source.publication.json'),
     });
     mockReadLoopAnalysisPublicationMarker.mockReturnValue('pending');
     const processError = Object.assign(new Error('process not found'), { code: 'ESRCH' });
@@ -545,7 +548,7 @@ describe('loop analysis worker', () => {
       throw processError;
     }) as typeof process.kill);
 
-    await executeLoopAnalysisJob('/project/source.job.json');
+    await executeLoopAnalysisJob(nativeFixturePath('/project/source.job.json'));
 
     expect(mockReadLoopAnalysisPublicationMarker).toHaveBeenCalledTimes(1);
     expect(mockCommentLoopAnalysisReportOnPr).toHaveBeenCalledTimes(1);
@@ -557,7 +560,7 @@ describe('loop analysis worker', () => {
       ...baseJob,
       output: 'pr-comment',
       branch: 'takt/source-run',
-      publicationMarkerPath: '/project/source.publication.json',
+      publicationMarkerPath: nativeFixturePath('/project/source.publication.json'),
     });
     mockReadLoopAnalysisPublicationMarker
       .mockImplementationOnce(() => {
@@ -568,7 +571,7 @@ describe('loop analysis worker', () => {
       })
       .mockReturnValueOnce('settled');
 
-    const execution = executeLoopAnalysisJob('/project/source.job.json');
+    const execution = executeLoopAnalysisJob(nativeFixturePath('/project/source.job.json'));
     await vi.advanceTimersByTimeAsync(20);
     await execution;
 
@@ -627,13 +630,13 @@ describe('loop analysis worker', () => {
       ...baseJob,
       output: 'pr-comment',
       branch: 'takt/source-run',
-      publicationMarkerPath: '/project/source.publication.json',
+      publicationMarkerPath: nativeFixturePath('/project/source.publication.json'),
     });
     mockReadLoopAnalysisPublicationMarker.mockImplementation(() => {
       throw new Error('Invalid loop analysis publication marker state');
     });
 
-    await expect(runLoopAnalysisWorker('/project/source.job.json')).rejects.toThrow(
+    await expect(runLoopAnalysisWorker(nativeFixturePath('/project/source.job.json'))).rejects.toThrow(
       'Invalid loop analysis publication marker state',
     );
 
@@ -688,12 +691,12 @@ describe('loop analysis worker', () => {
       reason: 'review rejected',
     });
 
-    await expect(runLoopAnalysisWorker('/project/source.job.json')).rejects.toThrow(
+    await expect(runLoopAnalysisWorker(nativeFixturePath('/project/source.job.json'))).rejects.toThrow(
       'review rejected',
     );
 
     expect(mockAppendLoopAnalysisWorkerFailure).toHaveBeenCalledWith(
-      '/project/source.job.json',
+      nativeFixturePath('/project/source.job.json'),
       expect.objectContaining({ message: expect.stringContaining('review rejected') }),
     );
     expect(mockCommentLoopAnalysisReportOnPr).not.toHaveBeenCalled();
@@ -707,18 +710,18 @@ describe('loop analysis worker', () => {
         ...baseJob,
         output: 'pr-comment' as const,
         branch: 'takt/source-run',
-        publicationMarkerPath: '/project/source.publication.json',
+        publicationMarkerPath: nativeFixturePath('/project/source.publication.json'),
       },
     },
   ])('Given $label completes without a report directory, When the worker checks its required output, Then it persists the failure before PR operations', async ({ job }) => {
     mockReadLoopAnalysisJob.mockReturnValue(job);
     mockRunLoopAnalysisWorkflowExecution.mockResolvedValue({
       success: true,
-      runDirectory: '/project/.takt/runs/analysis-run',
-      ndjsonLogPath: '/project/.takt/runs/analysis-run/logs/session.ndjson',
+      runDirectory: nativeFixturePath('/project/.takt/runs/analysis-run'),
+      ndjsonLogPath: nativeFixturePath('/project/.takt/runs/analysis-run/logs/session.ndjson'),
     });
 
-    await expect(runLoopAnalysisWorker('/project/source.job.json')).rejects.toThrow(
+    await expect(runLoopAnalysisWorker(nativeFixturePath('/project/source.job.json'))).rejects.toThrow(
       'without a report directory',
     );
 
@@ -737,14 +740,14 @@ describe('loop analysis worker', () => {
         ...baseJob,
         output: 'pr-comment' as const,
         branch: 'takt/source-run',
-        publicationMarkerPath: '/project/source.publication.json',
+        publicationMarkerPath: nativeFixturePath('/project/source.publication.json'),
       },
     },
   ])('Given $label completes without the report file, When the worker checks its required output, Then it persists the failure before PR operations', async ({ job }) => {
     mockReadLoopAnalysisJob.mockReturnValue(job);
     mockLstatSync.mockReturnValue(undefined);
 
-    await expect(runLoopAnalysisWorker('/project/source.job.json')).rejects.toThrow(
+    await expect(runLoopAnalysisWorker(nativeFixturePath('/project/source.job.json'))).rejects.toThrow(
       'without a report',
     );
 
@@ -762,14 +765,14 @@ describe('loop analysis worker', () => {
         ...baseJob,
         output: 'pr-comment' as const,
         branch: 'takt/source-run',
-        publicationMarkerPath: '/project/source.publication.json',
+        publicationMarkerPath: nativeFixturePath('/project/source.publication.json'),
       },
     },
   ])('Given $label leaves a directory at the report path, When the worker checks its required output, Then it persists the failure before PR operations', async ({ job }) => {
     mockReadLoopAnalysisJob.mockReturnValue(job);
     mockLstatSync.mockReturnValue({ isFile: () => false });
 
-    await expect(runLoopAnalysisWorker('/project/source.job.json')).rejects.toThrow(
+    await expect(runLoopAnalysisWorker(nativeFixturePath('/project/source.job.json'))).rejects.toThrow(
       'without a report',
     );
 

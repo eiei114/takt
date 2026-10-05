@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -261,7 +264,7 @@ vi.mock('../shared/utils/index.js', async (importOriginal) => ({
 
 vi.mock('../core/logging/providerEventLogger.js', () => ({
   createProviderEventLogger: vi.fn().mockReturnValue({
-    filepath: '/tmp/provider-events.jsonl',
+    filepath: nativeFixturePath('/tmp/provider-events.jsonl'),
     logEvent: vi.fn(),
   }),
   isProviderEventsEnabled: vi.fn().mockReturnValue(false),
@@ -269,7 +272,7 @@ vi.mock('../core/logging/providerEventLogger.js', () => ({
 
 vi.mock('../core/logging/usageEventLogger.js', () => ({
   createUsageEventLogger: vi.fn().mockReturnValue({
-    filepath: '/tmp/usage-events.jsonl',
+    filepath: nativeFixturePath('/tmp/usage-events.jsonl'),
     logUsageFor: vi.fn(),
   }),
   isUsageEventsEnabled: vi.fn().mockReturnValue(false),
@@ -926,7 +929,7 @@ steps:
 
     expect(result.success).toBe(false);
     const metaWrites = vi.mocked(writeFileAtomic).mock.calls.filter(([filePath]) =>
-      String(filePath).endsWith('/meta.json'));
+      /[\\/]meta\.json$/.test(String(filePath)));
     const lastWrite = metaWrites.at(-1);
     expect(lastWrite).toBeDefined();
     const serialized = JSON.parse(String(lastWrite?.[1]));
@@ -1009,7 +1012,7 @@ steps:
       projectCwd,
     })).rejects.toThrow('engine crashed after child completion');
     const metaWrites = vi.mocked(writeFileAtomic).mock.calls.filter(([filePath]) =>
-      String(filePath).endsWith('/meta.json'));
+      /[\\/]meta\.json$/.test(String(filePath)));
     const lastWrite = metaWrites.at(-1);
     expect(lastWrite).toBeDefined();
     const serialized = JSON.parse(String(lastWrite?.[1]));

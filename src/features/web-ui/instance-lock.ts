@@ -1,7 +1,10 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { link, lstat, mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import type { BigIntStats } from 'node:fs';
 import { join } from 'node:path';
 import { getProcessIdentity, isProcessAlive, sameProcessIdentity, type ProcessIdentity } from '../../infra/task/process.js';
+
+import { isPersistedFilesystemId, persistFilesystemId } from '../../shared/utils/filesystem-identity.js';
 
 const LOCK_VERSION = 1;
 const ENDPOINT_VERSION = 1;
@@ -15,7 +18,7 @@ interface LockOwner {
   readonly startedAt: string;
   readonly controlToken?: string;
   readonly processIdentity?: ProcessIdentity;
-  readonly inode: number;
+  readonly inode: number | string;
 }
 
 interface EndpointDocument {
@@ -78,8 +81,7 @@ function parseOwner(value: unknown): LockOwner | null {
     || (raw.pid as number) <= 0
     || !Number.isInteger(raw.port)
     || typeof raw.startedAt !== 'string'
-    || !Number.isSafeInteger(raw.inode)
-    || (raw.inode as number) < 0
+    || !isPersistedFilesystemId(raw.inode)
   ) return null;
   if (raw.controlToken !== undefined && (
     typeof raw.controlToken !== 'string'
@@ -131,7 +133,7 @@ function sameOwner(first: LockOwner, second: LockOwner): boolean {
     || sameProcessIdentity(first.processIdentity, second.processIdentity);
   return first.instanceId === second.instanceId
     && first.pid === second.pid
-    && first.inode === second.inode
+    && String(first.inode) === String(second.inode)
     && identityMatches;
 }
 
@@ -163,9 +165,9 @@ async function readManagedWebUiInstance(
   globalConfigDirectory: string,
 ): Promise<ManagedWebUiInstance | undefined> {
   const paths = webUiPaths(globalConfigDirectory);
-  let stats: Awaited<ReturnType<typeof lstat>>;
+  let stats: BigIntStats;
   try {
-    stats = await lstat(paths.lock);
+    stats = await lstat(paths.lock, { bigint: true });
   } catch (error) {
     if (error !== null && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') {
       return undefined;
@@ -174,7 +176,7 @@ async function readManagedWebUiInstance(
   }
   if (!stats.isFile()) throw new Error('TAKT Web UI instance lock is not a regular file');
   const owner = await readOwner(paths.lock);
-  if (owner === null || owner.inode !== stats.ino) {
+  if (owner === null || BigInt(owner.inode) !== stats.ino) {
     throw new Error('TAKT Web UI instance lock is malformed or incomplete');
   }
   if (ownerIsStale(owner)) return undefined;
@@ -262,7 +264,7 @@ export async function stopWebUiInstance(
 async function compareDeleteLock(
   path: string,
   owner: LockOwner,
-  expectedStat: { readonly dev: number; readonly ino: number },
+  expectedStat: { readonly dev: bigint; readonly ino: bigint },
 ): Promise<boolean> {
   const claim = claimPath(path, owner.instanceId);
   try {
@@ -275,8 +277,8 @@ async function compareDeleteLock(
   }
   try {
     const [canonicalStat, claimStat, current] = await Promise.all([
-      lstat(path),
-      lstat(claim),
+      lstat(path, { bigint: true }),
+      lstat(claim, { bigint: true }),
       readOwner(claim),
     ]);
     if (
@@ -287,7 +289,7 @@ async function compareDeleteLock(
       || current === null
       || !sameOwner(current, owner)
     ) return false;
-    const beforeDelete = await lstat(path);
+    const beforeDelete = await lstat(path, { bigint: true });
     if (beforeDelete.dev !== expectedStat.dev || beforeDelete.ino !== expectedStat.ino) return false;
     await unlink(path);
     return true;
@@ -322,14 +324,14 @@ export async function acquireWebUiInstanceLock(
     };
     const temporary = `${path}.${owner.instanceId}.${randomUUID()}.tmp`;
     let temporaryHandle: import('node:fs/promises').FileHandle | undefined;
-    let publishedOwner: { readonly owner: LockOwner; readonly stat: { readonly dev: number; readonly ino: number } } | undefined;
+    let publishedOwner: { readonly owner: LockOwner; readonly stat: { readonly dev: bigint; readonly ino: bigint } } | undefined;
     try {
       temporaryHandle = await open(temporary, 'wx', 0o600);
-      const fileStat = await temporaryHandle.stat();
+      const fileStat = await temporaryHandle.stat({ bigint: true });
       const processIdentity = getProcessIdentity(process.pid);
       const completeOwner: LockOwner = {
         ...owner,
-        inode: fileStat.ino,
+        inode: persistFilesystemId(fileStat.ino),
         ...(processIdentity === undefined ? {} : { processIdentity }),
       };
       try {
@@ -346,7 +348,7 @@ export async function acquireWebUiInstanceLock(
       publishedOwner = { owner: completeOwner, stat: { dev: fileStat.dev, ino: fileStat.ino } };
       await unlink(temporary);
       const publishedHandle = await open(path, 'r');
-      const publishedStat = await publishedHandle.stat();
+      const publishedStat = await publishedHandle.stat({ bigint: true });
       await publishedHandle.close();
       const publishedDocument = await readOwner(path);
       if (
@@ -407,7 +409,7 @@ export async function acquireWebUiInstanceLock(
           startedAt: current.startedAt,
         });
       }
-      const stats = await lstat(path).catch(() => null);
+      const stats = await lstat(path, { bigint: true }).catch(() => null);
       if (stats === null) continue;
       await compareDeleteLock(path, current, { dev: stats.dev, ino: stats.ino });
     } finally {

@@ -1,3 +1,4 @@
+import type { PersistedFilesystemId } from '../../shared/utils/filesystem-identity.js';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { buildRunPathsFromRunsDirectory, type RunPaths } from '../workflow/run/run-paths.js';
 
@@ -19,7 +20,7 @@ export interface StatePaths {
   readonly eventsDirectory: string;
   readonly locksDirectory: string;
   /** Fingerprint persisted by the central state owner for the runs root. */
-  readonly runsRootFingerprint?: Readonly<{ readonly dev: number; readonly ino: number }>;
+  readonly runsRootFingerprint?: Readonly<{ readonly dev: PersistedFilesystemId; readonly ino: PersistedFilesystemId }>;
 }
 
 export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;

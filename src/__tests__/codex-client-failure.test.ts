@@ -1,4 +1,7 @@
-import { basename } from 'node:path';
+import { basename, dirname, join } from 'node:path';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CodexCallOptions } from '../infra/codex/types.js';
 import { MAX_AGENT_FAILURE_MESSAGE_BYTES } from '../shared/types/agent-failure.js';
@@ -93,11 +96,11 @@ vi.mock('@openai/codex-sdk', () => ({
 
 const { CodexClient } = await import('../infra/codex/client.js');
 
-const FAILURE_DIR = '/project/.takt/runs/run-1/failures';
+const FAILURE_DIR = nativeFixturePath('/project/.takt/runs/run-1/failures');
 
 function createFailureOptions(): CodexCallOptions {
   return {
-    cwd: '/project',
+    cwd: nativeFixturePath('/project'),
     failureDir: FAILURE_DIR,
   };
 }
@@ -241,7 +244,7 @@ describe('CodexClient failure handling', () => {
     expect(ensurePrivateDirectoryMock).toHaveBeenCalledWith(FAILURE_DIR);
     expect(writeNewPrivateFileWithModeMock).toHaveBeenCalledOnce();
     expect(writeNewPrivateFileWithModeMock.mock.calls[0]?.[2]).toBe(0o600);
-    expect(writtenPath.startsWith(`${FAILURE_DIR}/`)).toBe(true);
+    expect(dirname(writtenPath)).toBe(FAILURE_DIR);
     expect(writtenText).toBe(failureMessage);
     expect(result.error).toBeDefined();
     expect(Buffer.byteLength(result.error ?? '', 'utf8')).toBeLessThanOrEqual(MAX_AGENT_FAILURE_MESSAGE_BYTES);
@@ -250,7 +253,7 @@ describe('CodexClient failure handling', () => {
       `[TRUNCATED: `,
     );
     expect(result.error).toContain(
-      `full text: .takt/runs/run-1/failures/${basename(writtenPath)}]`,
+      `full text: ${join('.takt', 'runs', 'run-1', 'failures', basename(writtenPath))}]`,
     );
     const marker = result.error?.match(/\[TRUNCATED: (\d+) bytes, full text:/);
     expect(marker).not.toBeNull();
@@ -279,7 +282,7 @@ describe('CodexClient failure handling', () => {
     const paths = writeNewPrivateFileWithModeMock.mock.calls.map((call) => String(call[0]));
     expect(paths).toHaveLength(2);
     expect(new Set(paths).size).toBe(2);
-    expect(paths.every((path) => path.startsWith(`${FAILURE_DIR}/`))).toBe(true);
+    expect(paths.every((path) => dirname(path) === FAILURE_DIR)).toBe(true);
   });
 
   it('should preserve an error at the maximum byte boundary without creating a file', async () => {

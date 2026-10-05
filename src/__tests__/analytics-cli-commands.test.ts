@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
+
 const {
   commandActions,
   mockComputeReviewMetrics,
@@ -36,7 +39,7 @@ const {
     commandActions,
     mockComputeReviewMetrics: vi.fn(),
     mockFormatReviewMetrics: vi.fn(),
-    mockGetGlobalConfigDir: vi.fn(() => '/global-config'),
+    mockGetGlobalConfigDir: vi.fn(() => nativeFixturePath('/global-config')),
     mockInfo: vi.fn(),
     mockParseSinceDuration: vi.fn(),
     mockPurgeOldEvents: vi.fn(),
@@ -53,7 +56,7 @@ vi.mock('../app/cli/program.js', () => ({
 }));
 
 vi.mock('../app/cli/initialization.js', () => ({
-  getCliExecutionContext: vi.fn(() => ({ cwd: '/project' })),
+  getCliExecutionContext: vi.fn(() => ({ cwd: nativeFixturePath('/project') })),
 }));
 
 vi.mock('../infra/config/paths.js', () => ({
@@ -109,7 +112,7 @@ describe('lazy CLI action wiring', () => {
 
   it('should execute the registered metrics review action with resolved config', async () => {
     const metrics = { totalReviews: 3 };
-    mockResolveConfigValue.mockReturnValue({ eventsPath: '/configured/events' });
+    mockResolveConfigValue.mockReturnValue({ eventsPath: nativeFixturePath('/configured/events') });
     mockParseSinceDuration.mockReturnValue(604_800_000);
     mockComputeReviewMetrics.mockReturnValue(metrics);
     mockFormatReviewMetrics.mockReturnValue('formatted metrics');
@@ -117,22 +120,22 @@ describe('lazy CLI action wiring', () => {
 
     await requireAction('root.metrics.review')({ since: '7d' });
 
-    expect(mockResolveConfigValue).toHaveBeenCalledWith('/project', 'analytics');
+    expect(mockResolveConfigValue).toHaveBeenCalledWith(nativeFixturePath('/project'), 'analytics');
     expect(mockParseSinceDuration).toHaveBeenCalledWith('7d');
-    expect(mockComputeReviewMetrics).toHaveBeenCalledWith('/configured/events', 1_395_200_000);
+    expect(mockComputeReviewMetrics).toHaveBeenCalledWith(nativeFixturePath('/configured/events'), 1_395_200_000);
     expect(mockFormatReviewMetrics).toHaveBeenCalledWith(metrics);
   });
 
   it('should execute the registered purge action with config overrides', async () => {
     mockResolveConfigValue.mockReturnValue({
-      eventsPath: '/configured/events',
+      eventsPath: nativeFixturePath('/configured/events'),
       retentionDays: 5,
     });
     mockPurgeOldEvents.mockReturnValue(['old.jsonl']);
 
     await requireAction('root.purge')({ retentionDays: '30' });
 
-    expect(mockPurgeOldEvents).toHaveBeenCalledWith('/configured/events', 5, expect.any(Date));
+    expect(mockPurgeOldEvents).toHaveBeenCalledWith(nativeFixturePath('/configured/events'), 5, expect.any(Date));
   });
 
   it('should execute the registered purge action with CLI defaults when config is unset', async () => {
@@ -140,7 +143,7 @@ describe('lazy CLI action wiring', () => {
 
     await requireAction('root.purge')({ retentionDays: '30' });
 
-    expect(mockPurgeOldEvents).toHaveBeenCalledWith('/global-config/analytics/events', 30, expect.any(Date));
+    expect(mockPurgeOldEvents).toHaveBeenCalledWith(nativeFixturePath('/global-config/analytics/events'), 30, expect.any(Date));
   });
 
   it('should execute the registered reset config action', async () => {

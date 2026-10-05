@@ -22,6 +22,12 @@ const runtimeStateBehavior = vi.hoisted(() => ({
   failPatchDisposal: false,
 }));
 
+// This suite uses a fake SDK, not the unsupported native Windows runtime.
+// Platform support itself remains covered by the dedicated platform tests.
+vi.mock('../infra/deepseek-harness/platform.js', () => ({
+  assertSupportedDeepSeekHarnessPlatform: vi.fn(),
+}));
+
 vi.mock('@deepseek-ai/dsh-sdk-client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@deepseek-ai/dsh-sdk-client')>();
   return {
@@ -124,7 +130,8 @@ import {
 import { AGENT_FAILURE_CATEGORIES } from '../shared/types/agent-failure.js';
 import type { StreamEvent } from '../shared/types/provider.js';
 
-const environmentKeys = ['TAKT_CONFIG_DIR', 'DSH_HOME', 'DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'TMPDIR'] as const;
+const tmpEnvKey = process.platform === 'win32' ? 'TEMP' : 'TMPDIR';
+const environmentKeys = ['TAKT_CONFIG_DIR', 'DSH_HOME', 'DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', tmpEnvKey] as const;
 const savedEnvironment = new Map<string, string | undefined>();
 const RAW_FAILURE_SENTINEL = 'TAKT_RAW_SDK_FAILURE_SENTINEL';
 let temporaryRoot: string;
@@ -133,8 +140,8 @@ describe('DeepSeek Harness SDK error mapping', () => {
   beforeEach(async () => {
     for (const key of environmentKeys) savedEnvironment.set(key, process.env[key]);
     temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'takt-deepseek-error-mapping-'));
-    process.env.TMPDIR = path.join(temporaryRoot, 'tmp');
-    await mkdir(process.env.TMPDIR, { recursive: true });
+    process.env[tmpEnvKey] = path.join(temporaryRoot, 'tmp');
+    await mkdir(process.env[tmpEnvKey], { recursive: true });
     process.env.TAKT_CONFIG_DIR = path.join(temporaryRoot, 'takt-config');
     process.env.DSH_HOME = path.join(temporaryRoot, 'credential-source');
     process.env.DEEPSEEK_API_KEY = 'TAKT_DUMMY_ERROR_MAPPING_CREDENTIAL';

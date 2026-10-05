@@ -3,6 +3,9 @@
  */
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const resolvedState = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 
 vi.mock('../infra/config/paths.js', () => ({
-  getGlobalConfigDir: () => '/tmp/.takt',
+  getGlobalConfigDir: () => nativeFixturePath('/tmp/.takt'),
 }));
 
 vi.mock('../infra/config/resolveWorkflowConfigValue.js', () => ({
@@ -42,13 +45,13 @@ describe('getWorkflowCategoriesPath', () => {
 
   it('should return configured path when workflowCategoriesFile is set', () => {
     // Given
-    resolvedState.value = { workflowCategoriesFile: '/custom/workflow-categories.yaml' };
+    resolvedState.value = { workflowCategoriesFile: nativeFixturePath('/custom/workflow-categories.yaml') };
 
     // When
     const path = getWorkflowCategoriesPath(process.cwd());
 
     // Then
-    expect(path).toBe('/custom/workflow-categories.yaml');
+    expect(path).toBe(nativeFixturePath('/custom/workflow-categories.yaml'));
   });
 
   it('should return default path when workflowCategoriesFile is not set', () => {
@@ -59,7 +62,7 @@ describe('getWorkflowCategoriesPath', () => {
     const path = getWorkflowCategoriesPath(process.cwd());
 
     // Then
-    expect(path).toBe('/tmp/.takt/preferences/workflow-categories.yaml');
+    expect(path).toBe(nativeFixturePath('/tmp/.takt/preferences/workflow-categories.yaml'));
   });
 
   it('should rethrow when global config loading fails', () => {

@@ -5,8 +5,8 @@ import { assertPathSegmentsAreSafe } from '../../../shared/utils/pathBoundary.js
 import {
   resolveFacetPath as resolveFacetPathGeneric,
   resolvePersona as resolvePersonaGeneric,
-  isResourcePath,
-  resolveResourcePath,
+  isResourcePath as isGenericResourcePath,
+  resolveResourcePath as resolveGenericResourcePath,
   isScopeRef,
   parseScopeRef,
   resolveScopeRef,
@@ -36,12 +36,20 @@ export interface WorkflowSections {
 }
 
 export {
-  isResourcePath,
-  resolveResourcePath,
   resolveSectionMap,
   extractPersonaDisplayName,
   isScopeRef,
 } from 'faceted-prompting';
+
+/** Recognize native absolute paths as well as portable facet specifications. */
+export function isResourcePath(spec: string): boolean {
+  return isAbsolute(spec) || isGenericResourcePath(spec);
+}
+
+/** Preserve absolute Windows paths instead of joining them to the workflow directory. */
+export function resolveResourcePath(spec: string, workflowDir: string): string {
+  return isAbsolute(spec) ? spec : resolveGenericResourcePath(spec, workflowDir);
+}
 
 export type { FacetResolutionContext } from './workflowPackageScope.js';
 

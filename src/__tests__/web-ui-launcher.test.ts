@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -44,13 +47,13 @@ describe('Web UI central launcher', () => {
     expect(parseLaunchRequest({
       prompt: 'task',
       workflow: 'default',
-      worktree: '/tmp/takt-worktrees',
+      worktree: nativeFixturePath('/tmp/takt-worktrees'),
       branch: 'feature/web-ui',
       baseBranch: 'main',
       autoPr: true,
       draftPr: true,
     })).toMatchObject({
-      worktree: '/tmp/takt-worktrees',
+      worktree: nativeFixturePath('/tmp/takt-worktrees'),
       branch: 'feature/web-ui',
       baseBranch: 'main',
       autoPr: true,
@@ -77,7 +80,7 @@ describe('Web UI central launcher', () => {
   });
 
   it('uses an internal worker command', () => {
-    expect(buildWorkerArguments('/opt/takt/worker.js', {
+    expect(buildWorkerArguments(nativeFixturePath('/opt/takt/worker.js'), {
       stateId: '11111111-1111-4111-8111-111111111111',
       taskId: '22222222-2222-4222-8222-222222222222',
       generation: 0,
@@ -93,7 +96,7 @@ describe('Web UI central launcher', () => {
     await symlink(target, stderrPath);
 
     await expect(spawnCentralWorker({
-      workerEntryPath: '/opt/takt/worker.js',
+      workerEntryPath: nativeFixturePath('/opt/takt/worker.js'),
       projectDirectory: directory,
       globalConfigDirectory: directory,
       stateId: '11111111-1111-4111-8111-111111111111',
@@ -119,7 +122,7 @@ describe('Web UI central launcher', () => {
       return child;
     }) as never;
     const options = {
-      workerEntryPath: '/opt/takt/worker.js',
+      workerEntryPath: nativeFixturePath('/opt/takt/worker.js'),
       projectDirectory: directory,
       globalConfigDirectory: directory,
       stateId: '11111111-1111-4111-8111-111111111111',

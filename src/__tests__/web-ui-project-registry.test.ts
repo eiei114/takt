@@ -49,6 +49,30 @@ describe('Web UI project registry', () => {
       .rejects.toThrow('Project is not registered');
   });
 
+  it('reads lossless decimal fingerprints and rejects rounded numeric inodes', async () => {
+    const globalConfigDirectory = await mkdtemp(join(tmpdir(), 'takt-project-registry-'));
+    const projectDirectory = await mkdtemp(join(tmpdir(), 'takt-project-'));
+    const registered = await registerProject({ globalConfigDirectory, projectDirectory, command: 'ui' });
+    const path = join(globalConfigDirectory, 'projects', `${registered.locationId}.json`);
+    const stored = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+    stored.fingerprint = {
+      dev: String(registered.fingerprint.dev),
+      ino: String(registered.fingerprint.ino),
+    };
+    await writeFile(path, JSON.stringify(stored));
+    await expect(resolveRegisteredProject(globalConfigDirectory, registered.locationId))
+      .resolves.toMatchObject({ available: true });
+
+    stored.fingerprint = { dev: registered.fingerprint.dev, ino: Number.MAX_SAFE_INTEGER + 1 };
+    await writeFile(path, JSON.stringify(stored));
+    await expect(resolveRegisteredProject(globalConfigDirectory, registered.locationId))
+      .rejects.toThrow('Project is not registered');
+    const invalidSnapshot = await readProjectRegistry(globalConfigDirectory);
+    expect(invalidSnapshot.projects).toEqual([]);
+    expect(invalidSnapshot.warnings).toHaveLength(1);
+    expect(invalidSnapshot.warnings[0]).toContain('fingerprint is invalid');
+  });
+
   it('keeps a state unavailable when the canonical directory fingerprint changes', async () => {
     const globalConfigDirectory = await mkdtemp(join(tmpdir(), 'takt-project-registry-'));
     const projectDirectory = await mkdtemp(join(tmpdir(), 'takt-project-'));
@@ -59,7 +83,7 @@ describe('Web UI project registry', () => {
     });
     const path = join(globalConfigDirectory, 'projects', `${registered.locationId}.json`);
     const stored = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
-    stored.fingerprint = { dev: registered.fingerprint.dev, ino: registered.fingerprint.ino + 1 };
+    stored.fingerprint = { dev: registered.fingerprint.dev, ino: (BigInt(registered.fingerprint.ino) + 1n).toString() };
     await writeFile(path, JSON.stringify(stored));
 
     await expect((await readProjectRegistry(globalConfigDirectory)).projects[0]).toMatchObject({

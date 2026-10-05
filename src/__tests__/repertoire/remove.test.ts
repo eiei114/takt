@@ -13,6 +13,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -32,21 +35,21 @@ vi.mock('../../features/repertoire/remove.js', () => ({
 }));
 
 vi.mock('../../infra/config/paths.js', () => ({
-  getRepertoireDir: vi.fn().mockReturnValue('/home/user/.takt/repertoire'),
-  getRepertoirePackageDir: vi.fn().mockReturnValue('/home/user/.takt/repertoire/@owner/repo'),
-  getGlobalConfigDir: vi.fn().mockReturnValue('/home/user/.takt'),
-  getGlobalWorkflowsDir: vi.fn().mockReturnValue('/home/user/.takt/workflows'),
-  getProjectWorkflowsDir: vi.fn().mockReturnValue('/project/.takt/workflows'),
-  getGlobalProviderOptionsDir: vi.fn().mockReturnValue('/home/user/.takt/provider-options'),
-  getProjectProviderOptionsDir: vi.fn().mockReturnValue('/project/.takt/provider-options'),
-  getGlobalStepsDir: vi.fn().mockReturnValue('/home/user/.takt/steps'),
-  getProjectStepsDir: vi.fn().mockReturnValue('/project/.takt/steps'),
-  getGlobalFacetPoolsDir: vi.fn().mockReturnValue('/home/user/.takt/facet-pools'),
-  getProjectFacetPoolsDir: vi.fn().mockReturnValue('/project/.takt/facet-pools'),
+  getRepertoireDir: vi.fn().mockReturnValue(nativeFixturePath('/home/user/.takt/repertoire')),
+  getRepertoirePackageDir: vi.fn().mockReturnValue(nativeFixturePath('/home/user/.takt/repertoire/@owner/repo')),
+  getGlobalConfigDir: vi.fn().mockReturnValue(nativeFixturePath('/home/user/.takt')),
+  getGlobalWorkflowsDir: vi.fn().mockReturnValue(nativeFixturePath('/home/user/.takt/workflows')),
+  getProjectWorkflowsDir: vi.fn().mockReturnValue(nativeFixturePath('/project/.takt/workflows')),
+  getGlobalProviderOptionsDir: vi.fn().mockReturnValue(nativeFixturePath('/home/user/.takt/provider-options')),
+  getProjectProviderOptionsDir: vi.fn().mockReturnValue(nativeFixturePath('/project/.takt/provider-options')),
+  getGlobalStepsDir: vi.fn().mockReturnValue(nativeFixturePath('/home/user/.takt/steps')),
+  getProjectStepsDir: vi.fn().mockReturnValue(nativeFixturePath('/project/.takt/steps')),
+  getGlobalFacetPoolsDir: vi.fn().mockReturnValue(nativeFixturePath('/home/user/.takt/facet-pools')),
+  getProjectFacetPoolsDir: vi.fn().mockReturnValue(nativeFixturePath('/project/.takt/facet-pools')),
 }));
 
 vi.mock('../../infra/config/global/index.js', () => ({
-  getWorkflowCategoriesPath: vi.fn().mockReturnValue('/home/user/.takt/preferences/workflow-categories.yaml'),
+  getWorkflowCategoriesPath: vi.fn().mockReturnValue(nativeFixturePath('/home/user/.takt/preferences/workflow-categories.yaml')),
 }));
 
 vi.mock('../../shared/prompt/index.js', () => ({
@@ -77,7 +80,7 @@ describe('repertoireRemoveCommand — scan configuration', () => {
     vi.mocked(findScopeReferences).mockClear();
     vi.mocked(findScopeReferences).mockReturnValue([]);
     vi.mocked(getWorkflowCategoriesPath).mockClear();
-    vi.mocked(getWorkflowCategoriesPath).mockReturnValue('/home/user/.takt/preferences/workflow-categories.yaml');
+    vi.mocked(getWorkflowCategoriesPath).mockReturnValue(nativeFixturePath('/home/user/.takt/preferences/workflow-categories.yaml'));
     vi.mocked(confirm).mockClear();
     vi.mocked(info).mockClear();
     vi.mocked(rmSync).mockClear();
@@ -103,8 +106,8 @@ describe('repertoireRemoveCommand — scan configuration', () => {
     expect(scanConfig.stepsDirs).toHaveLength(2);
 
     expect(scanConfig.facetPoolsDirs).toEqual([
-      '/home/user/.takt/facet-pools',
-      '/project/.takt/facet-pools',
+      nativeFixturePath('/home/user/.takt/facet-pools'),
+      nativeFixturePath('/project/.takt/facet-pools'),
     ]);
 
     // Then: exactly 1 categories file
@@ -118,7 +121,7 @@ describe('repertoireRemoveCommand — scan configuration', () => {
     const [, scanConfig] = vi.mocked(findScopeReferences).mock.calls[0]!;
 
     // Then: global workflows dir is in the scan list
-    expect(scanConfig.workflowDirs).toContain('/home/user/.takt/workflows');
+    expect(scanConfig.workflowDirs).toContain(nativeFixturePath('/home/user/.takt/workflows'));
   });
 
   it('should include project workflows dir in scan', async () => {
@@ -128,7 +131,7 @@ describe('repertoireRemoveCommand — scan configuration', () => {
     const [, scanConfig] = vi.mocked(findScopeReferences).mock.calls[0]!;
 
     // Then: project workflows dir is in the scan list
-    expect(scanConfig.workflowDirs).toContain('/project/.takt/workflows');
+    expect(scanConfig.workflowDirs).toContain(nativeFixturePath('/project/.takt/workflows'));
   });
 
   it('should include global provider-options dir in scan', async () => {
@@ -136,7 +139,7 @@ describe('repertoireRemoveCommand — scan configuration', () => {
 
     const [, scanConfig] = vi.mocked(findScopeReferences).mock.calls[0]!;
 
-    expect(scanConfig.providerOptionsDirs).toContain('/home/user/.takt/provider-options');
+    expect(scanConfig.providerOptionsDirs).toContain(nativeFixturePath('/home/user/.takt/provider-options'));
   });
 
   it('should include project provider-options dir in scan', async () => {
@@ -144,7 +147,7 @@ describe('repertoireRemoveCommand — scan configuration', () => {
 
     const [, scanConfig] = vi.mocked(findScopeReferences).mock.calls[0]!;
 
-    expect(scanConfig.providerOptionsDirs).toContain('/project/.takt/provider-options');
+    expect(scanConfig.providerOptionsDirs).toContain(nativeFixturePath('/project/.takt/provider-options'));
   });
 
   it('should include global steps dir in scan', async () => {
@@ -152,7 +155,7 @@ describe('repertoireRemoveCommand — scan configuration', () => {
 
     const [, scanConfig] = vi.mocked(findScopeReferences).mock.calls[0]!;
 
-    expect(scanConfig.stepsDirs).toContain('/home/user/.takt/steps');
+    expect(scanConfig.stepsDirs).toContain(nativeFixturePath('/home/user/.takt/steps'));
   });
 
   it('should include project steps dir in scan', async () => {
@@ -160,7 +163,7 @@ describe('repertoireRemoveCommand — scan configuration', () => {
 
     const [, scanConfig] = vi.mocked(findScopeReferences).mock.calls[0]!;
 
-    expect(scanConfig.stepsDirs).toContain('/project/.takt/steps');
+    expect(scanConfig.stepsDirs).toContain(nativeFixturePath('/project/.takt/steps'));
   });
 
   it('should include preferences/workflow-categories.yaml in categoriesFiles', async () => {
@@ -171,19 +174,19 @@ describe('repertoireRemoveCommand — scan configuration', () => {
 
     // Then: the categories file path is correct
     expect(scanConfig.categoriesFiles).toContain(
-      join('/home/user/.takt', 'preferences', 'workflow-categories.yaml'),
+      join(nativeFixturePath('/home/user/.takt'), 'preferences', 'workflow-categories.yaml'),
     );
   });
 
   it('should use the resolved workflow categories path override', async () => {
-    vi.mocked(getWorkflowCategoriesPath).mockReturnValue('/custom/workflow-categories.yaml');
+    vi.mocked(getWorkflowCategoriesPath).mockReturnValue(nativeFixturePath('/custom/workflow-categories.yaml'));
 
     await repertoireRemoveCommand('@owner/repo');
 
     const [, scanConfig] = vi.mocked(findScopeReferences).mock.calls[0]!;
 
     expect(getWorkflowCategoriesPath).toHaveBeenCalledWith(process.cwd());
-    expect(scanConfig.categoriesFiles).toEqual(['/custom/workflow-categories.yaml']);
+    expect(scanConfig.categoriesFiles).toEqual([nativeFixturePath('/custom/workflow-categories.yaml')]);
   });
 
   it('should pass the scope as the first argument to findScopeReferences', async () => {
@@ -206,7 +209,7 @@ describe('repertoireRemoveCommand — scan configuration', () => {
   it('should reject deletion when the resolved package directory is outside the repertoire directory', async () => {
     vi.mocked(confirm).mockResolvedValue(true);
     vi.mocked(realpathSync).mockImplementation((path: string) => (
-      path === '/home/user/.takt/repertoire/@owner/repo' ? '/tmp/target' : path
+      path === nativeFixturePath('/home/user/.takt/repertoire/@owner/repo') ? nativeFixturePath('/tmp/target') : path
     ));
 
     await expect(repertoireRemoveCommand('@owner/repo')).rejects.toThrow(/escapes repertoire directory/);
@@ -226,13 +229,13 @@ describe('repertoireRemoveCommand — scan configuration', () => {
   });
 
   it('should sanitize reference paths only at the terminal output boundary', async () => {
-    const referencePath = '/project/.takt/workflows/review\x1b[31m.yaml';
+    const referencePath = nativeFixturePath('/project/.takt/workflows/review\x1b[31m.yaml');
     vi.mocked(findScopeReferences).mockReturnValue([{ filePath: referencePath }]);
 
     await repertoireRemoveCommand('@owner/repo');
 
     expect(findScopeReferences).toHaveBeenCalledWith('@owner/repo', expect.any(Object));
-    expect(vi.mocked(info).mock.calls.flat().join('\n')).toContain('/project/.takt/workflows/review.yaml');
+    expect(vi.mocked(info).mock.calls.flat().join('\n')).toContain(nativeFixturePath('/project/.takt/workflows/review.yaml'));
     expect(vi.mocked(info).mock.calls.flat().join('\n')).not.toContain('\x1b');
   });
 });

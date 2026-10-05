@@ -1,3 +1,5 @@
+import { persistFilesystemId, type PersistedFilesystemId } from '../../shared/utils/filesystem-identity.js';
+
 import { constants } from 'node:fs';
 import { lstat, open, readdir, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
@@ -276,7 +278,7 @@ async function resolveContainedDirectory(
 
 interface RunsRootSnapshot {
   readonly directory: string;
-  readonly fingerprint: { readonly dev: number; readonly ino: number };
+  readonly fingerprint: { readonly dev: PersistedFilesystemId; readonly ino: PersistedFilesystemId };
 }
 
 /**
@@ -289,13 +291,13 @@ interface RunsRootSnapshot {
 async function captureRunsRoot(location: RunStoreLocation): Promise<RunsRootSnapshot> {
   const { stateDirectory, runsDirectory } = resolveRunStoreLocation(location);
   const directory = await resolveContainedDirectory(stateDirectory, runsDirectory, 'Runs directory');
-  const stats = await lstat(directory);
+  const stats = await lstat(directory, { bigint: true });
   if (!stats.isDirectory() || stats.isSymbolicLink()) {
     throw new Error('Runs directory must be a regular directory');
   }
-  const fingerprint = { dev: stats.dev, ino: stats.ino };
+  const fingerprint = { dev: persistFilesystemId(stats.dev), ino: persistFilesystemId(stats.ino) };
   const expected = location.runsRootFingerprint;
-  if (expected !== undefined && (expected.dev !== fingerprint.dev || expected.ino !== fingerprint.ino)) {
+  if (expected !== undefined && (String(expected.dev) !== String(fingerprint.dev) || String(expected.ino) !== String(fingerprint.ino))) {
     throw new Error('Runs directory fingerprint changed');
   }
   return { directory, fingerprint };
@@ -315,8 +317,8 @@ async function verifyRunsRootSnapshot(
   const current = await captureRunsRoot(location);
   if (
     current.directory !== snapshot.directory
-    || current.fingerprint.dev !== snapshot.fingerprint.dev
-    || current.fingerprint.ino !== snapshot.fingerprint.ino
+    || String(current.fingerprint.dev) !== String(snapshot.fingerprint.dev)
+    || String(current.fingerprint.ino) !== String(snapshot.fingerprint.ino)
   ) {
     throw new Error('Runs directory identity changed during read');
   }

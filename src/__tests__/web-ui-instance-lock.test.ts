@@ -52,14 +52,14 @@ describe('Web UI instance lock', () => {
       startedAt: new Date(0).toISOString(),
       inode: 0,
     }));
-    const fileStat = await lstat(path);
+    const fileStat = await lstat(path, { bigint: true });
     await writeFile(path, JSON.stringify({
       version: 1,
       instanceId: 'stale',
       pid: 2_147_483_647,
       port: 4178,
       startedAt: new Date(0).toISOString(),
-      inode: fileStat.ino,
+      inode: fileStat.ino.toString(),
     }));
 
     const lock = await acquireWebUiInstanceLock(globalConfigDirectory, 4180);
@@ -79,14 +79,14 @@ describe('Web UI instance lock', () => {
       startedAt: new Date().toISOString(),
       inode: 0,
     }));
-    const replacementStat = await lstat(replacementPath);
+    const replacementStat = await lstat(replacementPath, { bigint: true });
     await writeFile(replacementPath, JSON.stringify({
       version: 1,
       instanceId: 'replacement',
       pid: process.pid,
       port: 4190,
       startedAt: new Date().toISOString(),
-      inode: replacementStat.ino,
+      inode: replacementStat.ino.toString(),
     }));
 
     await lock.release();

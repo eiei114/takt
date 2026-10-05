@@ -220,17 +220,28 @@ if (command === process.env.TAKT_FAIL_COMMAND) {
   mkdirSync(dirname(releaseLogPath), { recursive: true });
   writeFileSync(releaseLogPath, 'stale log entry\\n');
 
+  // Windows spawn deduplicates environment keys case-insensitively. Remove
+  // any inherited casing before installing this test's npm executable.
+  const childEnv = { ...process.env };
+  for (const key of Object.keys(childEnv)) {
+    if (key.toLowerCase() === 'npm_execpath') delete childEnv[key];
+  }
+  childEnv.npm_execpath = npmStubPath;
+
   try {
     const result = spawnSync(process.execPath, [join(repositoryRoot, 'scripts/run-release-check.mjs')], {
       encoding: 'utf8',
       cwd: tempRoot,
       env: {
-        ...process.env,
-        npm_execpath: npmStubPath,
+        ...childEnv,
         TAKT_FAIL_COMMAND: failingCommand === undefined ? '' : failingCommand,
         TAKT_RELEASE_LOG: logPath,
       },
     });
+    if (result.error !== undefined) throw result.error;
+    if (!existsSync(logPath)) {
+      throw new Error(`Release stub did not execute (exit=${result.status}):\n${result.stdout}\n${result.stderr}`);
+    }
     const commands = readFileSync(logPath, 'utf8').trim().split('\n');
     const log = readFileSync(releaseLogPath, 'utf8');
     return { commands, status: result.status, stdout: result.stdout, log };

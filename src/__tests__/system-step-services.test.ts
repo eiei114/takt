@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import type { WorkflowState } from '../core/models/index.js';
 import type { SystemStepGitProvider } from '../core/workflow/system/system-step-services.js';
 
@@ -233,7 +236,7 @@ describe('DefaultSystemStepServices', () => {
     });
     mockCommentOnPr.mockReturnValue({ success: true });
     mockMergePr.mockReturnValue({ success: true });
-    mockSaveTaskFile.mockResolvedValue({ taskName: 'task-1', tasksFile: '/repo/.takt/tasks.yaml' });
+    mockSaveTaskFile.mockResolvedValue({ taskName: 'task-1', tasksFile: nativeFixturePath('/repo/.takt/tasks.yaml') });
     mockCreateIssueFromTaskResult.mockReturnValue({ success: false, error: 'Failed to create issue from task' });
     mockCloseIssue.mockReturnValue({ success: true });
     mockTaskRunnerListAllTaskItems.mockReturnValue([]);
@@ -242,7 +245,7 @@ describe('DefaultSystemStepServices', () => {
       branch: config.name,
       created: true,
     }));
-    mockResolveCloneBaseDir.mockReturnValue('/repo/.takt');
+    mockResolveCloneBaseDir.mockReturnValue(nativeFixturePath('/repo/.takt'));
   });
 
   it('resolves issue_context from current task issue number', () => {
@@ -255,15 +258,15 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect issue context',
       taskContext: { issueNumber: 586 },
     });
 
     const result = services.resolveSystemInput({ type: 'issue_context', source: 'current_task', as: 'issue' });
 
-    expect(mockFetchIssue).toHaveBeenCalledWith(586, '/repo');
+    expect(mockFetchIssue).toHaveBeenCalledWith(586, nativeFixturePath('/repo'));
     expect(result).toEqual({
       exists: true,
       number: 586,
@@ -276,8 +279,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('returns exists: false for issue_context when current task has no issue number', () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect issue context',
     });
 
@@ -310,8 +313,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect issue list',
     });
 
@@ -321,7 +324,7 @@ describe('DefaultSystemStepServices', () => {
       as: 'issues',
     });
 
-    expect(mockListOpenIssues).toHaveBeenCalledWith('/repo');
+    expect(mockListOpenIssues).toHaveBeenCalledWith(nativeFixturePath('/repo'));
     expect(result).toEqual([
       expect.objectContaining({ number: 588, category_codes: ['automation'] }),
       expect.objectContaining({ number: 587, category_codes: ['automation'] }),
@@ -353,8 +356,8 @@ describe('DefaultSystemStepServices', () => {
     mockListOpenIssues.mockReturnValue(providerIssues);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect issue list without mutation',
     });
 
@@ -384,8 +387,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect deterministic issue ordering',
     });
 
@@ -412,8 +415,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect Japanese issue overlap keywords',
     });
 
@@ -454,8 +457,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect issue selection contract',
     });
     const state = createWorkflowState();
@@ -502,8 +505,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect deterministic issue selection',
     });
 
@@ -537,8 +540,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect issue selection',
     });
     const state = createWorkflowState();
@@ -598,8 +601,8 @@ describe('DefaultSystemStepServices', () => {
       ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect issue snapshot consistency',
     });
     const state = createWorkflowState();
@@ -666,8 +669,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect issue exclusion contract',
     });
 
@@ -706,8 +709,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect repo-wide issue selection',
     });
 
@@ -739,15 +742,15 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect PR context',
     });
 
     const result = services.resolveSystemInput({ type: 'pr_context', source: 'current_branch', as: 'pr' });
 
-    expect(mockFindExistingPr).toHaveBeenCalledWith('task/test-branch', '/repo');
-    expect(mockFetchPrReviewComments).toHaveBeenCalledWith(42, '/repo');
+    expect(mockFindExistingPr).toHaveBeenCalledWith('task/test-branch', nativeFixturePath('/repo'));
+    expect(mockFetchPrReviewComments).toHaveBeenCalledWith(42, nativeFixturePath('/repo'));
     expect(result).toEqual({
       exists: true,
       number: 42,
@@ -761,8 +764,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('returns branch only when pr_context has no open PR', () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect PR context',
     });
 
@@ -818,8 +821,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect PR list',
     });
 
@@ -835,7 +838,7 @@ describe('DefaultSystemStepServices', () => {
       },
     });
 
-    expect(mockListOpenPrs).toHaveBeenCalledWith('/repo');
+    expect(mockListOpenPrs).toHaveBeenCalledWith(nativeFixturePath('/repo'));
     expect(result).toEqual([
       {
         number: 43,
@@ -905,8 +908,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect PR list',
     });
 
@@ -961,8 +964,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect labeled PR list',
     });
 
@@ -1018,8 +1021,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect TAKT provenance filter',
     });
 
@@ -1083,8 +1086,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect PR selection',
     });
     const state = createWorkflowState();
@@ -1161,8 +1164,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect PR selection fallback',
     });
     const state = createWorkflowState();
@@ -1238,8 +1241,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect PR selection alias',
     });
     const state = createWorkflowState();
@@ -1329,8 +1332,8 @@ describe('DefaultSystemStepServices', () => {
       ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect PR snapshot consistency',
     });
     const state = createWorkflowState();
@@ -1393,8 +1396,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect labeled PR selection',
     });
     const state = createWorkflowState();
@@ -1433,8 +1436,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect manual labeled PR selection',
     });
     const state = createWorkflowState();
@@ -1460,14 +1463,14 @@ describe('DefaultSystemStepServices', () => {
 
   it('resolves branch_context from the current branch', () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect branch context',
     });
 
     const result = services.resolveSystemInput({ type: 'branch_context', source: 'current_task', as: 'branch' });
 
-    expect(mockGetCurrentBranch).toHaveBeenCalledWith('/repo/worktree');
+    expect(mockGetCurrentBranch).toHaveBeenCalledWith(nativeFixturePath('/repo/worktree'));
     expect(result).toEqual({ exists: true, name: 'task/test-branch' });
   });
 
@@ -1483,8 +1486,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect queue',
     });
 
@@ -1518,8 +1521,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect queue',
     });
 
@@ -1548,8 +1551,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect queue',
     });
 
@@ -1579,8 +1582,8 @@ describe('DefaultSystemStepServices', () => {
     ]);
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect queue',
       taskContext: { runSlug: 'run-self' },
     });
@@ -1610,8 +1613,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('task_queue_context で exclude_current_task を指定した場合、run slug がなければ失敗する', () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect queue',
     });
 
@@ -1638,8 +1641,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect PR list',
     });
 
@@ -1666,8 +1669,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect issue list',
     });
 
@@ -1690,8 +1693,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect issue list',
       gitProvider: requestProvider,
     });
@@ -1703,8 +1706,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     expect(getGitProvider).not.toHaveBeenCalled();
-    expect(requestProvider.checkCliStatus).toHaveBeenCalledWith('/repo');
-    expect(requestProvider.listOpenIssues).toHaveBeenCalledWith('/repo');
+    expect(requestProvider.checkCliStatus).toHaveBeenCalledWith(nativeFixturePath('/repo'));
+    expect(requestProvider.listOpenIssues).toHaveBeenCalledWith(nativeFixturePath('/repo'));
     expect(result).toEqual([
       expect.objectContaining({
         number: 586,
@@ -1719,8 +1722,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Comment on PR',
       gitProvider: requestProvider,
     });
@@ -1735,7 +1738,7 @@ describe('DefaultSystemStepServices', () => {
     }, {} as never);
 
     expect(getGitProvider).not.toHaveBeenCalled();
-    expect(requestProvider.commentOnPr).toHaveBeenCalledWith(938, 'done', '/repo');
+    expect(requestProvider.commentOnPr).toHaveBeenCalledWith(938, 'done', nativeFixturePath('/repo'));
     expect(result).toEqual({ success: true, failed: false });
   });
 
@@ -1747,8 +1750,8 @@ describe('DefaultSystemStepServices', () => {
     mockCreateIssueFromTaskResult.mockReturnValue({ success: true, issueNumber: 586 });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
       gitProvider: requestProvider,
     });
@@ -1774,7 +1777,7 @@ describe('DefaultSystemStepServices', () => {
 
     expect(getGitProvider).not.toHaveBeenCalled();
     expect(mockCreateIssueFromTaskResult).toHaveBeenCalledWith('Implement follow-up effect', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       title: 'Implement follow-up effect with issue title',
       outputMode: 'silent',
       gitProvider: requestProvider,
@@ -1783,7 +1786,7 @@ describe('DefaultSystemStepServices', () => {
       success: true,
       failed: false,
       taskName: 'task-1',
-      tasksFile: '/repo/.takt/tasks.yaml',
+      tasksFile: nativeFixturePath('/repo/.takt/tasks.yaml'),
       issueNumber: 586,
     });
   });
@@ -1805,8 +1808,8 @@ describe('DefaultSystemStepServices', () => {
     mockExecFileSync.mockReturnValue('');
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Sync PR',
       gitProvider: requestProvider,
     });
@@ -1818,7 +1821,7 @@ describe('DefaultSystemStepServices', () => {
     );
 
     expect(getGitProvider).not.toHaveBeenCalled();
-    expect(requestProvider.fetchPrReviewComments).toHaveBeenCalledWith(42, '/repo');
+    expect(requestProvider.fetchPrReviewComments).toHaveBeenCalledWith(42, nativeFixturePath('/repo'));
     expect(result).toEqual({ success: true, failed: false, conflicted: false });
   });
 
@@ -1826,8 +1829,8 @@ describe('DefaultSystemStepServices', () => {
     mockCreateIssueFromTaskResult.mockReturnValue({ success: true, issueNumber: 586 });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -1870,7 +1873,7 @@ describe('DefaultSystemStepServices', () => {
     const result = await services.executeEffect(rawPayload, resolvedPayload, {} as never);
 
     expect(mockCreateIssueFromTaskResult).toHaveBeenCalledWith('Implement follow-up effect', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       title: 'Implement follow-up effect with issue title',
       labels: ['bug', 'enhancement'],
       outputMode: 'silent',
@@ -1878,7 +1881,7 @@ describe('DefaultSystemStepServices', () => {
         closeIssue: expect.any(Function),
       }),
     });
-    expect(mockSaveTaskFile).toHaveBeenCalledWith('/repo', 'Implement follow-up effect', {
+    expect(mockSaveTaskFile).toHaveBeenCalledWith(nativeFixturePath('/repo'), 'Implement follow-up effect', {
       workflow: 'takt-default',
       issue: 586,
       worktree: true,
@@ -1887,20 +1890,20 @@ describe('DefaultSystemStepServices', () => {
       draftPr: false,
       managedPr: true,
     });
-    expect(mockResolveBaseBranch).toHaveBeenCalledWith('/repo', 'improve');
+    expect(mockResolveBaseBranch).toHaveBeenCalledWith(nativeFixturePath('/repo'), 'improve');
     expect(result).toEqual({
       success: true,
       failed: false,
       taskName: 'task-1',
-      tasksFile: '/repo/.takt/tasks.yaml',
+      tasksFile: nativeFixturePath('/repo/.takt/tasks.yaml'),
       issueNumber: 586,
     });
   });
 
   it('preserves an explicit non-draft setting when enqueueing without a new issue', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -1927,7 +1930,7 @@ describe('DefaultSystemStepServices', () => {
       },
     }, {} as never);
 
-    expect(mockSaveTaskFile).toHaveBeenCalledWith('/repo', 'Implement follow-up effect', {
+    expect(mockSaveTaskFile).toHaveBeenCalledWith(nativeFixturePath('/repo'), 'Implement follow-up effect', {
       workflow: 'takt-default',
       worktree: true,
       autoPr: true,
@@ -1938,14 +1941,14 @@ describe('DefaultSystemStepServices', () => {
       success: true,
       failed: false,
       taskName: 'task-1',
-      tasksFile: '/repo/.takt/tasks.yaml',
+      tasksFile: nativeFixturePath('/repo/.takt/tasks.yaml'),
     });
   });
 
   it('creates a new follow-up task with opt-in base branch creation', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
     const baseBranch = {
@@ -1969,9 +1972,9 @@ describe('DefaultSystemStepServices', () => {
       base_branch: baseBranch,
     }, {} as never);
 
-    expect(mockCreateBaseBranchIfMissing).toHaveBeenCalledWith('/repo', baseBranch);
+    expect(mockCreateBaseBranchIfMissing).toHaveBeenCalledWith(nativeFixturePath('/repo'), baseBranch);
     expect(mockResolveBaseBranch).not.toHaveBeenCalled();
-    expect(mockSaveTaskFile).toHaveBeenCalledWith('/repo', 'Implement follow-up effect', {
+    expect(mockSaveTaskFile).toHaveBeenCalledWith(nativeFixturePath('/repo'), 'Implement follow-up effect', {
       workflow: 'takt-default',
       baseBranch: 'improve',
     });
@@ -1979,14 +1982,14 @@ describe('DefaultSystemStepServices', () => {
       success: true,
       failed: false,
       taskName: 'task-1',
-      tasksFile: '/repo/.takt/tasks.yaml',
+      tasksFile: nativeFixturePath('/repo/.takt/tasks.yaml'),
     });
   });
 
   it('returns failed result when issue creation for enqueue_task fails', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2022,8 +2025,8 @@ describe('DefaultSystemStepServices', () => {
       error: 'Failed to extract issue number from created issue URL',
     });
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2057,8 +2060,8 @@ describe('DefaultSystemStepServices', () => {
     mockSaveTaskFile.mockRejectedValueOnce(new Error('disk full'));
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2099,8 +2102,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2142,8 +2145,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2160,7 +2163,7 @@ describe('DefaultSystemStepServices', () => {
       pr: 42,
     }, {} as never);
 
-    expect(mockSaveTaskFile).toHaveBeenCalledWith('/repo', 'Address review comments', {
+    expect(mockSaveTaskFile).toHaveBeenCalledWith(nativeFixturePath('/repo'), 'Address review comments', {
       workflow: 'takt-default',
       worktree: true,
       branch: 'task/test-branch',
@@ -2169,12 +2172,12 @@ describe('DefaultSystemStepServices', () => {
       shouldPublishBranchToOrigin: true,
       prNumber: 42,
     });
-    expect(mockResolveBaseBranch).toHaveBeenCalledWith('/repo', 'main');
+    expect(mockResolveBaseBranch).toHaveBeenCalledWith(nativeFixturePath('/repo'), 'main');
     expect(result).toEqual({
       success: true,
       failed: false,
       taskName: 'task-1',
-      tasksFile: '/repo/.takt/tasks.yaml',
+      tasksFile: nativeFixturePath('/repo/.takt/tasks.yaml'),
       prNumber: 42,
     });
   });
@@ -2192,8 +2195,8 @@ describe('DefaultSystemStepServices', () => {
       files: [],
     });
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
     const baseBranch = {
@@ -2219,9 +2222,9 @@ describe('DefaultSystemStepServices', () => {
       base_branch: baseBranch,
     }, {} as never);
 
-    expect(mockCreateBaseBranchIfMissing).toHaveBeenCalledWith('/repo', baseBranch);
+    expect(mockCreateBaseBranchIfMissing).toHaveBeenCalledWith(nativeFixturePath('/repo'), baseBranch);
     expect(mockResolveBaseBranch).not.toHaveBeenCalled();
-    expect(mockSaveTaskFile).toHaveBeenCalledWith('/repo', 'Address review comments', {
+    expect(mockSaveTaskFile).toHaveBeenCalledWith(nativeFixturePath('/repo'), 'Address review comments', {
       workflow: 'takt-default',
       worktree: true,
       branch: 'task/test-branch',
@@ -2234,15 +2237,15 @@ describe('DefaultSystemStepServices', () => {
       success: true,
       failed: false,
       taskName: 'task-1',
-      tasksFile: '/repo/.takt/tasks.yaml',
+      tasksFile: nativeFixturePath('/repo/.takt/tasks.yaml'),
       prNumber: 42,
     });
   });
 
   it('validates enqueue_task payload fields', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2262,8 +2265,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('rejects unsafe enqueue_task PR numbers before fetching PR context or saving the task', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2286,8 +2289,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('rejects malformed enqueue_task issue payloads at the effect boundary', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2307,8 +2310,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('rejects non-string enqueue_task issue title at the effect boundary', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2328,8 +2331,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('rejects malformed enqueue_task worktree payloads at the effect boundary', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2353,8 +2356,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('rejects enqueue_task managed_pr without auto_pr at the effect boundary', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2381,8 +2384,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('rejects enqueue_task managed_pr without enabled at the effect boundary', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2410,8 +2413,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('rejects malformed enqueue_task base_branch object at the effect boundary', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2438,8 +2441,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('rejects non-boolean enqueue_task base_branch create_if_missing.push at the effect boundary', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2475,8 +2478,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2498,8 +2501,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('rejects from_pr enqueue_task payloads that include issue or worktree at the effect boundary', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Plan follow-up',
     });
 
@@ -2540,8 +2543,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Investigate failure',
     });
 
@@ -2556,7 +2559,7 @@ describe('DefaultSystemStepServices', () => {
     expect(mockExecFileSync).toHaveBeenCalledWith(
       'git',
       ['fetch', 'origin', 'refs/heads/task/test-branch:refs/remotes/origin/task/test-branch'],
-      expect.objectContaining({ cwd: '/repo' }),
+      expect.objectContaining({ cwd: nativeFixturePath('/repo') }),
     );
     expect(mockExecFileSync).toHaveBeenCalledWith(
       'git',
@@ -2581,8 +2584,8 @@ describe('DefaultSystemStepServices', () => {
     mockExecFileSync.mockReturnValue('');
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Investigate failure',
     });
 
@@ -2594,12 +2597,12 @@ describe('DefaultSystemStepServices', () => {
       failed: false,
       conflicted: false,
     });
-    expect(mockResolveCloneBaseDir).toHaveBeenCalledWith('/repo');
-    expect(mockCloneAndIsolate).toHaveBeenCalledWith('/repo', worktreePath);
-    expect(worktreePath).toMatch(/^\/repo\/\.takt\/pr-sync-/);
+    expect(mockResolveCloneBaseDir).toHaveBeenCalledWith(nativeFixturePath('/repo'));
+    expect(mockCloneAndIsolate).toHaveBeenCalledWith(nativeFixturePath('/repo'), worktreePath);
+    expect(worktreePath.replaceAll('\\', '/')).toMatch(/^(?:[A-Za-z]:)?\/repo\/\.takt\/pr-sync-/);
     expect(mockExecFileSync).toHaveBeenCalledWith(
       'git',
-      ['fetch', '/repo', 'refs/remotes/origin/task/test-branch:refs/takt/pr-sync/task/test-branch'],
+      ['fetch', nativeFixturePath('/repo'), 'refs/remotes/origin/task/test-branch:refs/takt/pr-sync/task/test-branch'],
       expect.objectContaining({ cwd: worktreePath }),
     );
     expect(mockExecFileSync).toHaveBeenCalledWith(
@@ -2609,12 +2612,12 @@ describe('DefaultSystemStepServices', () => {
     );
     expect(mockMaterializeCloneHeadToRootBranch).toHaveBeenCalledWith(
       worktreePath,
-      '/repo',
+      nativeFixturePath('/repo'),
       'task/test-branch',
     );
     expect(mockRelayPushCloneToOrigin).toHaveBeenCalledWith(
       worktreePath,
-      '/repo',
+      nativeFixturePath('/repo'),
       'task/test-branch',
     );
   });
@@ -2636,7 +2639,7 @@ describe('DefaultSystemStepServices', () => {
       const argsArr = args as string[];
       if (
         argsArr[0] === 'fetch'
-        && argsArr[1] === '/repo'
+        && argsArr[1] === nativeFixturePath('/repo')
         && argsArr[2] === 'refs/remotes/origin/task/test-branch:refs/heads/task/test-branch'
       ) {
         throw createCommandError(
@@ -2648,8 +2651,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Investigate failure',
     });
 
@@ -2662,12 +2665,12 @@ describe('DefaultSystemStepServices', () => {
     });
     expect(findGitCallIndex(
       (args) => args[0] === 'fetch'
-        && args[1] === '/repo'
+        && args[1] === nativeFixturePath('/repo')
         && args[2] === 'refs/remotes/origin/task/test-branch:refs/heads/task/test-branch',
     )).toBe(-1);
     expect(findGitCallIndex(
       (args) => args[0] === 'fetch'
-        && args[1] === '/repo'
+        && args[1] === nativeFixturePath('/repo')
         && args[2] === 'refs/remotes/origin/task/test-branch:refs/takt/pr-sync/task/test-branch',
     )).toBeGreaterThanOrEqual(0);
   });
@@ -2693,8 +2696,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Investigate failure',
     });
 
@@ -2707,7 +2710,7 @@ describe('DefaultSystemStepServices', () => {
       conflicted: false,
       error: 'fatal: cannot switch branch',
     });
-    expect(mockCloneAndIsolate).toHaveBeenCalledWith('/repo', worktreePath);
+    expect(mockCloneAndIsolate).toHaveBeenCalledWith(nativeFixturePath('/repo'), worktreePath);
     expect(mockRemoveClone).toHaveBeenCalledWith(worktreePath);
   });
 
@@ -2726,8 +2729,8 @@ describe('DefaultSystemStepServices', () => {
     mockGetCurrentBranch.mockReturnValue('--help');
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Investigate failure',
     });
 
@@ -2763,8 +2766,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Investigate conflict',
     });
 
@@ -2800,8 +2803,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Investigate conflict',
     });
 
@@ -2842,8 +2845,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Investigate conflict',
     });
 
@@ -2872,8 +2875,8 @@ describe('DefaultSystemStepServices', () => {
     mockExecFileSync.mockReturnValue('');
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Sync branch',
     });
 
@@ -2901,8 +2904,8 @@ describe('DefaultSystemStepServices', () => {
     mockExecFileSync.mockReturnValue('');
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Sync branch',
     });
 
@@ -2917,7 +2920,7 @@ describe('DefaultSystemStepServices', () => {
       (args) => args[0] === 'fetch' && args[1] === 'origin' && args[2] === 'refs/heads/task/test-branch:refs/remotes/origin/task/test-branch',
     );
     const headFetchWorktree = findGitCallIndex(
-      (args) => args[0] === 'fetch' && args[1] === '/repo' && args[2] === 'refs/remotes/origin/task/test-branch:refs/remotes/origin/task/test-branch',
+      (args) => args[0] === 'fetch' && args[1] === nativeFixturePath('/repo') && args[2] === 'refs/remotes/origin/task/test-branch:refs/remotes/origin/task/test-branch',
     );
     const headMerge = findGitCallIndex(
       (args) => args[0] === 'merge' && args[1] === '--ff-only',
@@ -2926,7 +2929,7 @@ describe('DefaultSystemStepServices', () => {
       (args) => args[0] === 'fetch' && args[1] === 'origin' && args[2] === 'refs/heads/improve:refs/remotes/origin/improve',
     );
     const baseFetchWorktree = findGitCallIndex(
-      (args) => args[0] === 'fetch' && args[1] === '/repo' && args[2] === 'refs/remotes/origin/improve:refs/remotes/origin/improve',
+      (args) => args[0] === 'fetch' && args[1] === nativeFixturePath('/repo') && args[2] === 'refs/remotes/origin/improve:refs/remotes/origin/improve',
     );
     const baseMerge = findGitCallIndex(
       (args) => args[0] === 'merge' && args[1] === 'refs/remotes/origin/improve',
@@ -2963,8 +2966,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Sync branch',
     });
 
@@ -2985,8 +2988,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('returns success for comment_pr effect', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Comment on PR',
     });
 
@@ -2995,7 +2998,7 @@ describe('DefaultSystemStepServices', () => {
       body: 'Looks good',
     }, {} as never);
 
-    expect(mockCommentOnPr).toHaveBeenCalledWith(42, 'Looks good', '/repo');
+    expect(mockCommentOnPr).toHaveBeenCalledWith(42, 'Looks good', nativeFixturePath('/repo'));
     expect(result).toEqual({ success: true, failed: false });
   });
 
@@ -3003,8 +3006,8 @@ describe('DefaultSystemStepServices', () => {
     mockCommentOnPr.mockReturnValue({ success: false, error: 'comment failed' });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Comment on PR',
     });
 
@@ -3022,8 +3025,8 @@ describe('DefaultSystemStepServices', () => {
 
   it('validates comment_pr payload fields', async () => {
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Comment on PR',
     });
 
@@ -3054,8 +3057,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Resolve conflicts',
     });
 
@@ -3084,8 +3087,8 @@ describe('DefaultSystemStepServices', () => {
     mockExecFileSync.mockReturnValue('');
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Resolve conflicts',
     });
 
@@ -3123,8 +3126,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Resolve conflicts',
     });
 
@@ -3140,21 +3143,21 @@ describe('DefaultSystemStepServices', () => {
       failed: false,
       conflicted: false,
     });
-    expect(mockResolveCloneBaseDir).toHaveBeenCalledWith('/repo');
-    expect(mockCloneAndIsolate).toHaveBeenCalledWith('/repo', worktreePath);
-    expect(worktreePath).toMatch(/^\/repo\/\.takt\/pr-sync-/);
+    expect(mockResolveCloneBaseDir).toHaveBeenCalledWith(nativeFixturePath('/repo'));
+    expect(mockCloneAndIsolate).toHaveBeenCalledWith(nativeFixturePath('/repo'), worktreePath);
+    expect(worktreePath.replaceAll('\\', '/')).toMatch(/^(?:[A-Za-z]:)?\/repo\/\.takt\/pr-sync-/);
     expect(mockAgentCall).toHaveBeenCalledWith(
       'message:Resolve conflicts',
       expect.objectContaining({ cwd: worktreePath }),
     );
     expect(mockMaterializeCloneHeadToRootBranch).toHaveBeenCalledWith(
       worktreePath,
-      '/repo',
+      nativeFixturePath('/repo'),
       'task/test-branch',
     );
     expect(mockRelayPushCloneToOrigin).toHaveBeenCalledWith(
       worktreePath,
-      '/repo',
+      nativeFixturePath('/repo'),
       'task/test-branch',
     );
   });
@@ -3182,8 +3185,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Resolve conflicts',
     });
 
@@ -3237,14 +3240,14 @@ describe('DefaultSystemStepServices', () => {
       cleanupHandlers: new Set<() => void>(),
     };
     const prepareServices = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Resolve conflicts',
       runtimeState,
     });
     const resolveServices = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Resolve conflicts',
       runtimeState,
     });
@@ -3309,8 +3312,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Resolve conflicts',
     });
 
@@ -3354,8 +3357,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Resolve conflicts',
     });
 
@@ -3408,8 +3411,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Resolve conflicts',
     });
 
@@ -3434,8 +3437,8 @@ describe('DefaultSystemStepServices', () => {
     });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Inspect context',
     });
 
@@ -3448,14 +3451,14 @@ describe('DefaultSystemStepServices', () => {
     mockMergePr.mockReturnValue({ success: true });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Prepare merge',
     });
 
     const result = await services.executeEffect({ type: 'merge_pr', pr: 42 }, { pr: 42 }, {} as never);
 
-    expect(mockMergePr).toHaveBeenCalledWith(42, '/repo');
+    expect(mockMergePr).toHaveBeenCalledWith(42, nativeFixturePath('/repo'));
     expect(result).toEqual({ success: true, failed: false });
   });
 
@@ -3463,14 +3466,14 @@ describe('DefaultSystemStepServices', () => {
     mockMergePr.mockReturnValue({ success: false, error: 'merge blocked by checks' });
 
     const services = new DefaultSystemStepServices({
-      cwd: '/repo/worktree',
-      projectCwd: '/repo',
+      cwd: nativeFixturePath('/repo/worktree'),
+      projectCwd: nativeFixturePath('/repo'),
       task: 'Prepare merge',
     });
 
     const result = await services.executeEffect({ type: 'merge_pr', pr: 42 }, { pr: 42 }, {} as never);
 
-    expect(mockMergePr).toHaveBeenCalledWith(42, '/repo');
+    expect(mockMergePr).toHaveBeenCalledWith(42, nativeFixturePath('/repo'));
     expect(result).toEqual({
       success: false,
       failed: true,

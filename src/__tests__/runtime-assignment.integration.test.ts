@@ -1,5 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { escapeRegExp } from './helpers/regex.js';
 import { join } from 'node:path';
 import { Command } from 'commander';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -279,7 +280,7 @@ describe('runtime assignment invocation', () => {
       .hook('preAction', (root) => initializeCliExecutionContext(root, '1.0.0')).action(action);
 
     await expect(command.parseAsync(['--runtime-file', selectedFile], { from: 'user' }))
-      .rejects.toThrow(new RegExp(`${selectedFile}.*(?:ENOENT|no such file)`, 'i'));
+      .rejects.toThrow(new RegExp(`${escapeRegExp(selectedFile)}.*(?:ENOENT|no such file)`, 'i'));
 
     expect(action).not.toHaveBeenCalled();
     expect(doubles.initGlobalDirs).not.toHaveBeenCalled();

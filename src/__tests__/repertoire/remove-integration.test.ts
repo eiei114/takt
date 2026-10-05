@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
+
 const {
   mockConfirm,
   mockFs,
@@ -24,20 +27,20 @@ vi.mock('node:fs', async (importOriginal) => ({
 }));
 
 vi.mock('../../infra/config/paths.js', () => ({
-  getGlobalProviderOptionsDir: () => '/global/provider-options',
-  getGlobalStepsDir: () => '/global/steps',
-  getGlobalWorkflowsDir: () => '/global/workflows',
-  getGlobalFacetPoolsDir: () => '/global/facet-pools',
-  getProjectProviderOptionsDir: () => '/project/.takt/provider-options',
-  getProjectStepsDir: () => '/project/.takt/steps',
-  getProjectWorkflowsDir: () => '/project/.takt/workflows',
-  getProjectFacetPoolsDir: () => '/project/.takt/facet-pools',
-  getRepertoireDir: () => '/home/user/.takt/repertoire',
-  getRepertoirePackageDir: () => '/home/user/.takt/repertoire/@owner/repo',
+  getGlobalProviderOptionsDir: () => nativeFixturePath('/global/provider-options'),
+  getGlobalStepsDir: () => nativeFixturePath('/global/steps'),
+  getGlobalWorkflowsDir: () => nativeFixturePath('/global/workflows'),
+  getGlobalFacetPoolsDir: () => nativeFixturePath('/global/facet-pools'),
+  getProjectProviderOptionsDir: () => nativeFixturePath('/project/.takt/provider-options'),
+  getProjectStepsDir: () => nativeFixturePath('/project/.takt/steps'),
+  getProjectWorkflowsDir: () => nativeFixturePath('/project/.takt/workflows'),
+  getProjectFacetPoolsDir: () => nativeFixturePath('/project/.takt/facet-pools'),
+  getRepertoireDir: () => nativeFixturePath('/home/user/.takt/repertoire'),
+  getRepertoirePackageDir: () => nativeFixturePath('/home/user/.takt/repertoire/@owner/repo'),
 }));
 
 vi.mock('../../infra/config/global/index.js', () => ({
-  getWorkflowCategoriesPath: () => '/global/preferences/workflow-categories.yaml',
+  getWorkflowCategoriesPath: () => nativeFixturePath('/global/preferences/workflow-categories.yaml'),
 }));
 
 vi.mock('../../shared/prompt/index.js', () => ({
@@ -51,10 +54,10 @@ vi.mock('../../shared/ui/index.js', () => ({
 
 import { repertoireRemoveCommand } from '../../commands/repertoire/remove.js';
 
-const PACKAGE_DIR = '/home/user/.takt/repertoire/@owner/repo';
-const OWNER_DIR = '/home/user/.takt/repertoire/@owner';
-const WORKFLOW_DIR = '/global/workflows';
-const STEP_DIR = '/global/steps';
+const PACKAGE_DIR = nativeFixturePath('/home/user/.takt/repertoire/@owner/repo');
+const OWNER_DIR = nativeFixturePath('/home/user/.takt/repertoire/@owner');
+const WORKFLOW_DIR = nativeFixturePath('/global/workflows');
+const STEP_DIR = nativeFixturePath('/global/steps');
 
 describe('repertoireRemoveCommand reference scan integration', () => {
   beforeEach(() => {
@@ -105,7 +108,7 @@ describe('repertoireRemoveCommand reference scan integration', () => {
   });
 
   it('should not confirm or delete when the real reference scanner cannot inspect an enumerated workflow file', async () => {
-    const workflowPath = `${WORKFLOW_DIR}/review.yaml`;
+    const workflowPath = nativeFixturePath(`${WORKFLOW_DIR}/review.yaml`);
     mockFs.statSync.mockImplementation((path: string) => {
       if (path === WORKFLOW_DIR) return directoryStats();
       if (path === workflowPath) throw new Error('permission denied');
@@ -124,7 +127,7 @@ describe('repertoireRemoveCommand reference scan integration', () => {
   });
 
   it('should not confirm or delete when the real reference scanner cannot read an enumerated workflow file', async () => {
-    const workflowPath = `${WORKFLOW_DIR}/review.yaml`;
+    const workflowPath = nativeFixturePath(`${WORKFLOW_DIR}/review.yaml`);
     mockFs.statSync.mockImplementation((path: string) => {
       if (path === WORKFLOW_DIR) return directoryStats();
       if (path === workflowPath) return fileStats();
@@ -147,7 +150,7 @@ describe('repertoireRemoveCommand reference scan integration', () => {
   });
 
   it('should not confirm or delete when the real reference scanner cannot resolve a step fragment symlink', async () => {
-    const stepPath = `${STEP_DIR}/review.yaml`;
+    const stepPath = nativeFixturePath(`${STEP_DIR}/review.yaml`);
     mockFs.statSync.mockImplementation((path: string) => (
       path === STEP_DIR ? directoryStats() : throwNotFound()
     ));

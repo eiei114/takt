@@ -1,9 +1,17 @@
 import { EventEmitter } from 'node:events';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { mockSpawn, debugSpy } = vi.hoisted(() => ({
   mockSpawn: vi.fn(),
   debugSpy: vi.fn(),
+}));
+
+// Match the process seam used by the Windows cross-platform spawn wrapper.
+vi.mock('cross-spawn', async () => ({
+  default: (await import('node:child_process')).spawn,
 }));
 
 vi.mock('node:child_process', () => ({
@@ -77,9 +85,9 @@ const kiroNetworkEnvCases: Array<[typeof restoredEnvKeys[number], string]> = [
   ['HTTP_PROXY', 'http://http-proxy.example'],
   ['HTTPS_PROXY', 'http://https-proxy.example'],
   ['NO_PROXY', 'localhost,127.0.0.1'],
-  ['NODE_EXTRA_CA_CERTS', '/certs/node-extra.pem'],
-  ['SSL_CERT_DIR', '/certs/dir'],
-  ['SSL_CERT_FILE', '/certs/file.pem'],
+  ['NODE_EXTRA_CA_CERTS', nativeFixturePath('/certs/node-extra.pem')],
+  ['SSL_CERT_DIR', nativeFixturePath('/certs/dir')],
+  ['SSL_CERT_FILE', nativeFixturePath('/certs/file.pem')],
   ['all_proxy', 'http://lower-all-proxy.example'],
   ['http_proxy', 'http://lower-http-proxy.example'],
   ['https_proxy', 'http://lower-https-proxy.example'],
@@ -218,7 +226,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'sess-prev',
       permissionMode: 'full',
       kiroApiKey: 'kiro-secret',
@@ -252,7 +260,7 @@ describe('callKiro', () => {
     ]);
     expect(child.stdin.write).toHaveBeenCalledWith('implement feature');
     expect(child.stdin.end).toHaveBeenCalledWith();
-    expect(options.cwd).toBe('/repo');
+    expect(options.cwd).toBe(nativeFixturePath('/repo'));
     expect(options.env?.KIRO_API_KEY).toBe('kiro-secret');
     expect(options.stdio).toEqual(['pipe', 'pipe', 'pipe']);
     expect(options.shell).toBeUndefined();
@@ -265,7 +273,7 @@ describe('callKiro', () => {
     });
 
     await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'edit',
     });
 
@@ -281,7 +289,7 @@ describe('callKiro', () => {
     });
 
     await callKiro('coder', 'inspect', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'readonly',
     });
 
@@ -296,7 +304,7 @@ describe('callKiro', () => {
       code: 0,
     });
 
-    await callKiro('coder', 'inspect', { cwd: '/repo' });
+    await callKiro('coder', 'inspect', { cwd: nativeFixturePath('/repo') });
 
     const [, args] = mockSpawn.mock.calls[0] as [string, string[]];
     expect(args).not.toContain('--trust-all-tools');
@@ -312,7 +320,7 @@ describe('callKiro', () => {
     const systemPrompt = 'custom system prompt';
     const userPrompt = 'custom user prompt';
     await callKiro('reviewer', userPrompt, {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       systemPrompt,
     });
 
@@ -326,7 +334,7 @@ describe('callKiro', () => {
     process.env.GITHUB_TOKEN = 'github-token';
     process.env.TAKT_OPENAI_API_KEY = 'openai-token';
     process.env.SERVICE_SECRET = 'service-secret';
-    process.env.KIRO_HOME = '/kiro/home';
+    process.env.KIRO_HOME = nativeFixturePath('/kiro/home');
     for (const [key, value] of kiroNetworkEnvCases) {
       process.env[key] = value;
     }
@@ -340,7 +348,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       childProcessEnv: {
         TAKT_OBSERVABILITY: '{"enabled":true,"monitor":true,"session_log_exporter":true,"usage_events_phase":true}',
         OTEL_EXPORTER_OTLP_ENDPOINT: 'https://snapshot-otel.example:4318',
@@ -358,9 +366,10 @@ describe('callKiro', () => {
     expect(options.env?.TAKT_OPENAI_API_KEY).toBeUndefined();
     expect(options.env?.SERVICE_SECRET).toBeUndefined();
     expect(options.env?.KIRO_API_KEY).toBeUndefined();
-    expect(options.env?.KIRO_HOME).toBe('/kiro/home');
-    for (const [key, value] of kiroNetworkEnvCases) {
-      expect(options.env?.[key]).toBe(value);
+    expect(options.env?.KIRO_HOME).toBe(nativeFixturePath('/kiro/home'));
+    for (const [key] of kiroNetworkEnvCases) {
+      // Windows environment keys are case-insensitive; compare the actual parent value.
+      expect(options.env?.[key]).toBe(process.env[key]);
     }
     expect(options.env?.TAKT_OBSERVABILITY).toBe(
       '{"enabled":true,"monitor":true,"session_log_exporter":true,"usage_events_phase":true}',
@@ -383,7 +392,7 @@ describe('callKiro', () => {
       code: 0,
     });
 
-    await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     const [, , options] = mockSpawn.mock.calls[0] as [string, string[], { env?: NodeJS.ProcessEnv }];
     for (const [key] of kiroObservabilityEnvCases) {
@@ -398,7 +407,7 @@ describe('callKiro', () => {
       code: 0,
     });
 
-    await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     const [, , options] = mockSpawn.mock.calls[0] as [string, string[], { env?: NodeJS.ProcessEnv }];
     expect(options.env?.KIRO_API_KEY).toBe('parent-kiro-secret');
@@ -412,7 +421,7 @@ describe('callKiro', () => {
     });
 
     await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       kiroApiKey: 'explicit-kiro-secret',
     });
 
@@ -428,7 +437,7 @@ describe('callKiro', () => {
     });
 
     await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       kiroApiKey: 'inherited-kiro-secret',
     });
 
@@ -444,12 +453,12 @@ describe('callKiro', () => {
     });
 
     await callKiro('coder', 'implement', {
-      cwd: '/repo',
-      kiroCliPath: '/custom/bin/kiro-cli',
+      cwd: nativeFixturePath('/repo'),
+      kiroCliPath: nativeFixturePath('/custom/bin/kiro-cli'),
     });
 
     const [command] = mockSpawn.mock.calls[0] as [string];
-    expect(command).toBe('/custom/bin/kiro-cli');
+    expect(command).toBe(nativeFixturePath('/custom/bin/kiro-cli'));
   });
 
   it('Given no MCP-related options, When called, Then does not add MCP flags', async () => {
@@ -459,7 +468,7 @@ describe('callKiro', () => {
     });
 
     await callKiro('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'full',
     });
 
@@ -474,7 +483,7 @@ describe('callKiro', () => {
     });
 
     await callKiro('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       model: 'some-model',
     });
 
@@ -491,7 +500,7 @@ describe('callKiro', () => {
     });
 
     await callKiro('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'full',
     });
 
@@ -506,7 +515,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('coder', '- fix the Kiro provider', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'readonly',
     });
 
@@ -532,7 +541,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('coder', '--help is part of the task text', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
     });
 
     expect(result.status).toBe('done');
@@ -556,7 +565,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('coder', 'Explain --engine v1 in the task text', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
     });
 
     expect(result.status).toBe('done');
@@ -580,7 +589,7 @@ describe('callKiro', () => {
     });
 
     await callKiro('coder', 'inspect & whoami | cat', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'readonly',
     });
 
@@ -612,7 +621,7 @@ describe('callKiro', () => {
     // MAX_ARG_STRLEN on Linux is 128KiB per argv element; Windows caps the
     // whole command line near 32KiB. A prompt this size must not be an arg.
     const largePrompt = 'x'.repeat(150 * 1024);
-    await callKiro('coder', largePrompt, { cwd: '/repo' });
+    await callKiro('coder', largePrompt, { cwd: nativeFixturePath('/repo') });
 
     const [, args] = mockSpawn.mock.calls[0] as [string, string[]];
     const child = mockSpawn.mock.results[0]?.value as MockChildProcess;
@@ -623,7 +632,7 @@ describe('callKiro', () => {
 
   it('Given session ID contains shell metacharacters, When called, Then rejects it before spawn', async () => {
     const result = await callKiro('coder', 'inspect', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'sess & whoami | cat',
       permissionMode: 'readonly',
     });
@@ -640,7 +649,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('planner', 'plan the feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'readonly',
       agent: 'planner-agent',
     });
@@ -661,7 +670,7 @@ describe('callKiro', () => {
     });
 
     await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'sess-prev',
       permissionMode: 'full',
       agent: 'coder-agent',
@@ -683,7 +692,7 @@ describe('callKiro', () => {
     });
 
     await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       permissionMode: 'full',
     });
 
@@ -698,7 +707,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       agent: 'my.team_agent-v2',
     });
 
@@ -710,7 +719,7 @@ describe('callKiro', () => {
 
   it('Given agent name contains shell metacharacters, When called, Then rejects it before spawn', async () => {
     const result = await callKiro('coder', 'inspect', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       agent: 'agent & whoami | cat',
       permissionMode: 'readonly',
     });
@@ -723,7 +732,7 @@ describe('callKiro', () => {
 
   it('Given agent name with a space, When called, Then rejects it before spawn', async () => {
     const result = await callKiro('coder', 'inspect', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       agent: 'my agent',
     });
 
@@ -739,7 +748,7 @@ describe('callKiro', () => {
       code: 0,
     });
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.content).toBe(output);
@@ -754,7 +763,7 @@ describe('callKiro', () => {
 
     const onStream = vi.fn();
     const result = await callKiro('planner', 'write the report', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       onStream,
       sessionId: '123e4567-e89b-12d3-a456-426614174000',
     });
@@ -782,7 +791,7 @@ describe('callKiro', () => {
 
     const onStream = vi.fn();
     await callKiro('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       onStream,
     });
 
@@ -805,7 +814,7 @@ describe('callKiro', () => {
       error: { code: 'ENOENT', message: 'spawn kiro-cli ENOENT' },
     });
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('kiro-cli binary not found');
@@ -818,7 +827,7 @@ describe('callKiro', () => {
       stdinError: { message: 'stdin pipe closed' },
     });
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('kiro-cli stdin stream error: stdin pipe closed');
@@ -831,7 +840,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       kiroApiKey: 'kiro-secret',
     });
 
@@ -850,7 +859,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       kiroApiKey: 'kiro-secret',
     });
 
@@ -867,7 +876,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       kiroApiKey: 'inherited-kiro-secret',
     });
 
@@ -885,7 +894,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
     });
 
     expect(result.status).toBe('error');
@@ -903,7 +912,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       kiroApiKey,
     });
 
@@ -920,7 +929,7 @@ describe('callKiro', () => {
 
     const onStream = vi.fn();
     const result = await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       onStream,
     });
 
@@ -952,7 +961,7 @@ describe('callKiro', () => {
     });
 
     const result = await callKiro('coder', 'implement', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       abortSignal: controller.signal,
     });
 
@@ -973,7 +982,7 @@ describe('callKiro', () => {
       return child;
     });
 
-    const result = await callKiro('coder', 'implement', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('Kiro CLI output exceeded buffer limit');
@@ -995,7 +1004,7 @@ describe('callKiro', () => {
       return child;
     });
 
-    const result = await callKiro('coder', 'implement', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('Kiro CLI output exceeded buffer limit');
@@ -1013,7 +1022,7 @@ describe('callKiro', () => {
       return child;
     });
 
-    const result = await callKiro('coder', 'implement', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('kiro-cli closed without exit code or signal');
@@ -1033,7 +1042,7 @@ describe('callKiro', () => {
       return child;
     });
 
-    const result = await callKiro('coder', 'implement', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('Kiro CLI output exceeded buffer limit');
@@ -1055,7 +1064,7 @@ describe('callKiro', () => {
       return child;
     });
 
-    const result = await callKiro('coder', 'implement', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('Kiro CLI output exceeded buffer limit');
@@ -1087,7 +1096,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
       { stderr: `${uuid}  updated just now`, code: 0 },
     ]);
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.content).toBe('Implementation complete.');
@@ -1109,7 +1118,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
       'stream-json',
     ]);
     expect(secondArgs).toEqual(['chat', '--list-sessions']);
-    expect(secondOptions.cwd).toBe('/repo');
+    expect(secondOptions.cwd).toBe(nativeFixturePath('/repo'));
     const firstChild = mockSpawn.mock.results[0]?.value as MockChildProcess;
     const secondChild = mockSpawn.mock.results[1]?.value as MockChildProcess;
     expect(firstChild.stdin.write).toHaveBeenCalledWith('implement feature');
@@ -1122,7 +1131,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
     mockSpawnWithScenario({ stdout: 'done', code: 0 });
 
     const result = await callKiro('coder', 'continue', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'sess-prev',
     });
 
@@ -1137,7 +1146,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
       { code: 1 },
     ]);
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.content).toBe('Implementation complete.');
@@ -1151,7 +1160,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
       { code: 1 },
     ]);
 
-    await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(debugSpy).toHaveBeenCalledWith(
       expect.any(String),
@@ -1176,7 +1185,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
     });
 
     const result = await callKiro('coder', 'implement feature', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       abortSignal: controller.signal,
     });
 
@@ -1192,7 +1201,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
       { stderr: 'no sessions found', code: 0 },
     ]);
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.sessionId).toBeUndefined();
@@ -1205,7 +1214,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
     ]);
 
     const onStream = vi.fn();
-    await callKiro('coder', 'implement', { cwd: '/repo', onStream });
+    await callKiro('coder', 'implement', { cwd: nativeFixturePath('/repo'), onStream });
 
     expect(onStream).toHaveBeenCalledWith({
       type: 'result',
@@ -1219,7 +1228,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
       code: 0,
     });
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toBe('kiro-cli returned empty output');
@@ -1232,7 +1241,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
       error: { code: 'ENOENT', message: 'spawn kiro-cli ENOENT' },
     });
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('error');
     expect(result.content).toContain('kiro-cli binary not found');
@@ -1248,7 +1257,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
       { stderr: `\x1b[36m${uuid}\x1b[0m  updated just now`, code: 0 },
     ]);
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.sessionId).toBe(uuid);
@@ -1260,7 +1269,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
       { stdout: `${uuid}  updated just now`, stderr: 'no sessions listed', code: 0 },
     ]);
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.sessionId).toBe(uuid);
@@ -1272,7 +1281,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
       { stdout: `${otherUuid}  updated 1m ago`, stderr: `${uuid}  updated 2m ago`, code: 0 },
     ]);
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.sessionId).toBe(uuid);
@@ -1284,7 +1293,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
       { stderr: `${uuid}  updated just now\n${otherUuid}  updated 1h ago`, code: 0 },
     ]);
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.sessionId).toBe(uuid);
@@ -1296,7 +1305,7 @@ describe('callKiro session ID resolution (issue #781)', () => {
       { stderr: '1234-5678-9012-3456', code: 0 },
     ]);
 
-    const result = await callKiro('coder', 'implement feature', { cwd: '/repo' });
+    const result = await callKiro('coder', 'implement feature', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.sessionId).toBeUndefined();
@@ -1321,7 +1330,7 @@ describe('callKiro output cleanup (issue #781)', () => {
     });
 
     const result = await callKiro('coder', 'continue', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'sess-prev',
     });
 
@@ -1337,7 +1346,7 @@ describe('callKiro output cleanup (issue #781)', () => {
     });
 
     const result = await callKiro('coder', 'continue', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'sess-prev',
     });
 
@@ -1352,7 +1361,7 @@ describe('callKiro output cleanup (issue #781)', () => {
     });
 
     const result = await callKiro('coder', 'continue', {
-      cwd: '/repo',
+      cwd: nativeFixturePath('/repo'),
       sessionId: 'sess-prev',
     });
 
@@ -1365,7 +1374,7 @@ describe('callKiro output cleanup (issue #781)', () => {
       kind: 'AssistantMessage', content: 'answer', data: { content: 'answer' },
     }) });
 
-    const result = await callKiro('coder', 'inspect task', { cwd: '/repo' });
+    const result = await callKiro('coder', 'inspect task', { cwd: nativeFixturePath('/repo') });
 
     expect(result).toMatchObject({ status: 'done', content: 'answer' });
   });
@@ -1377,7 +1386,7 @@ describe('callKiro output cleanup (issue #781)', () => {
       message: { kind: 'AssistantMessage', content: [{ kind: 'text', text: 'answer' }] },
     }) });
 
-    const result = await callKiro('coder', 'inspect task', { cwd: '/repo' });
+    const result = await callKiro('coder', 'inspect task', { cwd: nativeFixturePath('/repo') });
 
     expect(result).toMatchObject({ status: 'done', content: 'answer' });
   });
@@ -1419,7 +1428,7 @@ describe('callKiro output cleanup (issue #781)', () => {
       code: 0,
     });
 
-    const result = await callKiro('coder', 'inspect task', { cwd: '/repo', onStream });
+    const result = await callKiro('coder', 'inspect task', { cwd: nativeFixturePath('/repo'), onStream });
 
     const [, args] = mockSpawn.mock.calls[0] as [string, string[]];
     const child = mockSpawn.mock.results[0]?.value as MockChildProcess;
@@ -1491,7 +1500,7 @@ describe('callKiro with real kiro-cli ACP stream-json payload', () => {
   it('Given the ACP payload, When called, Then extracts finalText and the session ID', async () => {
     mockSpawnWithScenario({ stdout: acpStdout, code: 0 });
 
-    const result = await callKiro('coder', 'say hello', { cwd: '/repo' });
+    const result = await callKiro('coder', 'say hello', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.content).toBe('FINAL');
@@ -1505,7 +1514,7 @@ describe('callKiro with real kiro-cli ACP stream-json payload', () => {
     );
     mockSpawnWithScenario({ stdout: truncated, code: 0 });
 
-    const result = await callKiro('coder', 'say hello', { cwd: '/repo' });
+    const result = await callKiro('coder', 'say hello', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.content).toBe('HELLO');
@@ -1529,7 +1538,7 @@ describe('callKiro with real kiro-cli ACP stream-json payload', () => {
       .replace('{"type":"runFinished"', `${toolCallLine}\n{"type":"runFinished"}`);
     mockSpawnWithScenario({ stdout: truncated, code: 0 });
 
-    const result = await callKiro('coder', 'say hello', { cwd: '/repo' });
+    const result = await callKiro('coder', 'say hello', { cwd: nativeFixturePath('/repo') });
 
     expect(result.status).toBe('done');
     expect(result.content).toBe('HELLO');
@@ -1538,7 +1547,7 @@ describe('callKiro with real kiro-cli ACP stream-json payload', () => {
   it('Given no prior session, When called, Then resolves the session ID without spawning --list-sessions', async () => {
     mockSpawnWithScenario({ stdout: acpStdout, code: 0 });
 
-    const result = await callKiro('coder', 'say hello', { cwd: '/repo' });
+    const result = await callKiro('coder', 'say hello', { cwd: nativeFixturePath('/repo') });
 
     expect(result.sessionId).toBe(sessionId);
     // 並列実行時に他ジョブのセッションを拾う経路なので、発火してはいけない。

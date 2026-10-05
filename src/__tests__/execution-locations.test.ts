@@ -1,7 +1,10 @@
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { isAbsolute, join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   assertContained,
   resolveRunPaths,
@@ -35,7 +38,7 @@ describe('execution locations', () => {
     expect(state.stateDirectory).toBe(join(global, 'state', 'projects', '11111111-1111-4111-8111-111111111111'));
     expect(state.tasksFile).toBe(join(state.stateDirectory, 'tasks.yaml'));
     expect(state.runsDirectory).toBe(join(state.stateDirectory, 'runs'));
-    expect(state.stateDirectory.startsWith('/')).toBe(true);
+    expect(isAbsolute(state.stateDirectory)).toBe(true);
 
     const run = resolveRunPaths(state, 'run-1');
     expect(run.runRootAbs).toBe(join(state.runsDirectory, 'run-1'));
@@ -68,27 +71,27 @@ describe('execution locations', () => {
       canonicalDirectory: project,
       locationId: first.locationId,
       stateId: first.stateId,
-      fingerprint: { dev: expect.any(Number), ino: expect.any(Number) },
+      fingerprint: first.fingerprint,
     });
   });
 
   it('resolves the central worktree matrix without a project-local fallback', () => {
     const base = {
-      projectDirectory: '/workspace/project',
-      executionDirectory: '/workspace/project',
+      projectDirectory: nativeFixturePath('/workspace/project'),
+      executionDirectory: nativeFixturePath('/workspace/project'),
       globalConfigDirectory: '/config',
       stateId: '11111111-1111-4111-8111-111111111111',
     };
     expect(resolveCentralWorktree({ ...base, request: false })).toMatchObject({ enabled: false });
-    expect(resolveCentralWorktree({ ...base, request: '/explicit/worktree' })).toMatchObject({
+    expect(resolveCentralWorktree({ ...base, request: nativeFixturePath('/explicit/worktree') })).toMatchObject({
       enabled: true,
-      baseDirectory: '/explicit/worktree',
+      baseDirectory: nativeFixturePath('/explicit/worktree'),
       skipProjectLocalTaktSync: true,
     });
     expect(resolveCentralWorktree({
       ...base,
       request: true,
-      configuredWorktreeDirectory: '/configured/worktrees',
-    }).baseDirectory).toBe('/configured/worktrees');
+      configuredWorktreeDirectory: nativeFixturePath('/configured/worktrees'),
+    }).baseDirectory).toBe(nativeFixturePath('/configured/worktrees'));
   });
 });

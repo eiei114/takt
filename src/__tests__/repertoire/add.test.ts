@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { extname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { captureError } from '../helpers/repertoire-test-helpers.js';
+
+const tmpEnvKey = process.platform === 'win32' ? 'TEMP' : 'TMPDIR';
 
 const {
   mockMkdtempSync,
@@ -34,7 +39,7 @@ const {
   mockCleanupResiduals: vi.fn(),
   mockInfo: vi.fn(),
   mockSuccess: vi.fn(),
-  secureTempDir: '/secure/tmp/takt-import-a1b2c3',
+  secureTempDir: nativeFixturePath('/secure/tmp/takt-import-a1b2c3'),
 }));
 
 vi.mock('node:fs', async (importOriginal) => {
@@ -60,14 +65,14 @@ vi.mock('node:child_process', () => ({
 }));
 
 vi.mock('../../infra/config/paths.js', () => ({
-  getBuiltinProviderOptionsDir: vi.fn(() => '/builtin/ja/provider-options'),
-  getBuiltinLanguageStepsDir: vi.fn(() => '/builtin/ja/steps'),
-  getGlobalProviderOptionsDir: vi.fn(() => '/home/user/.takt/provider-options'),
-  getGlobalStepsDir: vi.fn(() => '/home/user/.takt/steps'),
-  getProjectProviderOptionsDir: vi.fn(() => '/project/.takt/provider-options'),
-  getProjectStepsDir: vi.fn((projectDir: string) => `${projectDir}/.takt/steps`),
-  getRepertoireDir: vi.fn(() => '/home/user/.takt/repertoire'),
-  getRepertoirePackageDir: vi.fn(() => '/home/user/.takt/repertoire/@owner/repo'),
+  getBuiltinProviderOptionsDir: vi.fn(() => nativeFixturePath('/builtin/ja/provider-options')),
+  getBuiltinLanguageStepsDir: vi.fn(() => nativeFixturePath('/builtin/ja/steps')),
+  getGlobalProviderOptionsDir: vi.fn(() => nativeFixturePath('/home/user/.takt/provider-options')),
+  getGlobalStepsDir: vi.fn(() => nativeFixturePath('/home/user/.takt/steps')),
+  getProjectProviderOptionsDir: vi.fn(() => nativeFixturePath('/project/.takt/provider-options')),
+  getProjectStepsDir: vi.fn((projectDir: string) => nativeFixturePath(`${projectDir}/.takt/steps`)),
+  getRepertoireDir: vi.fn(() => nativeFixturePath('/home/user/.takt/repertoire')),
+  getRepertoirePackageDir: vi.fn(() => nativeFixturePath('/home/user/.takt/repertoire/@owner/repo')),
 }));
 
 vi.mock('../../infra/config/resolveWorkflowConfigValue.js', () => ({
@@ -99,7 +104,7 @@ vi.mock('../../features/repertoire/file-filter.js', () => ({
   STEP_FRAGMENT_EXTENSIONS: ['.yaml', '.yml'],
   isStepFragmentExtension: (filename: string) => ['.yaml', '.yml'].includes(extname(filename)),
   collectCopyTargets: vi.fn(() => [{
-    absolutePath: `${secureTempDir}/extract/facets/personas/coder.md`,
+    absolutePath: nativeFixturePath(`${secureTempDir}/extract/facets/personas/coder.md`),
     relativePath: 'facets/personas/coder.md',
   }]),
 }));
@@ -110,7 +115,7 @@ vi.mock('../../features/repertoire/atomic-update.js', () => ({
 }));
 
 vi.mock('../../features/repertoire/pack-summary.js', () => ({
-  PACKAGE_PROVIDER_OPTIONS_DIR: '/__takt_repertoire_package__/provider-options',
+  PACKAGE_PROVIDER_OPTIONS_DIR: nativeFixturePath('/__takt_repertoire_package__/provider-options'),
   summarizeFacetsByType: vi.fn(() => 'personas: 1'),
   detectEditWorkflows: vi.fn(() => []),
   formatEditWorkflowWarnings: vi.fn(() => []),
@@ -173,9 +178,9 @@ describe('repertoireAddCommand temporary directory handling', () => {
   });
 
   it('should create a missing TMPDIR before creating import artifacts', async () => {
-    const originalTmpDir = process.env.TMPDIR;
+    const originalTmpDir = process.env[tmpEnvKey];
     const missingTmpDir = join(tmpdir(), 'takt-repertoire-missing-tmp');
-    process.env.TMPDIR = missingTmpDir;
+    process.env[tmpEnvKey] = missingTmpDir;
 
     try {
       await repertoireAddCommand('github:owner/repo@main');
@@ -184,9 +189,9 @@ describe('repertoireAddCommand temporary directory handling', () => {
       expect(mockMkdtempSync).toHaveBeenCalledWith(join(missingTmpDir, 'takt-import-'));
     } finally {
       if (originalTmpDir === undefined) {
-        delete process.env.TMPDIR;
+        delete process.env[tmpEnvKey];
       } else {
-        process.env.TMPDIR = originalTmpDir;
+        process.env[tmpEnvKey] = originalTmpDir;
       }
     }
   });
@@ -199,8 +204,8 @@ describe('repertoireAddCommand temporary directory handling', () => {
   });
 
   it('should pass provider-options package YAMLs to edit workflow detection', async () => {
-    const workflowPath = `${secureTempDir}/extract/workflows/workflow.yaml`;
-    const providerOptionsPath = `${secureTempDir}/extract/provider-options/edit.yaml`;
+    const workflowPath = nativeFixturePath(`${secureTempDir}/extract/workflows/workflow.yaml`);
+    const providerOptionsPath = nativeFixturePath(`${secureTempDir}/extract/provider-options/edit.yaml`);
     const workflowYaml = 'steps:\n  - name: run\n    provider_options:\n      extends: edit\n';
     const providerOptionsYaml = 'claude:\n  allowed_tools: [Bash]\n';
 
@@ -233,18 +238,18 @@ describe('repertoireAddCommand temporary directory handling', () => {
       }],
       {
         providerOptionsCandidateDirs: [
-          '/project/.takt/provider-options',
-          '/home/user/.takt/provider-options',
-          '/builtin/ja/provider-options',
+          nativeFixturePath('/project/.takt/provider-options'),
+          nativeFixturePath('/home/user/.takt/provider-options'),
+          nativeFixturePath('/builtin/ja/provider-options'),
         ],
         providerOptionsScopedCandidateDirs: new Map([
-          ['owner/repo', ['/__takt_repertoire_package__/provider-options']],
+          ['owner/repo', [nativeFixturePath('/__takt_repertoire_package__/provider-options')]],
         ]),
         stepFragmentCandidateDirs: [
           join(secureTempDir, 'extract', 'steps'),
-          `${process.cwd()}/.takt/steps`,
-          '/home/user/.takt/steps',
-          '/builtin/ja/steps',
+          join(process.cwd(), '.takt', 'steps'),
+          nativeFixturePath('/home/user/.takt/steps'),
+          nativeFixturePath('/builtin/ja/steps'),
         ],
         stepFragmentScopedCandidateDirs: new Map([
           ['owner/repo', [join(secureTempDir, 'extract', 'steps')]],
@@ -252,15 +257,15 @@ describe('repertoireAddCommand temporary directory handling', () => {
         context: {
           projectDir: process.cwd(),
           lang: 'ja',
-          workflowDir: '/home/user/.takt/repertoire/@owner/repo/workflows',
-          repertoireDir: '/home/user/.takt/repertoire',
+          workflowDir: nativeFixturePath('/home/user/.takt/repertoire/@owner/repo/workflows'),
+          repertoireDir: nativeFixturePath('/home/user/.takt/repertoire'),
         },
       },
     );
   });
 
   it('should summarize only resolvable root-level step fragments', async () => {
-    const stepPath = `${secureTempDir}/extract/steps/review.yaml`;
+    const stepPath = nativeFixturePath(`${secureTempDir}/extract/steps/review.yaml`);
     mockCollectCopyTargets.mockReturnValue([
       { absolutePath: stepPath, relativePath: 'steps/review.yaml' },
     ]);
@@ -272,7 +277,7 @@ describe('repertoireAddCommand temporary directory handling', () => {
 
   it('should sanitize a step fragment name only at the installation summary boundary', async () => {
     const unsafeName = 'review\x1b[31munsafe\x1b[0m';
-    const stepPath = `${secureTempDir}/extract/steps/${unsafeName}.yaml`;
+    const stepPath = nativeFixturePath(`${secureTempDir}/extract/steps/${unsafeName}.yaml`);
     mockCollectCopyTargets.mockReturnValue([
       { absolutePath: stepPath, relativePath: `steps/${unsafeName}.yaml` },
     ]);
@@ -303,14 +308,14 @@ describe('repertoireAddCommand temporary directory handling', () => {
       `/repos/owner/repo/tarball/${resolvedRef}`,
     ], expect.any(Object));
     expect(mockWriteFileSync).toHaveBeenCalledWith(
-      '/home/user/.takt/repertoire/@owner/repo/.takt-repertoire-lock.yaml',
+      nativeFixturePath('/home/user/.takt/repertoire/@owner/repo/.takt-repertoire-lock.yaml'),
       expect.stringContaining('ref: "main\\e[31munsafe\\e[0m"'),
     );
   });
 
   it('should reject an install before confirmation when a copied workflow references an excluded local fragment', async () => {
-    const workflowPath = `${secureTempDir}/extract/workflows/review.yaml`;
-    const excludedFragmentPath = `${secureTempDir}/extract/steps/excluded.yaml`;
+    const workflowPath = nativeFixturePath(`${secureTempDir}/extract/workflows/review.yaml`);
+    const excludedFragmentPath = nativeFixturePath(`${secureTempDir}/extract/steps/excluded.yaml`);
     mockCollectCopyTargets.mockReturnValue([
       { absolutePath: workflowPath, relativePath: 'workflows/review.yaml' },
     ]);
@@ -329,7 +334,7 @@ describe('repertoireAddCommand temporary directory handling', () => {
   });
 
   it('should not prompt or install when reading a required workflow fails', async () => {
-    const workflowPath = `${secureTempDir}/extract/workflows/review.yaml`;
+    const workflowPath = nativeFixturePath(`${secureTempDir}/extract/workflows/review.yaml`);
     const sourceError = new Error('Failed to read workflow source');
     mockCollectCopyTargets.mockReturnValue([
       { absolutePath: workflowPath, relativePath: 'workflows/review.yaml' },
@@ -352,7 +357,7 @@ describe('repertoireAddCommand temporary directory handling', () => {
   });
 
   it('should not prompt or install when reading a required step fragment fails', async () => {
-    const stepPath = `${secureTempDir}/extract/steps/review.yaml`;
+    const stepPath = nativeFixturePath(`${secureTempDir}/extract/steps/review.yaml`);
     const sourceError = new Error('Failed to read step fragment source');
     mockCollectCopyTargets.mockReturnValue([
       { absolutePath: stepPath, relativePath: 'steps/review.yaml' },
@@ -376,7 +381,7 @@ describe('repertoireAddCommand temporary directory handling', () => {
 
   it('should not clean residuals when overwrite is declined', async () => {
     mockExistsSync.mockImplementation((target: string) => (
-      target === secureTempDir || target === '/home/user/.takt/repertoire/@owner/repo'
+      target === secureTempDir || target === nativeFixturePath('/home/user/.takt/repertoire/@owner/repo')
     ));
     vi.mocked(confirm).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
 

@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { escapeRegExp } from './helpers/regex.js';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -140,7 +141,7 @@ describe('runtime-provider loader', () => {
       globalConfigDir: globalDir,
       projectConfigDir: projectDir,
       runtimeFilePath: selectedFile,
-    })).toThrow(new RegExp(`${selectedFile}.*(?:ENOENT|no such file)`, 'i'));
+    })).toThrow(new RegExp(`${escapeRegExp(selectedFile)}.*(?:ENOENT|no such file)`, 'i'));
   });
 
   it('fails with the selected path and validation reason for invalid YAML', () => {
@@ -151,7 +152,7 @@ describe('runtime-provider loader', () => {
       globalConfigDir: globalDir,
       projectConfigDir: projectDir,
       runtimeFilePath: selectedFile,
-    })).toThrow(new RegExp(`Invalid runtime file "${selectedFile}"`, 'i'));
+    })).toThrow(new RegExp(`Invalid runtime file "${escapeRegExp(selectedFile)}"`, 'i'));
   });
 
   it('Given an invalid runtime.yaml, When loading, Then it throws naming the failing file path (schema validation, C1)', () => {
@@ -813,7 +814,7 @@ describe('runtime-provider loader', () => {
     ]);
     const filePath = join(globalDir, RUNTIME_PROVIDER_FILENAME);
 
-    expect(() => loadRuntimeProviderFileAt(filePath)).toThrow(new RegExp(`${filePath}.*review_mode`, 's'));
+    expect(() => loadRuntimeProviderFileAt(filePath)).toThrow(new RegExp(`${escapeRegExp(filePath)}.*review_mode`, 's'));
   });
 
   it('Given an invalid companion.fix_policy, When loading, Then the file and field are named in the error', () => {
@@ -825,7 +826,7 @@ describe('runtime-provider loader', () => {
     ]);
     const filePath = join(globalDir, RUNTIME_PROVIDER_FILENAME);
 
-    expect(() => loadRuntimeProviderFileAt(filePath)).toThrow(new RegExp(`${filePath}.*fix_policy`, 's'));
+    expect(() => loadRuntimeProviderFileAt(filePath)).toThrow(new RegExp(`${escapeRegExp(filePath)}.*fix_policy`, 's'));
   });
 
   it('Given both files omit companion, When resolving, Then companion remains undefined', () => {

@@ -14,7 +14,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { constants } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { resolveStatePaths, UUID_PATTERN, type ExecutionLocations, type StatePaths } from '../../core/execution/locations.js';
 import type { WorkflowRestartPoint, WorkflowResumePoint } from '../../core/models/index.js';
 import {
@@ -29,6 +29,8 @@ import {
 } from '../config/global/projectRegistry.js';
 import { recoverLegacyCentralWorktreeContext } from './centralWorktreeRecovery.js';
 import { boundPersistedFailureText } from '../../shared/utils/persistedFailureText.js';
+
+import { isPersistedFilesystemId, persistFilesystemId, type PersistedFilesystemId } from '../../shared/utils/filesystem-identity.js';
 
 const STATE_VERSION = 1;
 const TASKS_VERSION = 1;
@@ -196,7 +198,7 @@ function sameFingerprint(
   first: DirectoryFingerprint | undefined,
   second: DirectoryFingerprint | undefined,
 ): boolean {
-  return first?.dev === second?.dev && first?.ino === second?.ino;
+  return String(first?.dev) === String(second?.dev) && String(first?.ino) === String(second?.ino);
 }
 
 function sameCentralStateIdentity(first: CentralStateRecord, second: CentralStateRecord): boolean {
@@ -316,8 +318,8 @@ async function verifyRunsRoot(
     throw new CentralTaskCasError('Central runs directory is not the state runs root');
   }
   const [stateStats, runsStats] = await Promise.all([
-    lstat(expectedStateDirectory),
-    lstat(expectedRunsDirectory),
+    lstat(expectedStateDirectory, { bigint: true }),
+    lstat(expectedRunsDirectory, { bigint: true }),
   ]);
   if (
     !stateStats.isDirectory()
@@ -338,7 +340,7 @@ async function verifyRunsRoot(
   ) {
     throw new CentralTaskCasError('Central runs root identity changed');
   }
-  const fingerprint = { dev: runsStats.dev, ino: runsStats.ino };
+  const fingerprint = { dev: persistFilesystemId(runsStats.dev), ino: persistFilesystemId(runsStats.ino) };
   if (expectedFingerprint !== undefined && !sameFingerprint(fingerprint, expectedFingerprint)) {
     throw new CentralTaskCasError('Central runs root fingerprint changed');
   }
@@ -346,7 +348,7 @@ async function verifyRunsRoot(
 }
 
 async function atomicWrite(path: string, content: string): Promise<void> {
-  const temporary = join(dirname(path), `.${path.split('/').pop() ?? 'state'}.${process.pid}.${randomUUID()}.tmp`);
+  const temporary = join(dirname(path), `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`);
   try {
     await writeFile(temporary, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
     await chmod(temporary, 0o600);
@@ -415,7 +417,7 @@ interface StateLockOwner {
   readonly ownerToken: string;
   readonly pid: number;
   readonly processIdentity?: ProcessIdentity;
-  readonly inode: number;
+  readonly inode: PersistedFilesystemId;
   readonly startedAt: string;
 }
 
@@ -425,14 +427,14 @@ interface StateLockClaim {
   readonly ownerToken: string;
   readonly pid: number;
   readonly processIdentity?: ProcessIdentity;
-  readonly dev: number;
-  readonly ino: number;
+  readonly dev: PersistedFilesystemId;
+  readonly ino: PersistedFilesystemId;
 }
 
 interface StateLockHandle {
   readonly handle: import('node:fs/promises').FileHandle;
   readonly owner: StateLockOwner;
-  readonly stat: { readonly dev: number; readonly ino: number };
+  readonly stat: { readonly dev: bigint; readonly ino: bigint };
 }
 
 function lockClaimPath(lockPath: string, ownerToken: string): string {
@@ -452,8 +454,7 @@ function parseStateLockOwner(value: unknown): StateLockOwner | undefined {
     || raw.ownerToken.length < 16
     || !Number.isSafeInteger(raw.pid)
     || (raw.pid as number) <= 0
-    || !Number.isSafeInteger(raw.inode)
-    || (raw.inode as number) < 0
+    || !isPersistedFilesystemId(raw.inode)
     || typeof raw.startedAt !== 'string'
   ) return undefined;
   if (raw.processIdentity !== undefined && (
@@ -473,8 +474,8 @@ function parseStateLockClaim(value: unknown): StateLockClaim | undefined {
     || typeof raw.ownerToken !== 'string'
     || !Number.isSafeInteger(raw.pid)
     || (raw.pid as number) <= 0
-    || !Number.isSafeInteger(raw.dev)
-    || !Number.isSafeInteger(raw.ino)
+    || !isPersistedFilesystemId(raw.dev)
+    || !isPersistedFilesystemId(raw.ino)
   ) return undefined;
   if (raw.processIdentity !== undefined && (
     typeof raw.processIdentity !== 'object'
@@ -504,7 +505,7 @@ function sameLockOwner(first: StateLockOwner, second: StateLockOwner): boolean {
     || sameProcessIdentity(first.processIdentity, second.processIdentity);
   return first.ownerToken === second.ownerToken
     && first.pid === second.pid
-    && first.inode === second.inode
+    && String(first.inode) === String(second.inode)
     && identityMatches;
 }
 
@@ -539,14 +540,14 @@ function lockClaimOwnerIsStale(claim: StateLockClaim): boolean {
 async function compareDeleteClaim(
   claimPath: string,
   expected: StateLockClaim,
-  expectedStat: { readonly dev: number; readonly ino: number },
+  expectedStat: { readonly dev: bigint; readonly ino: bigint },
 ): Promise<boolean> {
   try {
-    const currentStat = await lstat(claimPath);
+    const currentStat = await lstat(claimPath, { bigint: true });
     if (currentStat.dev !== expectedStat.dev || currentStat.ino !== expectedStat.ino) return false;
     const current = await readStateLockClaim(claimPath);
     if (current === undefined || current.claimToken !== expected.claimToken) return false;
-    const beforeDelete = await lstat(claimPath);
+    const beforeDelete = await lstat(claimPath, { bigint: true });
     if (beforeDelete.dev !== expectedStat.dev || beforeDelete.ino !== expectedStat.ino) return false;
     await unlink(claimPath);
     return true;
@@ -559,9 +560,9 @@ async function compareDeleteClaim(
 async function publishStateLockClaim(
   lockPath: string,
   owner: StateLockOwner,
-  expectedStat: { readonly dev: number; readonly ino: number },
+  expectedStat: { readonly dev: bigint; readonly ino: bigint },
   attempt = 0,
-): Promise<{ readonly claim: StateLockClaim; readonly claimStat: { readonly dev: number; readonly ino: number } } | undefined> {
+): Promise<{ readonly claim: StateLockClaim; readonly claimStat: { readonly dev: bigint; readonly ino: bigint } } | undefined> {
   const claimPath = lockClaimPath(lockPath, owner.ownerToken);
   const temporary = `${claimPath}.${process.pid}.${randomUUID()}.tmp`;
   const processIdentity = getSelfProcessIdentity();
@@ -571,8 +572,8 @@ async function publishStateLockClaim(
     ownerToken: owner.ownerToken,
     pid: process.pid,
     ...(processIdentity === undefined ? {} : { processIdentity }),
-    dev: expectedStat.dev,
-    ino: expectedStat.ino,
+    dev: persistFilesystemId(expectedStat.dev),
+    ino: persistFilesystemId(expectedStat.ino),
   };
   try {
     await writeFile(temporary, `${JSON.stringify(claim)}\n`, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
@@ -580,18 +581,18 @@ async function publishStateLockClaim(
       await link(temporary, claimPath);
     } catch (error) {
       if (!isExists(error)) throw new CentralTaskCasError('Central state lock claim cannot be published atomically');
-      const existingStat = await lstat(claimPath).catch(() => undefined);
+      const existingStat = await lstat(claimPath, { bigint: true }).catch(() => undefined);
       const existing = await readStateLockClaim(claimPath);
       if (
         existingStat !== undefined
         && existing !== undefined
         && existing.ownerToken === owner.ownerToken
-        && existing.dev === expectedStat.dev
-        && existing.ino === expectedStat.ino
+        && BigInt(existing.dev) === expectedStat.dev
+        && BigInt(existing.ino) === expectedStat.ino
         && lockClaimOwnerIsStale(existing)
       ) {
         const inodeClaimPath = lockInodeClaimPath(lockPath, owner.ownerToken);
-        const inodeStat = await lstat(inodeClaimPath).catch(() => undefined);
+        const inodeStat = await lstat(inodeClaimPath, { bigint: true }).catch(() => undefined);
         if (inodeStat !== undefined && inodeStat.dev === expectedStat.dev && inodeStat.ino === expectedStat.ino) {
           await unlink(inodeClaimPath).catch((unlinkError: unknown) => {
             if (!isMissing(unlinkError)) throw unlinkError;
@@ -602,7 +603,7 @@ async function publishStateLockClaim(
       }
       return undefined;
     }
-    const claimStat = await lstat(claimPath);
+    const claimStat = await lstat(claimPath, { bigint: true });
     return { claim, claimStat: { dev: claimStat.dev, ino: claimStat.ino } };
   } finally {
     await unlink(temporary).catch(() => undefined);
@@ -617,7 +618,7 @@ async function publishStateLockClaim(
 async function compareDeleteStateLock(
   lockPath: string,
   owner: StateLockOwner,
-  expectedStat: { readonly dev: number; readonly ino: number },
+  expectedStat: { readonly dev: bigint; readonly ino: bigint },
 ): Promise<boolean> {
   const claimPath = lockClaimPath(lockPath, owner.ownerToken);
   const claim = await publishStateLockClaim(lockPath, owner, expectedStat);
@@ -630,8 +631,8 @@ async function compareDeleteStateLock(
       if (!isExists(error)) throw error;
     }
     const [canonicalStat, inodeStat, currentOwner, currentClaim] = await Promise.all([
-      lstat(lockPath),
-      lstat(inodeClaimPath),
+      lstat(lockPath, { bigint: true }),
+      lstat(inodeClaimPath, { bigint: true }),
       readStateLockOwner(lockPath),
       readStateLockClaim(claimPath),
     ]);
@@ -645,7 +646,7 @@ async function compareDeleteStateLock(
       || currentClaim === undefined
       || currentClaim.claimToken !== claim.claim.claimToken
     ) return false;
-    const beforeDelete = await lstat(lockPath);
+    const beforeDelete = await lstat(lockPath, { bigint: true });
     if (beforeDelete.dev !== expectedStat.dev || beforeDelete.ino !== expectedStat.ino) return false;
     await unlink(lockPath);
     return true;
@@ -653,7 +654,7 @@ async function compareDeleteStateLock(
     if (isMissing(error)) return false;
     throw error;
   } finally {
-    const inodeStat = await lstat(inodeClaimPath).catch(() => undefined);
+    const inodeStat = await lstat(inodeClaimPath, { bigint: true }).catch(() => undefined);
     if (inodeStat?.dev === expectedStat.dev && inodeStat.ino === expectedStat.ino) {
       await unlink(inodeClaimPath).catch((error: unknown) => {
         if (!isMissing(error)) throw error;
@@ -667,20 +668,20 @@ async function waitForLock(lockPath: string): Promise<StateLockHandle> {
   const publish = async (): Promise<StateLockHandle | undefined> => {
     const temporary = join(
       dirname(lockPath),
-      `.${lockPath.split('/').pop() ?? 'state.lock'}.${process.pid}.${randomUUID()}.tmp`,
+      `.${basename(lockPath)}.${process.pid}.${randomUUID()}.tmp`,
     );
     let temporaryHandle: import('node:fs/promises').FileHandle | undefined;
-    let publishedOwner: { readonly owner: StateLockOwner; readonly stat: { readonly dev: number; readonly ino: number } } | undefined;
+    let publishedOwner: { readonly owner: StateLockOwner; readonly stat: { readonly dev: bigint; readonly ino: bigint } } | undefined;
     try {
       temporaryHandle = await open(temporary, 'wx', 0o600);
-      const fileStat = await temporaryHandle.stat();
+      const fileStat = await temporaryHandle.stat({ bigint: true });
       const processIdentity = getSelfProcessIdentity();
       const owner: StateLockOwner = {
         version: 1,
         ownerToken: makeOwnerToken(),
         pid: process.pid,
         ...(processIdentity === undefined ? {} : { processIdentity }),
-        inode: fileStat.ino,
+        inode: persistFilesystemId(fileStat.ino),
         startedAt: new Date().toISOString(),
       };
       await temporaryHandle.writeFile(JSON.stringify(owner), 'utf8');
@@ -700,7 +701,7 @@ async function waitForLock(lockPath: string): Promise<StateLockHandle> {
       publishedOwner = { owner, stat: { dev: fileStat.dev, ino: fileStat.ino } };
       await unlink(temporary);
       const handle = await open(lockPath, 'r+');
-      const publishedStat = await handle.stat();
+      const publishedStat = await handle.stat({ bigint: true });
       const publishedDocument = await readStateLockOwner(lockPath);
       if (
         publishedStat.dev !== fileStat.dev
@@ -733,7 +734,7 @@ async function waitForLock(lockPath: string): Promise<StateLockHandle> {
     if (published !== undefined) return published;
     const owner = await readStateLockOwner(lockPath);
     if (owner !== undefined) {
-      const lockStat = await lstat(lockPath).catch(() => undefined);
+      const lockStat = await lstat(lockPath, { bigint: true }).catch(() => undefined);
       if (lockStat !== undefined && lockOwnerIsStale(owner)) {
         const removed = await compareDeleteStateLock(lockPath, owner, { dev: lockStat.dev, ino: lockStat.ino });
         if (removed) continue;
@@ -1015,8 +1016,8 @@ function parseState(value: unknown): CentralStateRecord {
       fingerprint === null
       || typeof fingerprint !== 'object'
       || Array.isArray(fingerprint)
-      || !Number.isSafeInteger((fingerprint as Readonly<Record<string, unknown>>).dev)
-      || !Number.isSafeInteger((fingerprint as Readonly<Record<string, unknown>>).ino)
+      || !isPersistedFilesystemId((fingerprint as Readonly<Record<string, unknown>>).dev)
+      || !isPersistedFilesystemId((fingerprint as Readonly<Record<string, unknown>>).ino)
     ) {
       throw new CentralTaskCasError(`Central state ${label} is malformed`);
     }
@@ -1040,7 +1041,7 @@ async function verifyStateLocationIdentity(
   if (currentDirectory !== state.canonicalDirectory) {
     throw new CentralTaskCasError('Central project directory canonical path changed');
   }
-  const stats = await lstat(currentDirectory).catch(() => undefined);
+  const stats = await lstat(currentDirectory, { bigint: true }).catch(() => undefined);
   if (stats === undefined || !stats.isDirectory() || stats.isSymbolicLink()) {
     throw new CentralTaskCasError('Central project directory is not a regular directory');
   }
@@ -1049,7 +1050,7 @@ async function verifyStateLocationIdentity(
   }
   if (
     state.fingerprint !== undefined
-    && (state.fingerprint.dev !== stats.dev || state.fingerprint.ino !== stats.ino)
+    && (BigInt(state.fingerprint.dev) !== stats.dev || BigInt(state.fingerprint.ino) !== stats.ino)
   ) {
     throw new CentralTaskCasError('Central project directory fingerprint changed; explicit relink is required');
   }
@@ -1068,8 +1069,7 @@ async function verifyStateRegistryIdentity(
   if (
     registered.stateId !== state.stateId
     || registered.canonicalDirectory !== state.canonicalDirectory
-    || registered.fingerprint.dev !== state.fingerprint?.dev
-    || registered.fingerprint.ino !== state.fingerprint?.ino
+    || !sameFingerprint(registered.fingerprint, state.fingerprint)
   ) {
     throw new CentralTaskCasError('Central state identity does not match the project registry');
   }

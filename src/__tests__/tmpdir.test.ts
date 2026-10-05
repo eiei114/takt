@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ensureCurrentTmpDirExists } from '../shared/utils/tmpdir.js';
 
+const tmpEnvKey = process.platform === 'win32' ? 'TEMP' : 'TMPDIR';
+
 const temporaryDirs: string[] = [];
 
 function createTempDir(prefix: string): string {
@@ -20,10 +22,10 @@ describe('ensureCurrentTmpDirExists', () => {
   });
 
   it('Given TMPDIR points to a missing directory, When ensuring current tmpdir, Then the directory is created and returned', () => {
-    const originalTmpDir = process.env.TMPDIR;
+    const originalTmpDir = process.env[tmpEnvKey];
     const parentDir = createTempDir('takt-tmpdir-parent-');
     const missingTmpDir = join(parentDir, 'missing', 'tmp');
-    process.env.TMPDIR = missingTmpDir;
+    process.env[tmpEnvKey] = missingTmpDir;
 
     try {
       const ensuredTmpDir = ensureCurrentTmpDirExists();
@@ -33,9 +35,9 @@ describe('ensureCurrentTmpDirExists', () => {
       expect(statSync(missingTmpDir).isDirectory()).toBe(true);
     } finally {
       if (originalTmpDir === undefined) {
-        delete process.env.TMPDIR;
+        delete process.env[tmpEnvKey];
       } else {
-        process.env.TMPDIR = originalTmpDir;
+        process.env[tmpEnvKey] = originalTmpDir;
       }
     }
   });

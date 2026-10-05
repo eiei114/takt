@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
+
+// Match the process seam used by the Windows cross-platform spawn wrapper.
+vi.mock('cross-spawn', async () => ({
+  default: (await import('node:child_process')).spawn,
+}));
 
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
@@ -44,7 +52,7 @@ describe('runHeadlessCli onStream failure', () => {
     const onStream = vi.fn((_event: StreamEvent) => {
       throw failure;
     });
-    const options: ClaudeHeadlessCallOptions = { cwd: '/tmp', onStream };
+    const options: ClaudeHeadlessCallOptions = { cwd: nativeFixturePath('/tmp'), onStream };
 
     const promise = runHeadlessCli(['-p', '--', 'prompt'], options);
     stdout.write(`${TEXT_LINE}\n`);
@@ -61,7 +69,7 @@ describe('runHeadlessCli onStream failure', () => {
     const onStream = vi.fn((_event: StreamEvent) => {
       throw failure;
     });
-    const options: ClaudeHeadlessCallOptions = { cwd: '/tmp', onStream };
+    const options: ClaudeHeadlessCallOptions = { cwd: nativeFixturePath('/tmp'), onStream };
 
     const promise = runHeadlessCli(['-p', '--', 'prompt'], options);
     stdout.write(`${TEXT_LINE}\n`);
@@ -80,7 +88,7 @@ describe('runHeadlessCli onStream failure', () => {
   it('wraps a non-Error throwable into an Error', async () => {
     const { proc, stdout } = stubSpawn();
     const options: ClaudeHeadlessCallOptions = {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       onStream: () => {
         throw 'string failure';
       },
@@ -99,7 +107,7 @@ describe('runHeadlessCli onStream failure', () => {
     const onStream = vi.fn((_event: StreamEvent) => {
       throw failure;
     });
-    const options: ClaudeHeadlessCallOptions = { cwd: '/tmp', onStream };
+    const options: ClaudeHeadlessCallOptions = { cwd: nativeFixturePath('/tmp'), onStream };
 
     const promise = runHeadlessCli(['-p', '--', 'prompt'], options);
     // No trailing newline: the line stays buffered until the close handler flushes it.
@@ -117,7 +125,7 @@ describe('runHeadlessCli onStream failure', () => {
     const { proc, stdout } = stubSpawn();
     const events: StreamEvent[] = [];
     const options: ClaudeHeadlessCallOptions = {
-      cwd: '/tmp',
+      cwd: nativeFixturePath('/tmp'),
       onStream: (event) => {
         events.push(event);
       },

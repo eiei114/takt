@@ -75,7 +75,7 @@ describe('CLI update check', () => {
 
     expect(mockSpawn).toHaveBeenCalledWith(
       process.execPath,
-      [expect.stringMatching(/shared\/utils\/updateNotifierWorker\.js$/)],
+      [expect.stringMatching(/shared[\\/]utils[\\/]updateNotifierWorker\.js$/)],
       {
         detached: true,
         stdio: 'ignore',
@@ -92,7 +92,7 @@ describe('CLI update check', () => {
 
     expect(mockSpawn).toHaveBeenCalledWith(
       process.execPath,
-      [expect.stringMatching(/shared\/utils\/updateNotifierWorker\.js$/), '--no-update-notifier'],
+      [expect.stringMatching(/shared[\\/]utils[\\/]updateNotifierWorker\.js$/), '--no-update-notifier'],
       expect.any(Object),
     );
   });

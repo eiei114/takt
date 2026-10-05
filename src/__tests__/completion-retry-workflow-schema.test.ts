@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
+
 const virtualStepFragment = vi.hoisted(() => ({
   content: '',
   descriptor: 7,
-  path: '/virtual/project/.takt/steps/completion-retry-contract.yaml',
+  path: nativeFixturePath('/virtual/project/.takt/steps/completion-retry-contract.yaml'),
 }));
 
 vi.mock('node:fs', async (importOriginal) => ({
@@ -34,8 +37,8 @@ vi.mock('node:fs', async (importOriginal) => ({
 import { normalizeWorkflowConfig } from '../infra/config/loaders/workflowParser.js';
 import { captureConfigErrorMessage } from './helpers/step-fragment-test-helpers.js';
 
-const VIRTUAL_PROJECT_DIR = '/virtual/project';
-const VIRTUAL_WORKFLOW_DIR = `${VIRTUAL_PROJECT_DIR}/.takt/workflows`;
+const VIRTUAL_PROJECT_DIR = nativeFixturePath('/virtual/project');
+const VIRTUAL_WORKFLOW_DIR = nativeFixturePath(`${VIRTUAL_PROJECT_DIR}/.takt/workflows`);
 
 function workflow(step: Record<string, unknown>) {
   return {
@@ -97,7 +100,7 @@ describe('completion retry workflow contract', () => {
   it('normalizes the required retry instruction and retry defaults', () => {
     const config = normalizeWorkflowConfig(
       workflow({ completion_retry: { retry_instruction: 'retry' } }),
-      '/tmp/custom-review.yaml',
+      nativeFixturePath('/tmp/custom-review.yaml'),
       { lang: 'en' },
     );
 
@@ -112,7 +115,7 @@ describe('completion retry workflow contract', () => {
   it('normalizes the deprecated review_completion alias', () => {
     const config = normalizeWorkflowConfig(
       workflow({ review_completion: { retry_instruction: 'retry' } }),
-      '/tmp/custom-review.yaml',
+      nativeFixturePath('/tmp/custom-review.yaml'),
       { lang: 'en' },
     );
 
@@ -130,7 +133,7 @@ describe('completion retry workflow contract', () => {
         completion_retry: { retry_instruction: 'retry' },
         review_completion: { retry_instruction: 'retry' },
       }),
-      '/tmp/custom-review.yaml',
+      nativeFixturePath('/tmp/custom-review.yaml'),
       { lang: 'en' },
     )).toThrow(/cannot specify both "completion_retry" and deprecated alias "review_completion"/);
   });
@@ -140,7 +143,7 @@ describe('completion retry workflow contract', () => {
     (field) => {
       const errorMessage = captureConfigErrorMessage(() => normalizeWorkflowConfig(
         workflowCall({ [field]: { retry_instruction: 'retry' } }),
-        '/tmp/custom-review-call.yaml',
+        nativeFixturePath('/tmp/custom-review-call.yaml'),
         { lang: 'en' },
       ));
 
@@ -151,7 +154,7 @@ describe('completion retry workflow contract', () => {
   it('normalizes the deprecated review_completion alias on parallel sub-steps', () => {
     const config = normalizeWorkflowConfig(
       parallelWorkflow({ review_completion: { retry_instruction: 'retry' } }),
-      '/tmp/custom-parallel-review.yaml',
+      nativeFixturePath('/tmp/custom-parallel-review.yaml'),
       { lang: 'en' },
     );
 
@@ -171,7 +174,7 @@ describe('completion retry workflow contract', () => {
         completion_retry: { retry_instruction: 'retry' },
         review_completion: { retry_instruction: 'retry' },
       }),
-      '/tmp/custom-parallel-review.yaml',
+      nativeFixturePath('/tmp/custom-parallel-review.yaml'),
       { lang: 'en' },
     )).toThrow(/cannot specify both "completion_retry" and deprecated alias "review_completion"/);
   });
@@ -222,7 +225,7 @@ describe('completion retry workflow contract', () => {
   it('uses the internal ceiling when min_retry is set without max_retry', () => {
     const config = normalizeWorkflowConfig(
       workflow({ completion_retry: { retry_instruction: 'retry', min_retry: 2 } }),
-      '/tmp/custom-review.yaml',
+      nativeFixturePath('/tmp/custom-review.yaml'),
       { lang: 'en' },
     );
 
@@ -235,7 +238,7 @@ describe('completion retry workflow contract', () => {
   it('preserves an explicitly configured zero retry bound', () => {
     const config = normalizeWorkflowConfig(
       workflow({ completion_retry: { retry_instruction: 'retry', max_retry: 0 } }),
-      '/tmp/custom-review.yaml',
+      nativeFixturePath('/tmp/custom-review.yaml'),
       { lang: 'en' },
     );
 
@@ -248,7 +251,7 @@ describe('completion retry workflow contract', () => {
   it('leaves completion retry disabled when the field is omitted', () => {
     const config = normalizeWorkflowConfig(
       workflow({ tags: ['review'] }),
-      '/tmp/custom-review.yaml',
+      nativeFixturePath('/tmp/custom-review.yaml'),
       { lang: 'en' },
     );
 
@@ -260,7 +263,7 @@ describe('completion retry workflow contract', () => {
     (completionRetry) => {
       expect(() => normalizeWorkflowConfig(
         workflow({ completion_retry: completionRetry }),
-        '/tmp/custom-review.yaml',
+        nativeFixturePath('/tmp/custom-review.yaml'),
         { lang: 'en' },
       )).toThrow();
     },
@@ -269,7 +272,7 @@ describe('completion retry workflow contract', () => {
   it('rejects the removed mode field', () => {
     expect(() => normalizeWorkflowConfig(
       workflow({ completion_retry: { retry_instruction: 'retry', mode: 'follow_up' } }),
-      '/tmp/custom-review.yaml',
+      nativeFixturePath('/tmp/custom-review.yaml'),
       { lang: 'en' },
     )).toThrow(/mode|Unrecognized key/);
   });
@@ -279,7 +282,7 @@ describe('completion retry workflow contract', () => {
       workflow({
         completion_retry: { retry_instruction: 'retry', min_retry: 1, max_retry: 8 },
       }),
-      '/tmp/custom-review.yaml',
+      nativeFixturePath('/tmp/custom-review.yaml'),
       { lang: 'en' },
     );
 

@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -25,7 +28,7 @@ function createTempProjectDir(prefix: string): string {
 
 describe('buildRunPaths', () => {
   it('should build run-scoped relative and absolute paths', () => {
-    const paths = buildRunPaths('/tmp/project', '20260210-demo-task');
+    const paths = buildRunPaths(nativeFixturePath('/tmp/project'), '20260210-demo-task');
 
     expect(paths.runRootRel).toBe('.takt/runs/20260210-demo-task');
     expect(paths.reportsRel).toBe('.takt/runs/20260210-demo-task/reports');
@@ -39,20 +42,20 @@ describe('buildRunPaths', () => {
     expect(paths.operationJournalRel).toBe('.takt/runs/20260210-demo-task/operations/journal.json');
     expect(paths.metaRel).toBe('.takt/runs/20260210-demo-task/meta.json');
 
-    expect(paths.reportsAbs).toBe('/tmp/project/.takt/runs/20260210-demo-task/reports');
-    expect(paths.contextTaskAbs).toBe('/tmp/project/.takt/runs/20260210-demo-task/context/task');
-    expect(paths.contextTaskOrderAbs).toBe('/tmp/project/.takt/runs/20260210-demo-task/context/task/order.md');
-    expect(paths.operationJournalAbs).toBe('/tmp/project/.takt/runs/20260210-demo-task/operations/journal.json');
-    expect(paths.metaAbs).toBe('/tmp/project/.takt/runs/20260210-demo-task/meta.json');
+    expect(paths.reportsAbs).toBe(nativeFixturePath('/tmp/project/.takt/runs/20260210-demo-task/reports'));
+    expect(paths.contextTaskAbs).toBe(nativeFixturePath('/tmp/project/.takt/runs/20260210-demo-task/context/task'));
+    expect(paths.contextTaskOrderAbs).toBe(nativeFixturePath('/tmp/project/.takt/runs/20260210-demo-task/context/task/order.md'));
+    expect(paths.operationJournalAbs).toBe(nativeFixturePath('/tmp/project/.takt/runs/20260210-demo-task/operations/journal.json'));
+    expect(paths.metaAbs).toBe(nativeFixturePath('/tmp/project/.takt/runs/20260210-demo-task/meta.json'));
   });
 
   it('should append namespace under reports and context paths for subworkflows', () => {
-    const paths = buildRunPaths('/tmp/project', '20260210-demo-task', ['subworkflows', 'delegate-coding']);
+    const paths = buildRunPaths(nativeFixturePath('/tmp/project'), '20260210-demo-task', ['subworkflows', 'delegate-coding']);
 
     expect(paths.reportsRel).toBe('.takt/runs/20260210-demo-task/reports/subworkflows/delegate-coding');
     expect(paths.contextRel).toBe('.takt/runs/20260210-demo-task/context/subworkflows/delegate-coding');
-    expect(paths.reportsAbs).toBe('/tmp/project/.takt/runs/20260210-demo-task/reports/subworkflows/delegate-coding');
-    expect(paths.contextKnowledgeAbs).toBe('/tmp/project/.takt/runs/20260210-demo-task/context/subworkflows/delegate-coding/knowledge');
+    expect(paths.reportsAbs).toBe(nativeFixturePath('/tmp/project/.takt/runs/20260210-demo-task/reports/subworkflows/delegate-coding'));
+    expect(paths.contextKnowledgeAbs).toBe(nativeFixturePath('/tmp/project/.takt/runs/20260210-demo-task/context/subworkflows/delegate-coding/knowledge'));
   });
 });
 

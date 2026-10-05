@@ -1,4 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 // New modules under test (implemented in the following `implement` step).
@@ -49,7 +52,7 @@ function resolvedServers(): ResolvedMcpServers {
 
 function baseContext(overrides: Partial<ProviderMcpContext> = {}): ProviderMcpContext {
   return {
-    cwd: '/tmp/test',
+    cwd: nativeFixturePath('/tmp/test'),
     abortSignal: new AbortController().signal,
     ...overrides,
   };
@@ -196,10 +199,13 @@ describe('Cursor adapter (MCP-CURSOR)', () => {
     // The adapter must expose an isolated config root path so it never touches the user's .cursor/mcp.json.
     const configRoot = (prepared as { configRoot?: string }).configRoot;
     expect(configRoot).toBeDefined();
-    expect(configRoot).not.toBe('/tmp/test');
+    expect(configRoot).not.toBe(nativeFixturePath('/tmp/test'));
     // The config root and the mcp.json file must be private (order.md:283, claude-mcp-config.test.ts:30-33).
-    expect(statSync(configRoot!).mode & 0o777).toBe(0o700);
-    expect(statSync(join(configRoot!, '.cursor', 'mcp.json')).mode & 0o777).toBe(0o600);
+    // Windows stat mode bits do not describe its ACL; retain POSIX enforcement checks.
+    if (process.platform !== 'win32') {
+      expect(statSync(configRoot!).mode & 0o777).toBe(0o700);
+      expect(statSync(join(configRoot!, '.cursor', 'mcp.json')).mode & 0o777).toBe(0o600);
+    }
     await prepared.dispose();
   });
 
@@ -220,7 +226,7 @@ describe('Cursor adapter (MCP-CURSOR)', () => {
       serverNames: ['events'],
       identity: 'events:sse',
     };
-    expect(() => adapter.validate(unsupported, { sourcePath: '/tmp/runtime.yaml' }))
+    expect(() => adapter.validate(unsupported, { sourcePath: nativeFixturePath('/tmp/runtime.yaml') }))
       .toThrow(/cursor.*sse/i);
   });
 
@@ -249,8 +255,11 @@ describe('Copilot adapter (MCP-COPILOT)', () => {
     // The temp config file and its parent directory must be private (order.md:283, claude-mcp-config.test.ts:30-33).
     const path = args?.[additionalIndex]?.split('=')[1]?.replace(/^@/, '');
     expect(path).toBeDefined();
-    expect(statSync(path!).mode & 0o777).toBe(0o600);
-    expect(statSync(dirname(path!)).mode & 0o777).toBe(0o700);
+    // Windows stat mode bits do not describe its ACL; retain POSIX enforcement checks.
+    if (process.platform !== 'win32') {
+      expect(statSync(path!).mode & 0o777).toBe(0o600);
+      expect(statSync(dirname(path!)).mode & 0o777).toBe(0o700);
+    }
     await prepared.dispose();
   });
 

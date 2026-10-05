@@ -7,7 +7,8 @@ import { clearTaktEnv, restoreTaktEnv, type TaktEnvSnapshot } from './helpers/ta
 const shouldForceNoTty = process.env.TAKT_TEST_FLG_TOUCH_TTY !== '1';
 const TEST_TMPDIR = realpathSync(tmpdir());
 
-process.env.TMPDIR = TEST_TMPDIR;
+const nativeTmpEnvKey = process.platform === 'win32' ? 'TEMP' : 'TMPDIR';
+process.env[nativeTmpEnvKey] = TEST_TMPDIR;
 
 if (shouldForceNoTty) {
   process.env.TAKT_NO_TTY = '1';
@@ -34,7 +35,7 @@ beforeEach(async () => {
   // timeout fires ("Timeout calling onTaskUpdate"). Yield one macrotask per test.
   await new Promise<void>((resolve) => realSetImmediate(resolve));
   taktEnvSnapshot = clearTaktEnv();
-  process.env.TMPDIR = TEST_TMPDIR;
+  process.env[nativeTmpEnvKey] = TEST_TMPDIR;
   isolatedRootDir = mkdtempSync(join(tmpdir(), 'takt-test-global-'));
   gitEnvSnapshot = new Map(gitEnvKeys.map((key) => [key, process.env[key]]));
   process.env.TAKT_CONFIG_DIR = join(isolatedRootDir, '.takt');

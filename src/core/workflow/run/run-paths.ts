@@ -1,4 +1,4 @@
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, posix, relative, resolve } from 'node:path';
 
 export interface RunPaths {
   readonly slug: string;
@@ -55,7 +55,7 @@ export function resolveReportDirectory(cwd: string, reportDir: string): string {
 
 function joinRel(base: string, namespace: string[] | undefined): string {
   return namespace && namespace.length > 0
-    ? join(base, ...namespace)
+    ? posix.join(base, ...namespace)
     : base;
 }
 
@@ -69,11 +69,11 @@ function buildRunPathsFromRoot(
   const reportsRootRel = `${runRootRel}/reports`;
   const reportsRel = joinRel(reportsRootRel, namespace);
   const contextRel = joinRel(`${runRootRel}/context`, namespace);
-  const contextTaskRel = join(contextRel, 'task');
-  const contextTaskOrderRel = join(contextTaskRel, 'order.md');
-  const contextKnowledgeRel = join(contextRel, 'knowledge');
-  const contextPolicyRel = join(contextRel, 'policy');
-  const contextPreviousResponsesRel = join(contextRel, 'previous_responses');
+  const contextTaskRel = posix.join(contextRel, 'task');
+  const contextTaskOrderRel = posix.join(contextTaskRel, 'order.md');
+  const contextKnowledgeRel = posix.join(contextRel, 'knowledge');
+  const contextPolicyRel = posix.join(contextRel, 'policy');
+  const contextPreviousResponsesRel = posix.join(contextRel, 'previous_responses');
   const logsRel = `${runRootRel}/logs`;
   const operationsRel = `${runRootRel}/operations`;
   const operationJournalRel = `${operationsRel}/journal.json`;

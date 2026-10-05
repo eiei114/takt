@@ -1,4 +1,7 @@
 import { formatMissingReportReference } from '../core/workflow/instruction/report-reference.js';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { mkdirSync, mkdtempSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -250,7 +253,7 @@ describe('resolveReportReferenceDetailed', () => {
 
   it.each(['en', 'ja'] as const)('leaves a report with no injected references unchanged (%s)', (language) => {
     const step = makeStep({ outputContracts: [{ name: 'result.md', format: '' }] });
-    const context = { cwd: '/project', reportDir: '/project/reports', stepIteration: 1, language };
+    const context = { cwd: nativeFixturePath('/project'), reportDir: nativeFixturePath('/project/reports'), stepIteration: 1, language };
     const withoutSnapshot = new ReportInstructionBuilder(step, context).build();
     expect(new ReportInstructionBuilder(step, { ...context, injectedReports: [] }).build()).toBe(withoutSnapshot);
   });
@@ -675,6 +678,13 @@ describe('resolveReportReferenceDetailed', () => {
     writeFileSync(join(reports, 'review.md'), 'inside report');
     writeFileSync(join(outsideReports, 'review.md'), 'outside secret');
     injectedFsError.beforeRead = () => {
+      if (process.platform === 'win32') {
+        // The open report handle prevents ancestor replacement on Windows.
+        expect(() => renameSync(reports, originalReports)).toThrow(
+          expect.objectContaining({ code: 'EPERM' }),
+        );
+        return;
+      }
       renameSync(reports, originalReports);
       symlinkSync(outsideReports, reports, 'dir');
     };

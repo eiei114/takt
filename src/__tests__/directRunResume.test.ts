@@ -1,4 +1,7 @@
 import * as fs from 'node:fs';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -234,7 +237,7 @@ describe('resumeDirectRun', () => {
   it('Given no resumable direct run, When resume is invoked, Then the guidance message is printed', async () => {
     mockFindLatestResumableDirectRun.mockReturnValue(null);
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     expect(mockInfo).toHaveBeenCalled();
     expect(mockSelectOption).not.toHaveBeenCalled();
@@ -244,7 +247,7 @@ describe('resumeDirectRun', () => {
     mockFindLatestResumableDirectRun.mockReturnValue(createRun());
     mockSelectOption.mockResolvedValueOnce('cancel');
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     const options = mockSelectOption.mock.calls[0]?.[1] as Array<{ value: string }>;
     expect(options.map((option) => option.value)).toEqual([
@@ -263,7 +266,7 @@ describe('resumeDirectRun', () => {
     }));
     mockSelectOption.mockResolvedValueOnce('cancel');
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     const infoValues = mockInfo.mock.calls.flat().map((value) => String(value));
     for (const value of infoValues) {
@@ -278,12 +281,12 @@ describe('resumeDirectRun', () => {
     mockFindLatestResumableDirectRun.mockReturnValue(createRun());
     mockSelectOption.mockResolvedValueOnce('requeue');
 
-    await resumeDirectRun('/project', { provider: 'mock', model: 'gpt-test' });
+    await resumeDirectRun(nativeFixturePath('/project'), { provider: 'mock', model: 'gpt-test' });
 
     expect(mockExecuteTaskWithResult).toHaveBeenCalledWith(expect.objectContaining({
       task: 'Order file instruction',
-      cwd: '/project',
-      projectCwd: '/project',
+      cwd: nativeFixturePath('/project'),
+      projectCwd: nativeFixturePath('/project'),
       workflowIdentifier: 'default',
       agentOverrides: { provider: 'mock', model: 'gpt-test' },
       resumePoint,
@@ -351,7 +354,7 @@ describe('resumeDirectRun', () => {
     }));
     mockSelectOption.mockResolvedValueOnce('requeue');
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     expect(mockExecuteTaskWithResult).toHaveBeenCalledWith(expect.objectContaining({
       startStep: 'parent-call',
@@ -363,7 +366,7 @@ describe('resumeDirectRun', () => {
     mockFindLatestResumableDirectRun.mockReturnValue(createRun({ prContext: pullRequestContext }));
     mockSelectOption.mockResolvedValueOnce('requeue');
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     expect(mockExecuteTaskWithResult).toHaveBeenCalledWith(expect.objectContaining({
       prContext: {
@@ -379,10 +382,10 @@ describe('resumeDirectRun', () => {
     mockSelectOption.mockResolvedValueOnce('retry');
     mockRunDirectRetryMode.mockResolvedValueOnce({ action: 'cancel', task: '' });
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     expect(mockRunDirectRetryMode).toHaveBeenCalledWith(
-      '/project',
+      nativeFixturePath('/project'),
       expect.objectContaining({
         prContext: {
           ...pullRequestContext,
@@ -398,7 +401,7 @@ describe('resumeDirectRun', () => {
     mockSelectOption.mockResolvedValueOnce('instruct');
     mockRunDirectInstructMode.mockResolvedValueOnce({ action: 'cancel', task: '' });
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     expect(mockRunDirectInstructMode).toHaveBeenCalledWith(expect.objectContaining({
       prContext: {
@@ -413,17 +416,17 @@ describe('resumeDirectRun', () => {
     mockFindLatestResumableDirectRun.mockReturnValue(createRun());
 
     mockSelectOption.mockResolvedValueOnce('requeue');
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
     expect(mockExecuteTaskWithResult.mock.calls[0]?.[0]).not.toHaveProperty('prContext');
 
     mockSelectOption.mockResolvedValueOnce('retry');
     mockRunDirectRetryMode.mockResolvedValueOnce({ action: 'cancel', task: '' });
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
     expect(mockRunDirectRetryMode.mock.calls[0]?.[1]).not.toHaveProperty('prContext');
 
     mockSelectOption.mockResolvedValueOnce('instruct');
     mockRunDirectInstructMode.mockResolvedValueOnce({ action: 'cancel', task: '' });
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
     expect(mockRunDirectInstructMode.mock.calls[0]?.[0]).not.toHaveProperty('prContext');
   });
 
@@ -432,7 +435,7 @@ describe('resumeDirectRun', () => {
     mockSelectOption.mockResolvedValueOnce('requeue');
     mockLocalBranchExists.mockReturnValueOnce(false);
 
-    await expect(resumeDirectRun('/project')).rejects.toThrow(
+    await expect(resumeDirectRun(nativeFixturePath('/project'))).rejects.toThrow(
       'Direct run resume is missing PR head ref refs/heads/feature/direct-resume.',
     );
     expect(mockMaterializePullRequestBase).not.toHaveBeenCalled();
@@ -444,7 +447,7 @@ describe('resumeDirectRun', () => {
     mockSelectOption.mockResolvedValueOnce('requeue');
     mockGetCurrentBranch.mockReturnValueOnce('main');
 
-    await expect(resumeDirectRun('/project')).rejects.toThrow(
+    await expect(resumeDirectRun(nativeFixturePath('/project'))).rejects.toThrow(
       'Direct run resume is checked out on "main", expected PR head "feature/direct-resume".',
     );
     expect(mockLocalBranchExists).not.toHaveBeenCalled();
@@ -455,7 +458,7 @@ describe('resumeDirectRun', () => {
     mockFindLatestResumableDirectRun.mockReturnValue(createRun({ resumePoint: undefined }));
     mockSelectOption.mockResolvedValueOnce('requeue');
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     expect(mockExecuteTaskWithResult).toHaveBeenCalledWith(expect.objectContaining({
       startStep: 'fix',
@@ -479,7 +482,7 @@ describe('resumeDirectRun', () => {
       return options.find((option) => option.label.trim() === JSON.stringify(selectedStep))!.value;
     });
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     const execution = mockExecuteTaskWithResult.mock.calls[0]?.[0];
     expect(execution).toEqual(expect.objectContaining({
@@ -502,7 +505,7 @@ describe('resumeDirectRun', () => {
     } }));
     mockSelectOption.mockResolvedValueOnce(action);
 
-    expect(await resumeDirectRun('/project')).toBe(false);
+    expect(await resumeDirectRun(nativeFixturePath('/project'))).toBe(false);
     expect(mockSelectOption).toHaveBeenCalledTimes(1);
     expect(mockWarn.mock.calls.flat().join('\n')).toMatch(/reviewers.*not found/i);
     expect(mockExecuteTaskWithResult).not.toHaveBeenCalled();
@@ -546,7 +549,7 @@ describe('resumeDirectRun', () => {
         mockResolveWorkflowCallTarget.mockReturnValue({ ...child, subworkflow: { callable: true } });
         mockSelectOption.mockResolvedValueOnce('requeue');
 
-        expect(await resumeDirectRun('/project')).toBe(true);
+        expect(await resumeDirectRun(nativeFixturePath('/project'))).toBe(true);
         expect(mockSelectOption).toHaveBeenCalledTimes(1);
         expect(mockExecuteTaskWithResult).toHaveBeenCalledWith(expect.objectContaining({
           startStep: 'delegate',
@@ -573,7 +576,7 @@ describe('resumeDirectRun', () => {
           return options.find((option) => option.label === '"plan"')!.value;
         });
 
-        expect(await resumeDirectRun('/project')).toBe(true);
+        expect(await resumeDirectRun(nativeFixturePath('/project'))).toBe(true);
         expect(mockSelectOption).toHaveBeenCalledTimes(2);
         expect(mockExecuteTaskWithResult).toHaveBeenCalledWith(expect.objectContaining({
           restartPoint: { stack: [{ workflow: 'default', workflow_ref: 'default', step: 'plan', kind: 'agent' }] },
@@ -598,7 +601,7 @@ describe('resumeDirectRun', () => {
         mockRunDirectRetryMode.mockResolvedValueOnce({ action: 'execute', task: 'Retry instruction' });
         mockRunDirectInstructMode.mockResolvedValueOnce({ action: 'execute', task: 'Additional instruction' });
 
-        expect(await resumeDirectRun('/project')).toBe(true);
+        expect(await resumeDirectRun(nativeFixturePath('/project'))).toBe(true);
         expect(mockRunDirectRetryMode).toHaveBeenCalledTimes(action === 'retry' ? 1 : 0);
         expect(mockRunDirectInstructMode).toHaveBeenCalledTimes(action === 'instruct' ? 1 : 0);
         expect(mockExecuteTaskWithResult).toHaveBeenCalledTimes(1);
@@ -613,7 +616,7 @@ describe('resumeDirectRun', () => {
       it.each(['requeue', 'retry', 'instruct'])('should cancel %s before conversation or execution', async (action) => {
         mockSelectOption.mockResolvedValueOnce(action).mockResolvedValueOnce(null);
 
-        expect(await resumeDirectRun('/project')).toBe(false);
+        expect(await resumeDirectRun(nativeFixturePath('/project'))).toBe(false);
         expect(mockSelectOption).toHaveBeenCalledTimes(2);
         expect(mockWarn.mock.calls.flat().join('\n')).toMatch(/child.*not callable/i);
         expect(mockExecuteTaskWithResult).not.toHaveBeenCalled();
@@ -625,7 +628,7 @@ describe('resumeDirectRun', () => {
         mockLoadWorkflowByIdentifier.mockReturnValue({ ...parent, initialStep: 'delegate', steps: [parent.steps[1]!] });
         mockSelectOption.mockResolvedValueOnce(action);
 
-        expect(await resumeDirectRun('/project')).toBe(false);
+        expect(await resumeDirectRun(nativeFixturePath('/project'))).toBe(false);
         const warning = mockWarn.mock.calls.flat().join('\n');
         expect(warning).toMatch(/child.*not callable/i);
         expect(warning).toMatch(/saved resume information cannot be carried forward/i);
@@ -642,7 +645,7 @@ describe('resumeDirectRun', () => {
       });
       mockSelectOption.mockResolvedValueOnce('requeue');
 
-      expect(await resumeDirectRun('/project')).toBe(true);
+      expect(await resumeDirectRun(nativeFixturePath('/project'))).toBe(true);
       expect(mockSelectOption).toHaveBeenCalledTimes(1);
       expect(mockExecuteTaskWithResult).toHaveBeenCalledWith(expect.objectContaining({
         startStep: 'delegate', resumePoint: { ...point, stack: [point.stack[0]!] }, restartPoint: undefined,
@@ -661,7 +664,7 @@ describe('resumeDirectRun', () => {
         return options.find((option) => option.label === '"plan"')!.value;
       });
 
-      expect(await resumeDirectRun('/project')).toBe(true);
+      expect(await resumeDirectRun(nativeFixturePath('/project'))).toBe(true);
       expect(mockSelectOption).toHaveBeenCalledTimes(2);
       expect(mockExecuteTaskWithResult).toHaveBeenCalledWith(expect.objectContaining({
         restartPoint: { stack: [{ workflow: 'default', workflow_ref: 'default', step: 'plan', kind: 'agent' }] },
@@ -672,7 +675,7 @@ describe('resumeDirectRun', () => {
     it.each(['requeue', 'retry', 'instruct'])('should cancel %s after explaining an unavailable callee', async (action) => {
       mockSelectOption.mockResolvedValueOnce(action).mockResolvedValueOnce(null);
 
-      expect(await resumeDirectRun('/project')).toBe(false);
+      expect(await resumeDirectRun(nativeFixturePath('/project'))).toBe(false);
       expect(mockWarn.mock.calls.flat().join('\n')).toMatch(/child/);
       expect(mockSelectOption).toHaveBeenCalledTimes(2);
       expect(mockExecuteTaskWithResult).not.toHaveBeenCalled();
@@ -691,7 +694,7 @@ describe('resumeDirectRun', () => {
     mockSelectOption.mockResolvedValueOnce(action);
     mockSelectOption.mockResolvedValueOnce(null);
 
-    const result = await resumeDirectRun('/project');
+    const result = await resumeDirectRun(nativeFixturePath('/project'));
 
     expect(result).toBe(false);
     expect(mockSelectOption).toHaveBeenCalledTimes(2);
@@ -707,7 +710,7 @@ describe('resumeDirectRun', () => {
     }));
     mockSelectOption.mockResolvedValueOnce('requeue');
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     expect(mockExecuteTaskWithResult).toHaveBeenCalledWith(expect.objectContaining({
       startStep: undefined,
@@ -720,7 +723,7 @@ describe('resumeDirectRun', () => {
     mockReadRunContextOrderContent.mockReturnValue(undefined);
     mockSelectOption.mockResolvedValueOnce('requeue');
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     expect(mockExecuteTaskWithResult).toHaveBeenCalledWith(expect.objectContaining({
       task: 'Meta task instruction',
@@ -737,10 +740,10 @@ describe('resumeDirectRun', () => {
     }, cleanupAttachments));
 
     const overrides = { provider: 'mock' as const, model: 'mock-selector' };
-    await resumeDirectRun('/project', overrides);
+    await resumeDirectRun(nativeFixturePath('/project'), overrides);
 
     expect(mockRunDirectRetryMode).toHaveBeenCalledWith(
-      '/project',
+      nativeFixturePath('/project'),
       expect.objectContaining({
         previousOrderContent: 'Order file instruction',
         subject: {
@@ -764,9 +767,9 @@ describe('resumeDirectRun', () => {
     }));
     expect(mockGetWorkflowDescription).toHaveBeenCalledWith(
       'default',
-      '/project',
+      nativeFixturePath('/project'),
       3,
-      '/project',
+      nativeFixturePath('/project'),
       overrides,
     );
     expect(cleanupAttachments).toHaveBeenCalledTimes(1);
@@ -815,7 +818,7 @@ describe('resumeDirectRun', () => {
     }, cleanupAttachments));
     mockExecuteTaskWithResult.mockRejectedValueOnce(new Error('direct execution failed'));
 
-    await expect(resumeDirectRun('/project')).rejects.toThrow('direct execution failed');
+    await expect(resumeDirectRun(nativeFixturePath('/project'))).rejects.toThrow('direct execution failed');
 
     expect(cleanupAttachments).toHaveBeenCalledTimes(1);
   });
@@ -829,10 +832,10 @@ describe('resumeDirectRun', () => {
       task: 'Also update regression coverage',
     }, cleanupAttachments));
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     expect(mockRunDirectInstructMode).toHaveBeenCalledWith(expect.objectContaining({
-      cwd: '/project',
+      cwd: nativeFixturePath('/project'),
       runSlug: '20260524-direct-failed',
       taskContent: 'Order file instruction',
       previousOrderContent: 'Order file instruction',
@@ -886,10 +889,10 @@ describe('resumeDirectRun', () => {
     mockSelectOption.mockResolvedValueOnce('retry');
     mockRunDirectRetryMode.mockResolvedValueOnce({ action: 'cancel', task: '' });
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     expect(mockRunDirectRetryMode).toHaveBeenCalledWith(
-      '/project',
+      nativeFixturePath('/project'),
       expect.objectContaining({
         failure: expect.objectContaining({
           taskContent: 'Meta task instruction',
@@ -905,7 +908,7 @@ describe('resumeDirectRun', () => {
     mockSelectOption.mockResolvedValueOnce('instruct');
     mockRunDirectInstructMode.mockResolvedValueOnce({ action: 'cancel', task: '' });
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     expect(mockRunDirectInstructMode).toHaveBeenCalledWith(expect.objectContaining({
       taskContent: 'Meta task instruction',
@@ -917,7 +920,7 @@ describe('resumeDirectRun', () => {
     mockFindLatestResumableDirectRun.mockReturnValue(createRun());
     mockSelectOption.mockResolvedValueOnce('view_reports');
 
-    await resumeDirectRun('/project');
+    await resumeDirectRun(nativeFixturePath('/project'));
 
     const infoText = mockInfo.mock.calls.flat().map((value) => String(value)).join('\n');
     expect(infoText).toContain('.takt/runs/20260524-direct-failed');

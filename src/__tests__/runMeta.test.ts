@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { buildRunPaths, type RunPaths } from '../core/workflow/run/run-paths.js';
 
 vi.mock('../infra/config/index.js', () => ({
@@ -10,7 +13,7 @@ import { ensureDir, writeFileAtomic } from '../infra/config/index.js';
 import { RunMetaManager } from '../features/tasks/execute/runMeta.js';
 
 function createRunPaths(): RunPaths {
-  return buildRunPaths('/tmp/project', '20260409-force-fail-test');
+  return buildRunPaths(nativeFixturePath('/tmp/project'), '20260409-force-fail-test');
 }
 
 describe('RunMetaManager', () => {
@@ -23,7 +26,7 @@ describe('RunMetaManager', () => {
 
     manager.updateStep('implement', 2);
 
-    expect(vi.mocked(ensureDir)).toHaveBeenCalledWith('/tmp/project/.takt/runs/20260409-force-fail-test');
+    expect(vi.mocked(ensureDir)).toHaveBeenCalledWith(nativeFixturePath('/tmp/project/.takt/runs/20260409-force-fail-test'));
     expect(vi.mocked(writeFileAtomic)).toHaveBeenCalledTimes(2);
 
     const initialMeta = JSON.parse(String(vi.mocked(writeFileAtomic).mock.calls[0]![1])) as {

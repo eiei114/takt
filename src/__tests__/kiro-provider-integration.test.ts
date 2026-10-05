@@ -9,6 +9,11 @@ const { mockSpawn } = vi.hoisted(() => ({
   mockSpawn: vi.fn(),
 }));
 
+// Match the process seam used by the Windows cross-platform spawn wrapper.
+vi.mock('cross-spawn', async () => ({
+  default: (await import('node:child_process')).spawn,
+}));
+
 vi.mock('node:child_process', () => ({
   spawn: mockSpawn,
 }));

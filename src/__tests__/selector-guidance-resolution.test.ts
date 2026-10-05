@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -94,14 +97,14 @@ function createWorkflow(selectorPersona = 'facet-selector', reviewerInstruction 
 function createResolutionContext(): FacetResolutionContext {
   return {
     lang: 'ja',
-    workflowDir: '/project/.takt/workflows',
-    projectDir: '/project',
+    workflowDir: nativeFixturePath('/project/.takt/workflows'),
+    projectDir: nativeFixturePath('/project'),
     repertoireDir: '/repertoire',
   };
 }
 
 function createSections(raw: ReturnType<typeof WorkflowConfigRawSchema.parse>): WorkflowSections {
-  const workflowDir = '/project/.takt/workflows';
+  const workflowDir = nativeFixturePath('/project/.takt/workflows');
   return {
     personas: raw.personas,
     resolvedInstructions: resolveSectionMap(raw.instructions, workflowDir),
@@ -242,8 +245,8 @@ describe('selector guidance resolution', () => {
   it('resolves named persona and instruction facets into both selector configurations', () => {
     const workflow = normalizeWorkflowConfig(
       createWorkflow(),
-      '/project/.takt/workflows',
-      { projectDir: '/project', workflowDir: '/project/.takt/workflows', lang: 'ja' },
+      nativeFixturePath('/project/.takt/workflows'),
+      { projectDir: nativeFixturePath('/project'), workflowDir: nativeFixturePath('/project/.takt/workflows'), lang: 'ja' },
     );
 
     const facetSelector = (workflow.steps[0] as { dynamicFacets?: unknown } | undefined)?.dynamicFacets as unknown as {
@@ -281,8 +284,8 @@ describe('selector guidance resolution', () => {
 
     const result = normalizeInstructionFacetWorkflow(
       workflow,
-      '/project/.takt/workflows',
-      { projectDir: '/project', workflowDir: '/project/.takt/workflows', lang: 'ja' },
+      nativeFixturePath('/project/.takt/workflows'),
+      { projectDir: nativeFixturePath('/project'), workflowDir: nativeFixturePath('/project/.takt/workflows'), lang: 'ja' },
     );
 
     expect(result).toEqual({
@@ -600,7 +603,7 @@ describe('selector guidance resolution', () => {
     sections.resolvedInstructionsWithSource = {
       'select-guidance': {
         content: 'outside instruction',
-        sourcePath: '/outside/selector.md',
+        sourcePath: nativeFixturePath('/outside/selector.md'),
       },
     };
     const diagnostics: Array<{

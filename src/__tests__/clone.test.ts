@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { EventEmitter } from 'node:events';
 
 const {
@@ -201,7 +204,7 @@ describe('worktree reference resolution', () => {
     vi.mocked(fs.readFileSync).mockReturnValue('gitdir: ../main/.git/worktrees/linked\n');
 
     createSharedClone(linkedWorktreePath, {
-      worktree: '/tmp/clone-dest',
+      worktree: nativeFixturePath('/tmp/clone-dest'),
       taskSlug: 'relative-gitdir',
     });
 
@@ -265,7 +268,7 @@ describe('worktree reference resolution', () => {
     });
 
     await createSharedCloneAbortable(linkedWorktreePath, {
-      worktree: '/tmp/abortable-clone-dest',
+      worktree: nativeFixturePath('/tmp/abortable-clone-dest'),
       taskSlug: 'relative-gitdir-abortable',
     });
 
@@ -342,8 +345,8 @@ describe('cloneAndIsolate git config propagation', () => {
       'user.email': 'test@example.com',
     });
 
-    createSharedClone('/project', {
-      worktree: '/tmp/clone-dest',
+    createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/clone-dest'),
       taskSlug: 'test-task',
     });
 
@@ -354,8 +357,8 @@ describe('cloneAndIsolate git config propagation', () => {
   it('should skip config propagation when source repo has no local user config', () => {
     const configSetCalls = setupMock({});
 
-    createSharedClone('/project', {
-      worktree: '/tmp/clone-dest',
+    createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/clone-dest'),
       taskSlug: 'test-task',
     });
 
@@ -367,8 +370,8 @@ describe('cloneAndIsolate git config propagation', () => {
       'user.name': 'Test User',
     });
 
-    createSharedClone('/project', {
-      worktree: '/tmp/clone-dest',
+    createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/clone-dest'),
       taskSlug: 'test-task',
     });
 
@@ -391,7 +394,7 @@ describe('cloneAndIsolate git config propagation', () => {
       return originalImpl(cmd, args, opts);
     });
 
-    createTempCloneForBranch('/project', 'existing-branch');
+    createTempCloneForBranch(nativeFixturePath('/project'), 'existing-branch');
 
     expect(configSetCalls).toContainEqual({ key: 'user.name', value: 'Temp User' });
     expect(configSetCalls).toContainEqual({ key: 'user.email', value: 'temp@example.com' });
@@ -442,7 +445,7 @@ describe('branch and worktree path formatting with issue numbers', () => {
   it('should format branch as takt/{issue}/{slug} when issue number is provided', () => {
     setupMockForPathTest();
 
-    const result = createSharedClone('/project', {
+    const result = createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'fix-login-timeout',
       issueNumber: 99,
@@ -454,7 +457,7 @@ describe('branch and worktree path formatting with issue numbers', () => {
   it('should format branch as takt/{timestamp}-{slug} when no issue number', () => {
     setupMockForPathTest();
 
-    const result = createSharedClone('/project', {
+    const result = createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'regular-task',
     });
@@ -465,32 +468,32 @@ describe('branch and worktree path formatting with issue numbers', () => {
   it('should format worktree path as readable filesystem-safe stem with a unique suffix when issue number is provided', () => {
     setupMockForPathTest();
 
-    const result = createSharedClone('/project', {
+    const result = createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'fix-bug',
       issueNumber: 99,
     });
 
-    expect(result.path).toMatch(/\/\d{8}T\d{4}-99-fix-bug-[a-f0-9]{16}$/);
+    expect(result.path.replaceAll('\\', '/')).toMatch(/\/\d{8}T\d{4}-99-fix-bug-[a-f0-9]{16}$/);
     expect(path.basename(result.path)).toMatch(/^[a-zA-Z0-9-]+$/);
   });
 
   it('should format worktree path as readable filesystem-safe stem with a unique suffix when no issue number', () => {
     setupMockForPathTest();
 
-    const result = createSharedClone('/project', {
+    const result = createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'regular-task',
     });
 
-    expect(result.path).toMatch(/\/\d{8}T\d{4}-regular-task-[a-f0-9]{16}$/);
+    expect(result.path.replaceAll('\\', '/')).toMatch(/\/\d{8}T\d{4}-regular-task-[a-f0-9]{16}$/);
     expect(path.basename(result.path)).toMatch(/^[a-zA-Z0-9-]+$/);
   });
 
   it('should use custom branch when provided, ignoring issue number', () => {
     setupMockForPathTest();
 
-    const result = createSharedClone('/project', {
+    const result = createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'task',
       issueNumber: 99,
@@ -503,26 +506,26 @@ describe('branch and worktree path formatting with issue numbers', () => {
   it('should use custom worktree path when provided, ignoring issue formatting', () => {
     setupMockForPathTest();
 
-    const result = createSharedClone('/project', {
-      worktree: '/custom/path/to/worktree',
+    const result = createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/custom/path/to/worktree'),
       taskSlug: 'task',
       issueNumber: 99,
     });
 
-    expect(result.path).toBe('/custom/path/to/worktree');
+    expect(result.path).toBe(nativeFixturePath('/custom/path/to/worktree'));
   });
 
   it('should append a unique suffix to the timestamp-only path when issue number is provided but slug is empty', () => {
     setupMockForPathTest();
 
-    const result = createSharedClone('/project', {
+    const result = createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: '', // empty slug
       issueNumber: 99,
     });
 
     expect(result.branch).toMatch(/^takt\/\d{8}T\d{4}$/);
-    expect(result.path).toMatch(/\/\d{8}T\d{4}-[a-f0-9]{16}$/);
+    expect(result.path.replaceAll('\\', '/')).toMatch(/\/\d{8}T\d{4}-[a-f0-9]{16}$/);
   });
 
   it.each([
@@ -537,7 +540,7 @@ describe('branch and worktree path formatting with issue numbers', () => {
   ) => {
     setupMockForPathTest();
 
-    const result = createSharedClone('/project', {
+    const result = createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug,
       ...(issueNumber === undefined ? {} : { issueNumber }),
@@ -581,7 +584,7 @@ describe('resolveBaseBranch', () => {
       return Buffer.from('');
     });
 
-    createSharedClone('/project', {
+    createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'test-no-fetch',
     });
@@ -621,7 +624,7 @@ describe('resolveBaseBranch', () => {
       return Buffer.from('');
     });
 
-    createSharedClone('/project', {
+    createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'use-default-branch',
     });
@@ -670,7 +673,7 @@ describe('resolveBaseBranch', () => {
       return Buffer.from('');
     });
 
-    createSharedClone('/project', ({
+    createSharedClone(nativeFixturePath('/project'), ({
       worktree: true,
       taskSlug: 'explicit-base-branch',
       baseBranch: 'release/main',
@@ -682,7 +685,7 @@ describe('resolveBaseBranch', () => {
   });
 
   it('should throw when explicit baseBranch is whitespace', () => {
-    expect(() => createSharedClone('/project', {
+    expect(() => createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'whitespace-base-branch',
       baseBranch: '   ',
@@ -701,7 +704,7 @@ describe('resolveBaseBranch', () => {
       return Buffer.from('');
     });
 
-    expect(() => createSharedClone('/project', {
+    expect(() => createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'invalid-base-branch',
       baseBranch: 'invalid..name',
@@ -719,7 +722,7 @@ describe('resolveBaseBranch', () => {
       return Buffer.from('');
     });
 
-    expect(() => createSharedClone('/project', {
+    expect(() => createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'missing-base-branch',
       baseBranch: 'missing/branch',
@@ -747,7 +750,7 @@ describe('resolveBaseBranch', () => {
       return Buffer.from('');
     });
 
-    const result = createSharedClone('/project', {
+    const result = createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'offline-task',
     });
@@ -771,7 +774,7 @@ describe('resolveBaseBranch', () => {
       return Buffer.from('');
     });
 
-    const result = createTempCloneForBranch('/project', 'existing-branch');
+    const result = createTempCloneForBranch(nativeFixturePath('/project'), 'existing-branch');
     expect(result.branch).toBe('existing-branch');
   });
 });
@@ -810,7 +813,7 @@ describe('clone submodule arguments', () => {
     mockLoadProjectConfig.mockReturnValue({ submodules: 'all' });
     const cloneCalls = setupCloneArgsCapture();
 
-    createSharedClone('/project', {
+    createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'submodule-all',
     });
@@ -823,7 +826,7 @@ describe('clone submodule arguments', () => {
     mockLoadProjectConfig.mockReturnValue({ submodules: ['path/a', 'path/b'] });
     const cloneCalls = setupCloneArgsCapture();
 
-    createSharedClone('/project', {
+    createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'submodule-path-list',
     });
@@ -841,7 +844,7 @@ describe('clone submodule arguments', () => {
     mockLoadProjectConfig.mockReturnValue({ withSubmodules: true });
     const cloneCalls = setupCloneArgsCapture();
 
-    createSharedClone('/project', {
+    createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'with-submodules-fallback',
     });
@@ -859,7 +862,7 @@ describe('clone submodule arguments', () => {
     mockLoadProjectConfig.mockReturnValue({ withSubmodules: false });
     const cloneCalls = setupCloneArgsCapture();
 
-    createSharedClone('/project', {
+    createSharedClone(nativeFixturePath('/project'), {
       worktree: true,
       taskSlug: 'without-submodules',
     });
@@ -913,8 +916,8 @@ describe('branchExists remote tracking branch fallback', () => {
       return Buffer.from('');
     });
 
-    const result = createSharedClone('/project', {
-      worktree: '/tmp/clone-remote-branch',
+    const result = createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/clone-remote-branch'),
       taskSlug: 'remote-branch-task',
       branch: 'feature/remote-only',
     });
@@ -950,11 +953,11 @@ describe('branchExists remote tracking branch fallback', () => {
       const cwd = (opts as { cwd?: string } | undefined)?.cwd;
 
       if (argsArr[0] === 'symbolic-ref' && argsArr[1] === '--quiet') {
-        expect(cwd).toBe('/tmp/clone');
+        expect(cwd).toBe(nativeFixturePath('/tmp/clone'));
         return Buffer.from('feature/checked-out\n');
       }
       if (argsArr[0] === 'checkout' && argsArr[1] === '--detach') {
-        expect(cwd).toBe('/tmp/clone');
+        expect(cwd).toBe(nativeFixturePath('/tmp/clone'));
         callOrder.push('detach');
         return Buffer.from('');
       }
@@ -966,7 +969,7 @@ describe('branchExists remote tracking branch fallback', () => {
       return Buffer.from('');
     });
 
-    fetchRemoteBranchIntoIsolatedClone('/project', '/tmp/clone', 'feature/checked-out');
+    fetchRemoteBranchIntoIsolatedClone(nativeFixturePath('/project'), nativeFixturePath('/tmp/clone'), 'feature/checked-out');
 
     expect(callOrder).toEqual(['detach', 'fetch']);
   });
@@ -979,7 +982,7 @@ describe('branchExists remote tracking branch fallback', () => {
       const cwd = (opts as { cwd?: string } | undefined)?.cwd;
 
       if (argsArr[0] === 'symbolic-ref' && argsArr[1] === '--quiet') {
-        expect(cwd).toBe('/tmp/clone');
+        expect(cwd).toBe(nativeFixturePath('/tmp/clone'));
         return Buffer.from('main\n');
       }
       if (argsArr[0] === 'checkout' && argsArr[1] === '--detach') {
@@ -994,7 +997,7 @@ describe('branchExists remote tracking branch fallback', () => {
       return Buffer.from('');
     });
 
-    fetchRemoteBranchIntoIsolatedClone('/project', '/tmp/clone', 'feature/other-branch');
+    fetchRemoteBranchIntoIsolatedClone(nativeFixturePath('/project'), nativeFixturePath('/tmp/clone'), 'feature/other-branch');
 
     expect(callOrder).toEqual(['fetch']);
   });
@@ -1022,7 +1025,7 @@ describe('branchExists remote tracking branch fallback', () => {
       return Buffer.from('');
     });
 
-    fetchRemoteBranchIntoIsolatedClone('/project', '/tmp/clone', 'feature/any');
+    fetchRemoteBranchIntoIsolatedClone(nativeFixturePath('/project'), nativeFixturePath('/tmp/clone'), 'feature/any');
 
     expect(callOrder).toEqual(['fetch']);
   });
@@ -1041,7 +1044,7 @@ describe('branchExists remote tracking branch fallback', () => {
     });
 
     expect(() =>
-      fetchRemoteBranchIntoIsolatedClone('/project', '/tmp/clone', 'feature/any'),
+      fetchRemoteBranchIntoIsolatedClone(nativeFixturePath('/project'), nativeFixturePath('/tmp/clone'), 'feature/any'),
     ).toThrow('fatal: not a git repository');
   });
 
@@ -1060,7 +1063,7 @@ describe('branchExists remote tracking branch fallback', () => {
     });
 
     expect(() =>
-      fetchRemoteBranchIntoIsolatedClone('/project', '/tmp/clone', 'feature/will-fail-detach'),
+      fetchRemoteBranchIntoIsolatedClone(nativeFixturePath('/project'), nativeFixturePath('/tmp/clone'), 'feature/will-fail-detach'),
     ).toThrow('checkout --detach failed');
   });
 
@@ -1073,11 +1076,11 @@ describe('branchExists remote tracking branch fallback', () => {
       const cwd = (opts as { cwd?: string } | undefined)?.cwd;
 
       if (argsArr[0] === 'symbolic-ref' && argsArr[1] === '--quiet') {
-        expect(cwd).toBe('/tmp/clone');
+        expect(cwd).toBe(nativeFixturePath('/tmp/clone'));
         return Buffer.from('feature/abortable-checked-out\n');
       }
       if (argsArr[0] === 'checkout' && argsArr[1] === '--detach') {
-        expect(cwd).toBe('/tmp/clone');
+        expect(cwd).toBe(nativeFixturePath('/tmp/clone'));
         callOrder.push('detach');
         detached = true;
         return Buffer.from('');
@@ -1112,7 +1115,7 @@ describe('branchExists remote tracking branch fallback', () => {
       return child as never;
     });
 
-    await fetchRemoteBranchIntoIsolatedCloneAbortable('/project', '/tmp/clone', 'feature/abortable-checked-out');
+    await fetchRemoteBranchIntoIsolatedCloneAbortable(nativeFixturePath('/project'), nativeFixturePath('/tmp/clone'), 'feature/abortable-checked-out');
 
     expect(callOrder).toEqual(['detach', 'spawn-fetch']);
   });
@@ -1143,7 +1146,7 @@ describe('branchExists remote tracking branch fallback', () => {
       return 0;
     });
 
-    await fetchRemoteBranchIntoIsolatedCloneAbortable('/project', '/tmp/clone', 'feature/any');
+    await fetchRemoteBranchIntoIsolatedCloneAbortable(nativeFixturePath('/project'), nativeFixturePath('/tmp/clone'), 'feature/any');
 
     expect(callOrder).toEqual(['fetch']);
   });
@@ -1162,7 +1165,7 @@ describe('branchExists remote tracking branch fallback', () => {
     });
 
     await expect(
-      fetchRemoteBranchIntoIsolatedCloneAbortable('/project', '/tmp/clone', 'feature/any'),
+      fetchRemoteBranchIntoIsolatedCloneAbortable(nativeFixturePath('/project'), nativeFixturePath('/tmp/clone'), 'feature/any'),
     ).rejects.toThrow('fatal: not a git repository');
     expect(mockSpawn).not.toHaveBeenCalled();
   });
@@ -1182,7 +1185,7 @@ describe('branchExists remote tracking branch fallback', () => {
     });
 
     await expect(
-      fetchRemoteBranchIntoIsolatedCloneAbortable('/project', '/tmp/clone', 'feature/will-fail-detach'),
+      fetchRemoteBranchIntoIsolatedCloneAbortable(nativeFixturePath('/project'), nativeFixturePath('/tmp/clone'), 'feature/will-fail-detach'),
     ).rejects.toThrow('checkout --detach failed');
     expect(mockSpawn).not.toHaveBeenCalled();
   });
@@ -1193,8 +1196,8 @@ describe('branchExists remote tracking branch fallback', () => {
 
     await expect(
       fetchRemoteBranchIntoIsolatedCloneAbortable(
-        '/project',
-        '/tmp/clone',
+        nativeFixturePath('/project'),
+        nativeFixturePath('/tmp/clone'),
         'feature/pre-aborted',
         controller.signal,
       ),
@@ -1227,10 +1230,10 @@ describe('branchExists remote tracking branch fallback', () => {
       }
       if (argsArr[0] === 'fetch' && argsArr[1] === 'origin') return Buffer.from('');
 
-      if (argsArr[0] === 'symbolic-ref' && argsArr[1] === '--quiet' && cwd === `/tmp/clone-head-match`) {
+      if (argsArr[0] === 'symbolic-ref' && argsArr[1] === '--quiet' && cwd === nativeFixturePath(`/tmp/clone-head-match`)) {
         return Buffer.from(`${branch}\n`);
       }
-      if (argsArr[0] === 'checkout' && argsArr[1] === '--detach' && cwd === `/tmp/clone-head-match`) {
+      if (argsArr[0] === 'checkout' && argsArr[1] === '--detach' && cwd === nativeFixturePath(`/tmp/clone-head-match`)) {
         callOrder.push('detach');
         return Buffer.from('');
       }
@@ -1246,8 +1249,8 @@ describe('branchExists remote tracking branch fallback', () => {
       return Buffer.from('');
     });
 
-    const result = createSharedClone('/project', {
-      worktree: '/tmp/clone-head-match',
+    const result = createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/clone-head-match'),
       taskSlug: 'head-match-task',
       branch,
     });
@@ -1269,10 +1272,10 @@ describe('branchExists remote tracking branch fallback', () => {
         if (argsArr[1] === '--local') throw new Error('not set');
         return Buffer.from('');
       }
-      if (argsArr[0] === 'symbolic-ref' && argsArr[1] === '--quiet' && cwd === '/tmp/clone-abortable-head-match') {
+      if (argsArr[0] === 'symbolic-ref' && argsArr[1] === '--quiet' && cwd === nativeFixturePath('/tmp/clone-abortable-head-match')) {
         return Buffer.from(`${branch}\n`);
       }
-      if (argsArr[0] === 'checkout' && argsArr[1] === '--detach' && cwd === '/tmp/clone-abortable-head-match') {
+      if (argsArr[0] === 'checkout' && argsArr[1] === '--detach' && cwd === nativeFixturePath('/tmp/clone-abortable-head-match')) {
         callOrder.push('detach');
         return Buffer.from('');
       }
@@ -1323,8 +1326,8 @@ describe('branchExists remote tracking branch fallback', () => {
       return child as never;
     });
 
-    const result = await createSharedCloneAbortable('/project', {
-      worktree: '/tmp/clone-abortable-head-match',
+    const result = await createSharedCloneAbortable(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/clone-abortable-head-match'),
       taskSlug: 'abortable-head-match-task',
       branch,
     });
@@ -1370,8 +1373,8 @@ describe('branchExists remote tracking branch fallback', () => {
     });
 
     await expect(
-      createSharedCloneAbortable('/project', {
-        worktree: '/tmp/clone-abort-before-detach',
+      createSharedCloneAbortable(nativeFixturePath('/project'), {
+        worktree: nativeFixturePath('/tmp/clone-abort-before-detach'),
         taskSlug: 'abort-before-detach',
         branch,
       }, controller.signal),
@@ -1381,7 +1384,7 @@ describe('branchExists remote tracking branch fallback', () => {
   });
 
   it('should sanitize remote branch fetch errors before throwing', () => {
-    const hiddenProjectDir = '/hidden/main';
+    const hiddenProjectDir = nativeFixturePath('/hidden/main');
     const branch = 'feature/remote-fetch-failure';
 
     mockExecFileSync.mockImplementation((_cmd, args) => {
@@ -1413,7 +1416,7 @@ describe('branchExists remote tracking branch fallback', () => {
     let thrown: Error | undefined;
     try {
       createSharedClone(hiddenProjectDir, {
-        worktree: '/tmp/remote-fetch-failure',
+        worktree: nativeFixturePath('/tmp/remote-fetch-failure'),
         taskSlug: 'remote-fetch-failure',
         branch,
       });
@@ -1428,7 +1431,7 @@ describe('branchExists remote tracking branch fallback', () => {
   });
 
   it('should sanitize abortable remote branch fetch errors before throwing', async () => {
-    const hiddenProjectDir = '/hidden/main';
+    const hiddenProjectDir = nativeFixturePath('/hidden/main');
     const branch = 'feature/abortable-remote-fetch-failure';
 
     mockSpawn.mockImplementation((_cmd, args) => {
@@ -1468,7 +1471,7 @@ describe('branchExists remote tracking branch fallback', () => {
     let thrown: Error | undefined;
     try {
       await createSharedCloneAbortable(hiddenProjectDir, {
-        worktree: '/tmp/abortable-remote-fetch-failure',
+        worktree: nativeFixturePath('/tmp/abortable-remote-fetch-failure'),
         taskSlug: 'abortable-remote-fetch-failure',
         branch,
       });
@@ -1515,8 +1518,8 @@ describe('branchExists remote tracking branch fallback', () => {
       return Buffer.from('');
     });
 
-    const result = createSharedClone('/project', {
-      worktree: '/tmp/clone-no-branch',
+    const result = createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/clone-no-branch'),
       taskSlug: 'no-branch-task',
       branch: 'feature/brand-new',
     });
@@ -1577,8 +1580,8 @@ describe('branchExists remote tracking branch fallback', () => {
       return Buffer.from('');
     });
 
-    const result = createSharedClone('/project', {
-      worktree: '/tmp/clone-remote-wins',
+    const result = createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/clone-remote-wins'),
       taskSlug: 'remote-wins-task',
       branch: 'feature/both-local-and-remote',
     });
@@ -1587,7 +1590,7 @@ describe('branchExists remote tracking branch fallback', () => {
     expect(cloneCalls).toHaveLength(1);
     expect(cloneCalls[0]).not.toContain('feature/both-local-and-remote');
     const fetchIntoClone = fetchCalls.filter(
-      (f) => f.cwd === '/tmp/clone-remote-wins' && f.args[0] === 'fetch',
+      (f) => f.cwd === nativeFixturePath('/tmp/clone-remote-wins') && f.args[0] === 'fetch',
     );
     expect(fetchIntoClone.length).toBeGreaterThanOrEqual(1);
     expect(fetchIntoClone[0]!.args.join(' ')).toContain('refs/remotes/origin/feature/both-local-and-remote');
@@ -1636,8 +1639,8 @@ describe('branchExists remote tracking branch fallback', () => {
       return Buffer.from('');
     });
 
-    const result = createSharedClone('/project', {
-      worktree: '/tmp/clone-local-only',
+    const result = createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/clone-local-only'),
       taskSlug: 'local-only-task',
       branch: 'feature/local-only',
     });
@@ -1666,8 +1669,8 @@ describe('prefetch existing branch on origin before clone (#557)', () => {
 
     let caughtError: unknown;
     try {
-      createSharedClone('/project', {
-        worktree: '/tmp/pr-base-prefetch-failure',
+      createSharedClone(nativeFixturePath('/project'), {
+        worktree: nativeFixturePath('/tmp/pr-base-prefetch-failure'),
         taskSlug: 'pr-base-prefetch-failure',
         branch: 'feature/pr-head',
         pullRequestBaseBranch: 'release/custom',
@@ -1713,8 +1716,8 @@ describe('prefetch existing branch on origin before clone (#557)', () => {
 
     let caughtError: unknown;
     try {
-      await createSharedCloneAbortable('/project', {
-        worktree: '/tmp/pr-base-prefetch-failure',
+      await createSharedCloneAbortable(nativeFixturePath('/project'), {
+        worktree: nativeFixturePath('/tmp/pr-base-prefetch-failure'),
         taskSlug: 'pr-base-prefetch-failure',
         branch: 'feature/pr-head',
         pullRequestBaseBranch: 'release/custom',
@@ -1730,7 +1733,7 @@ describe('prefetch existing branch on origin before clone (#557)', () => {
   });
 
   it('should not expose the source path when sync prefetch fails', () => {
-    const hiddenProjectDir = '/hidden/main';
+    const hiddenProjectDir = nativeFixturePath('/hidden/main');
     const branch = 'feature/prefetch-failure';
 
     mockExecFileSync.mockImplementation((_cmd, args, opts) => {
@@ -1762,7 +1765,7 @@ describe('prefetch existing branch on origin before clone (#557)', () => {
     });
 
     createSharedClone(hiddenProjectDir, {
-      worktree: '/tmp/prefetch-failure',
+      worktree: nativeFixturePath('/tmp/prefetch-failure'),
       taskSlug: 'prefetch-failure',
       branch,
     });
@@ -1771,7 +1774,7 @@ describe('prefetch existing branch on origin before clone (#557)', () => {
   });
 
   it('should not expose the source path when abortable prefetch fails', async () => {
-    const hiddenProjectDir = '/hidden/main';
+    const hiddenProjectDir = nativeFixturePath('/hidden/main');
     const branch = 'feature/abortable-prefetch-failure';
 
     mockSpawn.mockImplementation((_cmd, args) => {
@@ -1817,7 +1820,7 @@ describe('prefetch existing branch on origin before clone (#557)', () => {
     });
 
     await createSharedCloneAbortable(hiddenProjectDir, {
-      worktree: '/tmp/abortable-prefetch-failure',
+      worktree: nativeFixturePath('/tmp/abortable-prefetch-failure'),
       taskSlug: 'abortable-prefetch-failure',
       branch,
     });
@@ -1832,7 +1835,7 @@ describe('prefetch existing branch on origin before clone (#557)', () => {
       const argsArr = args as string[];
       const cwd = (opts as { cwd?: string } | undefined)?.cwd;
 
-      if (argsArr[0] === 'fetch' && cwd === '/project') {
+      if (argsArr[0] === 'fetch' && cwd === nativeFixturePath('/project')) {
         opSequence.push('project-fetch');
         return Buffer.from('');
       }
@@ -1867,8 +1870,8 @@ describe('prefetch existing branch on origin before clone (#557)', () => {
       return Buffer.from('');
     });
 
-    createSharedClone('/project', {
-      worktree: '/tmp/prefetch-test',
+    createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/prefetch-test'),
       taskSlug: 'prefetch-slug',
       branch: 'feature/prefetch-before-clone',
     });
@@ -1887,7 +1890,7 @@ describe('prefetch existing branch on origin before clone (#557)', () => {
       const argsArr = args as string[];
       const cwd = (opts as { cwd?: string } | undefined)?.cwd;
 
-      if (argsArr[0] === 'fetch' && cwd === '/project') {
+      if (argsArr[0] === 'fetch' && cwd === nativeFixturePath('/project')) {
         opSequence.push(`project-fetch:${argsArr[3]}`);
         return Buffer.from('');
       }
@@ -1922,8 +1925,8 @@ describe('prefetch existing branch on origin before clone (#557)', () => {
       return Buffer.from('');
     });
 
-    createSharedClone('/project', {
-      worktree: '/tmp/implicit-issue-prefetch',
+    createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/implicit-issue-prefetch'),
       taskSlug: 'implicit-slug',
       issueNumber: 42,
     });
@@ -2221,7 +2224,7 @@ describe('shallow clone fallback', () => {
     const { cloneCalls } = setupShallowCloneMock({ shallowError: true });
 
     createSharedClone(linkedWorktreePath, {
-      worktree: '/tmp/shallow-test',
+      worktree: nativeFixturePath('/tmp/shallow-test'),
       taskSlug: 'shallow-fallback',
     });
 
@@ -2237,8 +2240,8 @@ describe('shallow clone fallback', () => {
     expect(cloneCalls[1]).not.toContain('--dissociate');
 
     // Both attempts target the same clone path
-    expect(cloneCalls[0][cloneCalls[0].length - 1]).toBe('/tmp/shallow-test');
-    expect(cloneCalls[1][cloneCalls[1].length - 1]).toBe('/tmp/shallow-test');
+    expect(cloneCalls[0][cloneCalls[0].length - 1]).toBe(nativeFixturePath('/tmp/shallow-test'));
+    expect(cloneCalls[1][cloneCalls[1].length - 1]).toBe(nativeFixturePath('/tmp/shallow-test'));
 
     expect(serializedCloneLogs()).not.toContain(hiddenMainRepoPath);
   });
@@ -2247,7 +2250,7 @@ describe('shallow clone fallback', () => {
     const { cloneCalls } = setupAbortableShallowCloneMock();
 
     await createSharedCloneAbortable(linkedWorktreePath, {
-      worktree: '/tmp/abortable-shallow-test',
+      worktree: nativeFixturePath('/tmp/abortable-shallow-test'),
       taskSlug: 'shallow-fallback',
       branch: 'feature/local-branch',
     });
@@ -2261,7 +2264,7 @@ describe('shallow clone fallback', () => {
   });
 
   it('should sanitize non-shallow clone errors before throwing', () => {
-    const hiddenClonePath = '/tmp/sanitized-sync-clone';
+    const hiddenClonePath = nativeFixturePath('/tmp/sanitized-sync-clone');
     const { cloneCalls } = setupShallowCloneMock({
       shallowError: false,
       otherError: `fatal: repository '${hiddenMainRepoPath}' does not exist while cloning ${hiddenClonePath}`,
@@ -2286,7 +2289,7 @@ describe('shallow clone fallback', () => {
   });
 
   it('should sanitize abortable non-shallow clone errors before throwing', async () => {
-    const hiddenClonePath = '/tmp/sanitized-abortable-clone';
+    const hiddenClonePath = nativeFixturePath('/tmp/sanitized-abortable-clone');
     const { cloneCalls } = setupAbortableCloneFailureMock(
       `fatal: repository '${hiddenMainRepoPath}' does not exist while cloning ${hiddenClonePath}`,
     );
@@ -2317,8 +2320,8 @@ describe('shallow clone fallback', () => {
     });
 
     expect(() => {
-      createSharedClone('/project', {
-        worktree: '/tmp/other-error-test',
+      createSharedClone(nativeFixturePath('/project'), {
+        worktree: nativeFixturePath('/tmp/other-error-test'),
         taskSlug: 'other-error',
       });
     }).toThrow('Git clone failed');
@@ -2327,8 +2330,8 @@ describe('shallow clone fallback', () => {
   it('should attempt --reference --dissociate clone first', () => {
     const { cloneCalls } = setupShallowCloneMock({ shallowError: false });
 
-    createSharedClone('/project', {
-      worktree: '/tmp/reference-first-test',
+    createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/reference-first-test'),
       taskSlug: 'reference-first',
     });
 
@@ -2343,7 +2346,7 @@ describe('shallow clone fallback', () => {
 
 describe('cleanupOrphanedClone path traversal protection', () => {
   // projectDir = '/project' → resolveCloneBaseDir → path.join('/project', '..', 'takt-worktrees') = '/takt-worktrees'
-  const PROJECT_DIR = '/project';
+  const PROJECT_DIR = nativeFixturePath('/project');
   const BRANCH = 'my-branch';
 
   beforeEach(() => {
@@ -2353,7 +2356,7 @@ describe('cleanupOrphanedClone path traversal protection', () => {
   it('should refuse to remove clone path outside clone base directory', () => {
     // clonePath points above the clone base directory (path traversal attempt)
     vi.mocked(fs.readFileSync).mockReturnValueOnce(
-      JSON.stringify({ clonePath: '/etc/malicious' })
+      JSON.stringify({ clonePath: nativeFixturePath('/etc/malicious') })
     );
     vi.mocked(fs.existsSync).mockReturnValueOnce(true);
 
@@ -2368,7 +2371,7 @@ describe('cleanupOrphanedClone path traversal protection', () => {
 
   it('should remove clone when path is within clone base directory', () => {
     // resolveCloneBaseDir('/project') = path.resolve('/project/../takt-worktrees') = '/takt-worktrees'
-    const validClonePath = '/takt-worktrees/20260101T0000-my-task';
+    const validClonePath = nativeFixturePath('/takt-worktrees/20260101T0000-my-task');
     vi.mocked(fs.readFileSync).mockReturnValueOnce(
       JSON.stringify({ clonePath: validClonePath })
     );
@@ -2388,7 +2391,7 @@ describe('cleanupOrphanedClone path traversal protection', () => {
   });
 
   it('should refuse to remove a symlinked clone whose real path escapes the clone base directory', () => {
-    const symlinkClonePath = '/takt-worktrees/linked-clone';
+    const symlinkClonePath = nativeFixturePath('/takt-worktrees/linked-clone');
     vi.mocked(fs.readFileSync).mockReturnValueOnce(
       JSON.stringify({ clonePath: symlinkClonePath })
     );
@@ -2398,7 +2401,7 @@ describe('cleanupOrphanedClone path traversal protection', () => {
       .mockReturnValueOnce(true);
     vi.mocked(fs.realpathSync).mockImplementation((value: fs.PathLike) => {
       if (value === symlinkClonePath) {
-        return '/outside/escaped-clone';
+        return nativeFixturePath('/outside/escaped-clone');
       }
       return String(value);
     });
@@ -2437,15 +2440,15 @@ describe('resolveCloneBaseDir parent-not-writable fallback', () => {
       return Buffer.from('');
     });
 
-    const result = manager.createSharedClone('/workspaces/hello-world', {
+    const result = manager.createSharedClone(nativeFixturePath('/workspaces/hello-world'), {
       worktree: true,
       taskSlug: 'test-task',
     });
 
-    expect(result.path).toContain(path.join('/workspaces/hello-world', '.takt', 'worktrees'));
+    expect(result.path).toContain(path.join(nativeFixturePath('/workspaces/hello-world'), '.takt', 'worktrees'));
     expect(mockLogInfo).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ fallback: expect.stringContaining('.takt/worktrees') }),
+      expect.objectContaining({ fallback: expect.stringContaining(path.join('.takt', 'worktrees')) }),
     );
   });
 
@@ -2466,7 +2469,7 @@ describe('resolveCloneBaseDir parent-not-writable fallback', () => {
       return Buffer.from('');
     });
 
-    const result = manager.createSharedClone('/workspaces/hello-world', {
+    const result = manager.createSharedClone(nativeFixturePath('/workspaces/hello-world'), {
       worktree: true,
       taskSlug: 'test-task',
     });
@@ -2492,13 +2495,13 @@ describe('auto clone path allocation', () => {
       return Buffer.from('');
     });
 
-    const result = new CloneManager().createSharedClone('/project', {
-      worktree: '/tmp/takt-command-gate-clone',
+    const result = new CloneManager().createSharedClone(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/takt-command-gate-clone'),
       taskSlug: 'command-gate',
     });
 
-    expect(result.path).toBe('/tmp/takt-command-gate-clone');
-    expect(mockSyncProjectLocalTaktForRetry).toHaveBeenCalledWith('/project', '/tmp/takt-command-gate-clone');
+    expect(result.path).toBe(nativeFixturePath('/tmp/takt-command-gate-clone'));
+    expect(mockSyncProjectLocalTaktForRetry).toHaveBeenCalledWith(nativeFixturePath('/project'), nativeFixturePath('/tmp/takt-command-gate-clone'));
   });
 
   it('should sync project-local quality gate assets after creating an abortable shared clone', async () => {
@@ -2517,23 +2520,23 @@ describe('auto clone path allocation', () => {
       return Buffer.from('');
     });
 
-    const result = await new CloneManager().createSharedCloneAbortable('/project', {
-      worktree: '/tmp/takt-command-gate-abortable-clone',
+    const result = await new CloneManager().createSharedCloneAbortable(nativeFixturePath('/project'), {
+      worktree: nativeFixturePath('/tmp/takt-command-gate-abortable-clone'),
       taskSlug: 'command-gate',
       branch: 'feature/local-command-gate',
     });
 
-    expect(result.path).toBe('/tmp/takt-command-gate-abortable-clone');
+    expect(result.path).toBe(nativeFixturePath('/tmp/takt-command-gate-abortable-clone'));
     expect(mockSyncProjectLocalTaktForRetry).toHaveBeenCalledWith(
-      '/project',
-      '/tmp/takt-command-gate-abortable-clone',
+      nativeFixturePath('/project'),
+      nativeFixturePath('/tmp/takt-command-gate-abortable-clone'),
     );
   });
 
   it('should sync project-local quality gate assets after creating a temp clone', () => {
     vi.mocked(fs.accessSync).mockImplementation(() => undefined);
     mockResolveConfigValue.mockImplementation((_projectDir, key) => (
-      key === 'worktreeDir' ? '/tmp/takt-worktrees' : undefined
+      key === 'worktreeDir' ? nativeFixturePath('/tmp/takt-worktrees') : undefined
     ));
     mockExecFileSync.mockImplementation((_cmd, args) => {
       const argsArr = args as string[];
@@ -2545,17 +2548,17 @@ describe('auto clone path allocation', () => {
       return Buffer.from('');
     });
 
-    const result = new CloneManager().createTempCloneForBranch('/project', 'feature/temp-command-gate');
+    const result = new CloneManager().createTempCloneForBranch(nativeFixturePath('/project'), 'feature/temp-command-gate');
 
-    expect(result.path).toMatch(/^\/tmp\/takt-worktrees\/tmp-\d{8}T\d{4}-[a-f0-9]{16}$/);
-    expect(mockSyncProjectLocalTaktForRetry).toHaveBeenCalledWith('/project', result.path);
+    expect(result.path.replaceAll('\\', '/')).toMatch(/^(?:[A-Za-z]:)?\/tmp\/takt-worktrees\/tmp-\d{8}T\d{4}-[a-f0-9]{16}$/);
+    expect(mockSyncProjectLocalTaktForRetry).toHaveBeenCalledWith(nativeFixturePath('/project'), result.path);
   });
 
   it('should generate distinct temp clone paths in the same minute', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00.123Z'));
     mockResolveConfigValue.mockImplementation((_projectDir, key) => (
-      key === 'worktreeDir' ? '/tmp/takt-worktrees' : undefined
+      key === 'worktreeDir' ? nativeFixturePath('/tmp/takt-worktrees') : undefined
     ));
     mockExecFileSync.mockImplementation((_cmd, args) => {
       const argsArr = args as string[];
@@ -2568,11 +2571,11 @@ describe('auto clone path allocation', () => {
     });
 
     try {
-      const first = new CloneManager().createTempCloneForBranch('/project', 'feature/first');
-      const second = new CloneManager().createTempCloneForBranch('/project', 'feature/second');
+      const first = new CloneManager().createTempCloneForBranch(nativeFixturePath('/project'), 'feature/first');
+      const second = new CloneManager().createTempCloneForBranch(nativeFixturePath('/project'), 'feature/second');
 
-      expect(first.path).toMatch(/^\/tmp\/takt-worktrees\/tmp-20260101T0000-[a-f0-9]{16}$/);
-      expect(second.path).toMatch(/^\/tmp\/takt-worktrees\/tmp-20260101T0000-[a-f0-9]{16}$/);
+      expect(first.path.replaceAll('\\', '/')).toMatch(/^(?:[A-Za-z]:)?\/tmp\/takt-worktrees\/tmp-20260101T0000-[a-f0-9]{16}$/);
+      expect(second.path.replaceAll('\\', '/')).toMatch(/^(?:[A-Za-z]:)?\/tmp\/takt-worktrees\/tmp-20260101T0000-[a-f0-9]{16}$/);
       expect(first.path).not.toBe(second.path);
     } finally {
       vi.useRealTimers();
@@ -2583,7 +2586,7 @@ describe('auto clone path allocation', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00.123Z'));
     mockResolveConfigValue.mockImplementation((_projectDir, key) => (
-      key === 'worktreeDir' ? '/tmp/takt-worktrees' : undefined
+      key === 'worktreeDir' ? nativeFixturePath('/tmp/takt-worktrees') : undefined
     ));
     mockExecFileSync.mockImplementation((_cmd, args) => {
       const argsArr = args as string[];
@@ -2598,19 +2601,19 @@ describe('auto clone path allocation', () => {
     });
 
     try {
-      const first = new CloneManager().createSharedClone('/project', {
+      const first = new CloneManager().createSharedClone(nativeFixturePath('/project'), {
         worktree: true,
         taskSlug: 'fix-review-comments',
         branch: 'takt/827/add-trace-task-metadata',
       });
-      const second = new CloneManager().createSharedClone('/project', {
+      const second = new CloneManager().createSharedClone(nativeFixturePath('/project'), {
         worktree: true,
         taskSlug: 'fix-review-comments',
         branch: 'takt/816/implement-review-flow',
       });
 
-      expect(first.path).toMatch(/^\/tmp\/takt-worktrees\/20260101T0000-fix-review-comments-[a-f0-9]{16}$/);
-      expect(second.path).toMatch(/^\/tmp\/takt-worktrees\/20260101T0000-fix-review-comments-[a-f0-9]{16}$/);
+      expect(first.path.replaceAll('\\', '/')).toMatch(/^(?:[A-Za-z]:)?\/tmp\/takt-worktrees\/20260101T0000-fix-review-comments-[a-f0-9]{16}$/);
+      expect(second.path.replaceAll('\\', '/')).toMatch(/^(?:[A-Za-z]:)?\/tmp\/takt-worktrees\/20260101T0000-fix-review-comments-[a-f0-9]{16}$/);
       expect(first.path).not.toBe(second.path);
     } finally {
       vi.useRealTimers();
@@ -2621,7 +2624,7 @@ describe('auto clone path allocation', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00.123Z'));
     mockResolveConfigValue.mockImplementation((_projectDir, key) => (
-      key === 'worktreeDir' ? '/tmp/takt-worktrees' : undefined
+      key === 'worktreeDir' ? nativeFixturePath('/tmp/takt-worktrees') : undefined
     ));
     mockGitSpawn((args) => {
       if (args[0] === 'fetch') return 1;
@@ -2639,12 +2642,12 @@ describe('auto clone path allocation', () => {
 
     try {
       const clonePromises = Promise.all([
-        new CloneManager().createSharedCloneAbortable('/project', {
+        new CloneManager().createSharedCloneAbortable(nativeFixturePath('/project'), {
           worktree: true,
           taskSlug: 'fix-review-comments',
           branch: 'takt/827/add-trace-task-metadata',
         }),
-        new CloneManager().createSharedCloneAbortable('/project', {
+        new CloneManager().createSharedCloneAbortable(nativeFixturePath('/project'), {
           worktree: true,
           taskSlug: 'fix-review-comments',
           branch: 'takt/816/implement-review-flow',
@@ -2653,13 +2656,13 @@ describe('auto clone path allocation', () => {
       await vi.runAllTimersAsync();
       const [first, second] = await clonePromises;
 
-      expect(first.path).toMatch(/^\/tmp\/takt-worktrees\/20260101T0000-fix-review-comments-[a-f0-9]{16}$/);
-      expect(second.path).toMatch(/^\/tmp\/takt-worktrees\/20260101T0000-fix-review-comments-[a-f0-9]{16}$/);
+      expect(first.path.replaceAll('\\', '/')).toMatch(/^(?:[A-Za-z]:)?\/tmp\/takt-worktrees\/20260101T0000-fix-review-comments-[a-f0-9]{16}$/);
+      expect(second.path.replaceAll('\\', '/')).toMatch(/^(?:[A-Za-z]:)?\/tmp\/takt-worktrees\/20260101T0000-fix-review-comments-[a-f0-9]{16}$/);
       expect(first.path).not.toBe(second.path);
 
       const metadataByBranch = new Map<string, { filePath: string; clonePath: string }>(
         vi.mocked(fs.writeFileSync).mock.calls
-          .filter(([filePath]) => String(filePath).includes('/.takt/clone-meta/'))
+          .filter(([filePath]) => String(filePath).includes(path.join('.takt', 'clone-meta')))
           .map(([temporaryPath, content]) => {
             const metadata = JSON.parse(String(content)) as { branch: string; clonePath: string };
             const renameCall = vi.mocked(fs.renameSync).mock.calls.find(
@@ -2676,11 +2679,11 @@ describe('auto clone path allocation', () => {
       expect(vi.mocked(fs.renameSync)).toHaveBeenCalledTimes(2);
 
       expect(metadataByBranch.get(first.branch)).toEqual({
-        filePath: '/project/.takt/clone-meta/takt--827--add-trace-task-metadata.json',
+        filePath: nativeFixturePath('/project/.takt/clone-meta/takt--827--add-trace-task-metadata.json'),
         clonePath: first.path,
       });
       expect(metadataByBranch.get(second.branch)).toEqual({
-        filePath: '/project/.takt/clone-meta/takt--816--implement-review-flow.json',
+        filePath: nativeFixturePath('/project/.takt/clone-meta/takt--816--implement-review-flow.json'),
         clonePath: second.path,
       });
     } finally {

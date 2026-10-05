@@ -130,12 +130,12 @@ describe('central task process ownership', () => {
       inode: 0,
       startedAt: new Date(0).toISOString(),
     }));
-    const lockStat = await lstat(lockPath);
+    const lockStat = await lstat(lockPath, { bigint: true });
     await writeFile(lockPath, JSON.stringify({
       version: 1,
       ownerToken: 'dead-owner-token',
       pid: 2_147_483_647,
-      inode: lockStat.ino,
+      inode: lockStat.ino.toString(),
       startedAt: new Date(0).toISOString(),
     }));
 
@@ -161,13 +161,13 @@ describe('central task process ownership', () => {
       inode: 0,
       startedAt: new Date(0).toISOString(),
     }));
-    const lockStat = await lstat(lockPath);
+    const lockStat = await lstat(lockPath, { bigint: true });
     await writeFile(lockPath, JSON.stringify({
       version: 1,
       ownerToken: 'live-owner-token',
       pid: process.pid,
       ...(processIdentity === undefined ? {} : { processIdentity }),
-      inode: lockStat.ino,
+      inode: lockStat.ino.toString(),
       startedAt: new Date(0).toISOString(),
     }));
 

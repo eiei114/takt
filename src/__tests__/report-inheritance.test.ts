@@ -1,4 +1,21 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
+const unreadableReport = vi.hoisted(() => ({ path: '' }));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    readFileSync: ((...args: Parameters<typeof actual.readFileSync>) => {
+      if (String(args[0]) === unreadableReport.path) {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      }
+      return actual.readFileSync(...args);
+    }) as typeof actual.readFileSync,
+  };
+});
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, win32 } from 'node:path';
@@ -55,6 +72,7 @@ function inherit(projectDirectory: string) {
 }
 
 afterEach(() => {
+  unreadableReport.path = '';
   for (const directory of temporaryDirectories.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -218,7 +236,8 @@ describe('inheritReviewReports', () => {
       'unreadable review',
       new Date('2026-07-17T00:00:00.000Z'),
     );
-    chmodSync(unreadablePath, 0o000);
+    // Inject the read failure on every OS; Windows does not enforce POSIX mode bits.
+    unreadableReport.path = unreadablePath;
 
     // When
     const result = inherit(projectDirectory);
@@ -816,7 +835,7 @@ describe('classifyReportRelativePath', () => {
     '..',
     '../review.md',
     'nested/../../review.md',
-    '/absolute/review.md',
+    nativeFixturePath('/absolute/review.md'),
     'C:\\absolute\\review.md',
     'C:drive-relative.md',
     'review\0.md',

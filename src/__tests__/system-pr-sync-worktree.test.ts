@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
+
 const {
   mockCheckoutWorktreeBranchFromOrigin,
   mockCloneAndIsolate,
@@ -46,7 +49,7 @@ beforeEach(() => {
     randomByteValue += 1;
     return value;
   });
-  mockResolveCloneBaseDir.mockReturnValue('/tmp/takt-worktrees');
+  mockResolveCloneBaseDir.mockReturnValue(nativeFixturePath('/tmp/takt-worktrees'));
 });
 
 describe('PR sync worktree paths', () => {
@@ -56,21 +59,21 @@ describe('PR sync worktree paths', () => {
 
     try {
       const store = new Map<number, PrSyncSession>();
-      const first = acquirePrSyncSession(store, '/project', 816, 'takt/816/implement-review-flow');
-      const second = acquirePrSyncSession(store, '/project', 827, 'takt/827/add-trace-task-metadata');
+      const first = acquirePrSyncSession(store, nativeFixturePath('/project'), 816, 'takt/816/implement-review-flow');
+      const second = acquirePrSyncSession(store, nativeFixturePath('/project'), 827, 'takt/827/add-trace-task-metadata');
 
-      expect(first.worktreePath).toMatch(/^\/tmp\/takt-worktrees\/pr-sync-\d+-[a-f0-9]{16}$/);
-      expect(second.worktreePath).toMatch(/^\/tmp\/takt-worktrees\/pr-sync-\d+-[a-f0-9]{16}$/);
+      expect(first.worktreePath.replaceAll('\\', '/')).toMatch(/^(?:[A-Za-z]:)?\/tmp\/takt-worktrees\/pr-sync-\d+-[a-f0-9]{16}$/);
+      expect(second.worktreePath.replaceAll('\\', '/')).toMatch(/^(?:[A-Za-z]:)?\/tmp\/takt-worktrees\/pr-sync-\d+-[a-f0-9]{16}$/);
       expect(first.worktreePath).not.toBe(second.worktreePath);
-      expect(mockCloneAndIsolate).toHaveBeenCalledWith('/project', first.worktreePath);
-      expect(mockCloneAndIsolate).toHaveBeenCalledWith('/project', second.worktreePath);
+      expect(mockCloneAndIsolate).toHaveBeenCalledWith(nativeFixturePath('/project'), first.worktreePath);
+      expect(mockCloneAndIsolate).toHaveBeenCalledWith(nativeFixturePath('/project'), second.worktreePath);
       expect(mockCheckoutWorktreeBranchFromOrigin).toHaveBeenCalledWith(
-        '/project',
+        nativeFixturePath('/project'),
         first.worktreePath,
         'takt/816/implement-review-flow',
       );
       expect(mockCheckoutWorktreeBranchFromOrigin).toHaveBeenCalledWith(
-        '/project',
+        nativeFixturePath('/project'),
         second.worktreePath,
         'takt/827/add-trace-task-metadata',
       );
@@ -81,7 +84,7 @@ describe('PR sync worktree paths', () => {
 
   it('should remove the generated path associated with the released PR session', () => {
     const store = new Map<number, PrSyncSession>();
-    const session = acquirePrSyncSession(store, '/project', 816, 'takt/816/implement-review-flow');
+    const session = acquirePrSyncSession(store, nativeFixturePath('/project'), 816, 'takt/816/implement-review-flow');
 
     releasePrSyncSession(store, 816);
 
@@ -95,7 +98,7 @@ describe('PR sync worktree paths', () => {
     });
     const store = new Map<number, PrSyncSession>();
 
-    expect(() => acquirePrSyncSession(store, '/project', 816, 'takt/816/implement-review-flow'))
+    expect(() => acquirePrSyncSession(store, nativeFixturePath('/project'), 816, 'takt/816/implement-review-flow'))
       .toThrow('checkout failed');
 
     const clonedPath = mockCloneAndIsolate.mock.calls[0]?.[1];

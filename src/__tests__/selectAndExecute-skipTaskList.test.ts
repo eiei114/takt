@@ -3,6 +3,9 @@
  */
 
 import * as fs from 'node:fs';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -20,7 +23,7 @@ const {
   mockAddTask: vi.fn(() => ({
     name: 'test-task',
     content: 'test task',
-    filePath: '/project/.takt/tasks.yaml',
+    filePath: nativeFixturePath('/project/.takt/tasks.yaml'),
     createdAt: '2026-02-14T00:00:00.000Z',
     status: 'pending',
     data: { task: 'test task' },
@@ -118,7 +121,7 @@ function createTempProject(): string {
 
 describe('skipTaskList option in selectAndExecuteTask', () => {
   it('skipTaskList: true の場合はタスクリストに追加しない', async () => {
-    await selectAndExecuteTask('/project', 'test task', {
+    await selectAndExecuteTask(nativeFixturePath('/project'), 'test task', {
       workflow: 'default',
       skipTaskList: true,
     });
@@ -137,7 +140,7 @@ describe('skipTaskList option in selectAndExecuteTask', () => {
         issueNumber: 131,
         branch: 'takt/131/add-trace-metadata',
         baseBranch: 'main',
-        worktreePath: '/project/.takt/worktrees/131-add-trace-metadata',
+        worktreePath: nativeFixturePath('/project/.takt/worktrees/131-add-trace-metadata'),
       },
     } satisfies Parameters<typeof selectAndExecuteTask>[2] & {
       traceTaskContext: {
@@ -149,7 +152,7 @@ describe('skipTaskList option in selectAndExecuteTask', () => {
       };
     };
 
-    await selectAndExecuteTask('/project', 'Add trace metadata from issue', options);
+    await selectAndExecuteTask(nativeFixturePath('/project'), 'Add trace metadata from issue', options);
 
     const executeArg = mockExecuteTask.mock.calls[0]?.[0] as {
       traceTaskMetadata?: unknown;
@@ -160,7 +163,7 @@ describe('skipTaskList option in selectAndExecuteTask', () => {
       issueNumber: 131,
       gitBranch: 'takt/131/add-trace-metadata',
       gitBaseBranch: 'main',
-      worktreePath: '/project/.takt/worktrees/131-add-trace-metadata',
+      worktreePath: nativeFixturePath('/project/.takt/worktrees/131-add-trace-metadata'),
     });
   });
 
@@ -175,7 +178,7 @@ describe('skipTaskList option in selectAndExecuteTask', () => {
       },
     } satisfies ProviderPermissionProfiles;
 
-    await selectAndExecuteTask('/project', 'Run exec workflow', {
+    await selectAndExecuteTask(nativeFixturePath('/project'), 'Run exec workflow', {
       workflow: 'default',
       skipTaskList: true,
       providerProfileOverrides,
@@ -188,7 +191,7 @@ describe('skipTaskList option in selectAndExecuteTask', () => {
   });
 
   it('skipTaskList: false の場合はタスクリストに追加する', async () => {
-    await selectAndExecuteTask('/project', 'test task', {
+    await selectAndExecuteTask(nativeFixturePath('/project'), 'test task', {
       workflow: 'default',
       skipTaskList: false,
     });
@@ -200,7 +203,7 @@ describe('skipTaskList option in selectAndExecuteTask', () => {
   });
 
   it('skipTaskList 未指定の場合はタスクリストに追加する', async () => {
-    await selectAndExecuteTask('/project', 'test task', {
+    await selectAndExecuteTask(nativeFixturePath('/project'), 'test task', {
       workflow: 'default',
     });
 
@@ -213,7 +216,7 @@ describe('skipTaskList option in selectAndExecuteTask', () => {
     mockExecuteTask.mockRejectedValue(new Error('Task execution failed'));
 
     await expect(
-      selectAndExecuteTask('/project', 'test task', {
+      selectAndExecuteTask(nativeFixturePath('/project'), 'test task', {
         workflow: 'default',
         skipTaskList: true,
       }),
@@ -458,7 +461,7 @@ describe('skipTaskList option in selectAndExecuteTask', () => {
     mockExecuteTask.mockRejectedValue(new Error('Task execution failed'));
 
     await expect(
-      selectAndExecuteTask('/project', 'test task', {
+      selectAndExecuteTask(nativeFixturePath('/project'), 'test task', {
         workflow: 'default',
         skipTaskList: false,
       }),

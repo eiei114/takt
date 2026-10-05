@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import {
   existsSync,
   mkdirSync,
@@ -293,7 +296,7 @@ afterEach(() => {
 
 describe('runFormalSpecVerification', () => {
   it('should fail explicitly without invoking verification when the response has no target blocks', async () => {
-    const result = await runFormalSpecVerification('No formal specification was generated.', '/repo', { modelCheckTimeoutSeconds: 300 });
+    const result = await runFormalSpecVerification('No formal specification was generated.', nativeFixturePath('/repo'), { modelCheckTimeoutSeconds: 300 });
 
     expect(result).toEqual({
       verdict: 'error',
@@ -1060,7 +1063,7 @@ describe('runFormalSpecVerification', () => {
         { number: 0, type: 'check', label: 'Safety' },
         { number: 1, type: 'run', label: 'Report' },
       ]);
-      expect(spawnedProcesses.every(({ options }) => options.cwd?.includes('/.takt/runs/verify-'))).toBe(true);
+      expect(spawnedProcesses.every(({ options }) => options.cwd?.includes(join('.takt', 'runs', 'verify-')))).toBe(true);
       expect(spawnedProcesses.every(({ options }) => options.env?.TMPDIR === options.cwd)).toBe(true);
       const runParent = join(directory, '.takt', 'runs');
       cleanupFormalSpecVerificationArtifacts(result);

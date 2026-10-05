@@ -1,7 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import type { ChildProcess } from 'node:child_process';
+
+// Match the process seam used by the Windows cross-platform spawn wrapper.
+vi.mock('cross-spawn', async () => ({
+  default: (await import('node:child_process')).spawn,
+}));
 
 vi.mock('node:child_process', () => ({
   spawn: vi.fn(),
@@ -50,7 +58,7 @@ describe('runHeadlessCli stdio guard', () => {
       closeCode: null,
     });
 
-    const options: ClaudeHeadlessCallOptions = { cwd: '/tmp' };
+    const options: ClaudeHeadlessCallOptions = { cwd: nativeFixturePath('/tmp') };
 
     await expect(runHeadlessCli(['-p', '--', 'prompt'], options)).rejects.toThrow(
       /stdout stream error: stdout pipe closed/u,
@@ -63,7 +71,7 @@ describe('runHeadlessCli stdio guard', () => {
       closeCode: 1,
     });
 
-    const options: ClaudeHeadlessCallOptions = { cwd: '/tmp' };
+    const options: ClaudeHeadlessCallOptions = { cwd: nativeFixturePath('/tmp') };
 
     await expect(runHeadlessCli(['-p', '--', 'prompt'], options)).rejects.toThrow(
       /stderr stream error: stderr pipe closed/u,
@@ -76,7 +84,7 @@ describe('runHeadlessCli stdio guard', () => {
       closeCode: 1,
     });
 
-    const options: ClaudeHeadlessCallOptions = { cwd: '/tmp' };
+    const options: ClaudeHeadlessCallOptions = { cwd: nativeFixturePath('/tmp') };
 
     await expect(runHeadlessCli(['-p', '--', 'prompt'], options)).rejects.toThrow(
       /stdout stream error: stdout pipe closed/u,

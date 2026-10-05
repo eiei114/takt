@@ -1,4 +1,7 @@
 import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -54,11 +57,11 @@ describe('private artifact path identity', () => {
     symlinkSync(targetRoot, aliasFixture, 'dir');
     symlinkSync(outsideDirectory, join(targetRoot, 'linked'), 'dir');
 
-    injectedRootAlias.path = '/takt-private-root-alias';
+    injectedRootAlias.path = nativeFixturePath('/takt-private-root-alias');
     injectedRootAlias.fixturePath = aliasFixture;
     injectedRootAlias.targetPath = targetRoot;
 
-    expect(() => assertSafePath('/takt-private-root-alias/safe', true)).not.toThrow();
-    expect(() => assertSafePath('/takt-private-root-alias/linked', true)).toThrow(/symlink/);
+    expect(() => assertSafePath(nativeFixturePath('/takt-private-root-alias/safe'), true)).not.toThrow();
+    expect(() => assertSafePath(nativeFixturePath('/takt-private-root-alias/linked'), true)).toThrow(/symlink/);
   });
 });

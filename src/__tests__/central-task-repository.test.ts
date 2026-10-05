@@ -1,4 +1,7 @@
 import { EventEmitter } from 'node:events';
+
+// Construct native absolute fixture paths without mocking production path handling.
+const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { mkdir, mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -51,9 +54,12 @@ describe('central task CAS repository', () => {
       stat(repository.paths.stateFile),
       stat(repository.paths.tasksFile),
     ]);
-    expect(stateDirectory.mode & 0o777).toBe(0o700);
-    expect(stateFile.mode & 0o777).toBe(0o600);
-    expect(tasksFile.mode & 0o777).toBe(0o600);
+    // Windows stat mode bits do not describe its ACL; retain POSIX enforcement checks.
+    if (process.platform !== 'win32') {
+      expect(stateDirectory.mode & 0o777).toBe(0o700);
+      expect(stateFile.mode & 0o777).toBe(0o600);
+      expect(tasksFile.mode & 0o777).toBe(0o600);
+    }
   });
 
   it('recovers legacy terminal worktree context from owned central metadata', async () => {
@@ -171,7 +177,7 @@ describe('central task CAS repository', () => {
     const started = await repository.enqueueAndClaim({
       task: 'retry me',
       workflow: 'default',
-      worktree: '/tmp/takt-worktrees',
+      worktree: nativeFixturePath('/tmp/takt-worktrees'),
       branch: 'feature/retry-me',
       baseBranch: 'main',
       autoPr: true,
@@ -201,7 +207,7 @@ describe('central task CAS repository', () => {
       status: 'starting',
       attempt: 2,
       runIds: [started.runId, requeued.runId],
-      worktree: '/tmp/takt-worktrees',
+      worktree: nativeFixturePath('/tmp/takt-worktrees'),
       branch: 'feature/retry-me',
       baseBranch: 'main',
       autoPr: true,
@@ -534,10 +540,10 @@ describe('central task CAS repository', () => {
   it('compares the persisted state fingerprint with the open options', async () => {
     const { globalConfigDirectory, project, repository } = await setup();
     const persisted = JSON.parse(await readFile(repository.paths.stateFile, 'utf8')) as Record<string, unknown>;
-    const fingerprint = persisted.fingerprint as { dev: number; ino: number };
+    const fingerprint = persisted.fingerprint as { dev: number | string; ino: number | string };
     await writeFile(repository.paths.stateFile, JSON.stringify({
       ...persisted,
-      fingerprint: { dev: fingerprint.dev + 1, ino: fingerprint.ino },
+      fingerprint: { dev: (BigInt(fingerprint.dev) + 1n).toString(), ino: fingerprint.ino },
     }));
 
     await expect(CentralTaskRepository.open({

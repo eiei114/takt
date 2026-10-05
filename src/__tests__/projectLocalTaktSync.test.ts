@@ -1,6 +1,20 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+
+const inspectionFailure = vi.hoisted(() => ({ path: '' }));
+
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>();
+  return {
+    ...actual,
+    lstatSync: ((...args: Parameters<typeof actual.lstatSync>) => {
+      if (String(args[0]) === inspectionFailure.path) {
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      }
+      return actual.lstatSync(...args);
+    }) as typeof actual.lstatSync,
+  };
+});
 import {
-  chmodSync,
   existsSync,
   lstatSync,
   mkdtempSync,
@@ -27,6 +41,7 @@ function readBuiltinProjectDotgitignore(): string {
 }
 
 afterEach(() => {
+  inspectionFailure.path = '';
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -230,7 +245,7 @@ describe('ensureWorktreeTaktGitignore', () => {
     const taktDir = join(worktreePath, '.takt');
     const gitignorePath = join(taktDir, '.gitignore');
     mkdirSync(taktDir, { recursive: true });
-    chmodSync(taktDir, 0o000);
+    inspectionFailure.path = gitignorePath;
 
     let thrown: unknown;
     try {
@@ -238,7 +253,7 @@ describe('ensureWorktreeTaktGitignore', () => {
     } catch (error: unknown) {
       thrown = error;
     } finally {
-      chmodSync(taktDir, 0o700);
+      inspectionFailure.path = '';
     }
 
     expect((thrown as NodeJS.ErrnoException).code).toMatch(/^(EACCES|EPERM)$/);
