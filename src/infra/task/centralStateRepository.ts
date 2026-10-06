@@ -674,6 +674,7 @@ async function compareDeleteStateLock(
 
 /** Acquires a fully published lock or safely reclaims a stale owner, failing closed at the deadline. */
 async function waitForLock(lockPath: string): Promise<StateLockHandle> {
+  /** Publishes a complete owner exclusively and verifies the opened handle before returning ownership. */
   const publish = async (): Promise<StateLockHandle | undefined> => {
     const temporary = join(
       dirname(lockPath),
@@ -1020,6 +1021,7 @@ function parseState(value: unknown): CentralStateRecord {
   assertStateId(raw.stateId);
   assertIsoTimestamp(raw.createdAt, 'state.createdAt');
   assertIsoTimestamp(raw.updatedAt, 'state.updatedAt');
+  /** Rejects missing, malformed, or rounded persisted device/inode fingerprint values. */
   const validateFingerprint = (value: unknown, label: string): DirectoryFingerprint => {
     const fingerprint = value;
     if (

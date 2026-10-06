@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Construct native absolute fixture paths without mocking production path handling.
+/** Construct native absolute fixture paths without mocking production path handling. */
 const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { buildRunPaths, type RunPaths } from '../core/workflow/run/run-paths.js';
 
@@ -12,6 +12,7 @@ vi.mock('../infra/config/index.js', () => ({
 import { ensureDir, writeFileAtomic } from '../infra/config/index.js';
 import { RunMetaManager } from '../features/tasks/execute/runMeta.js';
 
+/** Builds native filesystem paths and portable metadata paths for the fixed run fixture. */
 function createRunPaths(): RunPaths {
   return buildRunPaths(nativeFixturePath('/tmp/project'), '20260409-force-fail-test');
 }

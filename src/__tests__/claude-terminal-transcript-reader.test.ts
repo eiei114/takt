@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 
-// Construct native absolute fixture paths without mocking production path handling.
+/** Construct native absolute fixture paths without mocking production path handling. */
 const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -28,6 +28,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   };
 });
 
+/** Runs a transcript test with isolated native home/project directories and restores both on exit. */
 async function withTemporaryClaudeHome<T>(run: (projectDir: string) => Promise<T>): Promise<T> {
   const originalHome = process.env[homeEnvKey];
   const homeDir = await mkdtemp(join(tmpdir(), 'takt-claude-terminal-home-'));

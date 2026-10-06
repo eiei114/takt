@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 
-// Construct native absolute fixture paths without mocking production path handling.
+/** Construct native absolute fixture paths without mocking production path handling. */
 const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';

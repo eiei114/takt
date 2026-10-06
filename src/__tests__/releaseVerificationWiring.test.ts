@@ -193,6 +193,7 @@ function hasIntegrationFileName(filePath: string): boolean {
     || fileName.endsWith('.performance.test.ts');
 }
 
+/** Runs the release entrypoint with an isolated npm stub, recording gate order and an injected failure. */
 function executeReleaseScript(failingCommand: string | undefined): {
   commands: string[];
   status: number | null;

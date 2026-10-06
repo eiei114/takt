@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises';
 
-// Construct native absolute fixture paths without mocking production path handling.
+/** Construct native absolute fixture paths without mocking production path handling. */
 const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';

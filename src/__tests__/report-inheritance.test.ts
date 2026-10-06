@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-// Construct native absolute fixture paths without mocking production path handling.
+/** Construct native absolute fixture paths without mocking production path handling. */
 const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 const unreadableReport = vi.hoisted(() => ({ path: '' }));
 

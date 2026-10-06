@@ -1,6 +1,6 @@
 import { basename, dirname, join } from 'node:path';
 
-// Construct native absolute fixture paths without mocking production path handling.
+/** Construct native absolute fixture paths without mocking production path handling. */
 const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CodexCallOptions } from '../infra/codex/types.js';
@@ -98,6 +98,7 @@ const { CodexClient } = await import('../infra/codex/client.js');
 
 const FAILURE_DIR = nativeFixturePath('/project/.takt/runs/run-1/failures');
 
+/** Builds failure-artifact options using native absolute paths on the current host. */
 function createFailureOptions(): CodexCallOptions {
   return {
     cwd: nativeFixturePath('/project'),

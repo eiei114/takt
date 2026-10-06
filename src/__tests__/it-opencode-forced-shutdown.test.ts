@@ -155,6 +155,7 @@ function spawnShutdownWorker(
   return { worker, result };
 }
 
+/** Writes a fake CLI that registers signal handlers before ready, optionally requiring forced shutdown. */
 function writeFakeOpenCodeCli(path: string, logPath: string, ignoreSigterm: boolean): void {
   const source = `#!/usr/bin/env node
 import { appendFileSync } from 'node:fs';

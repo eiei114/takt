@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-// Construct native absolute fixture paths without mocking production path handling.
+/** Construct native absolute fixture paths without mocking production path handling. */
 const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -94,6 +94,7 @@ function createWorkflow(selectorPersona = 'facet-selector', reviewerInstruction 
   };
 }
 
+/** Builds the Japanese facet-resolution fixture with host-native absolute project paths. */
 function createResolutionContext(): FacetResolutionContext {
   return {
     lang: 'ja',
@@ -103,6 +104,7 @@ function createResolutionContext(): FacetResolutionContext {
   };
 }
 
+/** Resolves inline facet sections relative to the fixture's native workflow directory. */
 function createSections(raw: ReturnType<typeof WorkflowConfigRawSchema.parse>): WorkflowSections {
   const workflowDir = nativeFixturePath('/project/.takt/workflows');
   return {

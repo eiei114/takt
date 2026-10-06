@@ -64,6 +64,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       await beforeOpen?.();
       const handle = await actual.open(...args);
       control.opened.push(handle);
+      /** Consumes the matching file's one-shot race hook before the next content read. */
       const beforeRead = async (): Promise<void> => {
         if (String(args[0]) !== control.filePath) return;
         const hook = control.beforeRead;
@@ -131,6 +132,7 @@ describe('verified regular file reads', () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  /** Requires identity rejection to precede content access and to close every opened handle. */
   function expectNoContentRead(): void {
     for (const handle of control.opened) {
       expect(handle.read).not.toHaveBeenCalled();
@@ -139,6 +141,7 @@ describe('verified regular file reads', () => {
     }
   }
 
+  /** Creates a completed central-run fixture and marks its report as the controlled read target. */
   async function writeReport(content: string) {
     const statePaths = resolveStatePaths(join(root, 'global'), '11111111-1111-4111-8111-111111111111');
     const slug = 'bounded-report';
@@ -322,6 +325,7 @@ describe('verified regular file reads', () => {
     control.inode = 9007199254740992n;
     control.freezeModifiedAt = true;
     await writeFile(path, first);
+    /** Isolates physical log identity checks from the separate directory-snapshot guard. */
     const verifySnapshot = async (): Promise<void> => {};
     const initial = await readRunLogArtifactsForDiagnostics(root, [path], verifySnapshot);
     expect(initial.events.map((event) => event.step)).toEqual(['aaaa']);

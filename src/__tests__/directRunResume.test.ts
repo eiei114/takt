@@ -1,6 +1,6 @@
 import * as fs from 'node:fs';
 
-// Construct native absolute fixture paths without mocking production path handling.
+/** Construct native absolute fixture paths without mocking production path handling. */
 const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import * as os from 'node:os';
 import * as path from 'node:path';

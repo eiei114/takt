@@ -52,6 +52,7 @@ export async function openVerifiedRegularFile(path: string, label: string): Prom
   if (await realpath(expectedPath) !== expectedPath) throw new Error(`${label} contains a symbolic link`);
 
   const handle = await open(expectedPath, constants.O_RDONLY | (noFollow ?? 0));
+  /** Rechecks the handle, pathname, and every inspected ancestor before publishing read results. */
   const assertIdentity = async (): Promise<void> => {
     const opened = await handle.stat({ bigint: true });
     if (!opened.isFile() || !sameIdentity(expected, opened)) {

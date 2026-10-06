@@ -224,6 +224,7 @@ function createRunDir(
   return runDir;
 }
 
+/** Requires race injection and rejection by the matching identity or directory-snapshot guard. */
 function expectReportRaceRejected(
   read: () => RunSessionContext,
   control: FileRaceControl,

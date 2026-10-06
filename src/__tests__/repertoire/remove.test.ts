@@ -14,7 +14,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Construct native absolute fixture paths without mocking production path handling.
+/** Construct native absolute fixture paths without mocking production path handling. */
 const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';

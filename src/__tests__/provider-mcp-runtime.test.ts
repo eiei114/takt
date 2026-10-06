@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-// Construct native absolute fixture paths without mocking production path handling.
+/** Construct native absolute fixture paths without mocking production path handling. */
 const nativeFixturePath = await vi.hoisted(async () => (await import('node:path')).resolve);
 import { statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -50,6 +50,7 @@ function resolvedServers(): ResolvedMcpServers {
   };
 }
 
+/** Builds an isolated MCP preparation context with a native cwd and explicit test overrides. */
 function baseContext(overrides: Partial<ProviderMcpContext> = {}): ProviderMcpContext {
   return {
     cwd: nativeFixturePath('/tmp/test'),
