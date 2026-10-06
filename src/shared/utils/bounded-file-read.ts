@@ -1,6 +1,7 @@
 import { readSync } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 
+/** Validates the byte limit and allocates one extra byte to detect oversized content. */
 function allocateReadBuffer(maxBytes: number): Buffer {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 0) {
     throw new RangeError('maxBytes must be a nonnegative safe integer');

@@ -17,16 +17,19 @@ type PackageLock = {
   }>;
 };
 
+/** Reads the checked-out manifest, not an installed dependency's manifest. */
 function readPackageJson(): PackageJson {
   return JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8')) as PackageJson;
 }
 
+/** Reads the checked-out lockfile used by npm ci and the Nix dependency fetcher. */
 function readPackageLock(): PackageLock {
   return JSON.parse(
     readFileSync(join(process.cwd(), 'package-lock.json'), 'utf-8'),
   ) as PackageLock;
 }
 
+/** Requires an exact lockfile package path; missing dependencies fail the test. */
 function getLockedPackage(packageLock: PackageLock, path: string): {
   version?: string;
   engines?: Record<string, string>;
@@ -40,6 +43,7 @@ function getLockedPackage(packageLock: PackageLock, path: string): {
 
 type NodeVersion = readonly [number, number, number];
 
+/** Parses numeric Node versions, padding omitted minor and patch components with zero. */
 function parseNodeVersion(version: string): NodeVersion {
   const normalized = version.replace(/^[vV]/, '');
   const parts = normalized.split('.');
@@ -50,6 +54,7 @@ function parseNodeVersion(version: string): NodeVersion {
   return [parseVersionPart(parts[0]), parseVersionPart(parts[1]), parseVersionPart(parts[2])];
 }
 
+/** Converts one numeric version component and rejects unsupported syntax. */
 function parseVersionPart(part: string | undefined): number {
   if (part === undefined) {
     return 0;
@@ -71,6 +76,7 @@ function compareNodeVersions(left: NodeVersion, right: NodeVersion): number {
   return 0;
 }
 
+/** Finds the lowest supported Node version across validated lower-bound alternatives. */
 function getMinimumNodeVersion(range: string): NodeVersion {
   const alternatives = range.split('||').map((alternative) => {
     const normalized = alternative.trim().replace(/([<>=]=?|\^)\s+/g, '$1');
@@ -86,10 +92,12 @@ function getMinimumNodeVersion(range: string): NodeVersion {
   ));
 }
 
+/** Checks whether any disjunctive engine-range alternative accepts the version. */
 function satisfiesNodeRange(version: NodeVersion, range: string): boolean {
   return range.split('||').some((alternative) => satisfiesNodeAlternative(version, alternative));
 }
 
+/** Requires every whitespace-separated comparator within one engine-range alternative. */
 function satisfiesNodeAlternative(version: NodeVersion, alternative: string): boolean {
   const normalized = alternative.trim().replace(/([<>=]=?|\^)\s+/g, '$1');
   if (!normalized) {
@@ -99,6 +107,7 @@ function satisfiesNodeAlternative(version: NodeVersion, alternative: string): bo
   return normalized.split(/\s+/).every((comparator) => satisfiesNodeComparator(version, comparator));
 }
 
+/** Evaluates a numeric, inequality, or caret comparator against a parsed version. */
 function satisfiesNodeComparator(version: NodeVersion, comparator: string): boolean {
   if (comparator.startsWith('>=')) {
     return compareNodeVersions(version, parseNodeVersion(comparator.slice(2))) >= 0;
@@ -120,6 +129,7 @@ function satisfiesNodeComparator(version: NodeVersion, comparator: string): bool
   return compareNodeVersions(version, parseNodeVersion(comparator)) === 0;
 }
 
+/** Returns the exclusive caret bound, including the narrower bounds for zero majors. */
 function getCaretUpperBound(version: NodeVersion): NodeVersion {
   if (version[0] > 0) {
     return [version[0] + 1, 0, 0];
@@ -150,6 +160,25 @@ describe('dependency versions', () => {
       }
     },
   );
+
+  it.each([
+    'pi-agent-core',
+    'pi-ai',
+    'pi-codemode',
+    'pi-coding-agent',
+    'pi-mcp',
+    'pi-telemetry',
+    'pi-tui',
+  ])('locks the root Pi family package %s to its 1.0.4 registry tarball', (name) => {
+    const packagePath = `node_modules/@earendil-works/${name}`;
+    const lockedPackage = readPackageLock().packages?.[packagePath];
+
+    expect(lockedPackage?.version).toBe('1.0.4');
+    expect(lockedPackage?.resolved).toBe(
+      `https://registry.npmjs.org/@earendil-works/${name}/-/${name}-1.0.4.tgz`,
+    );
+    expect(lockedPackage?.integrity).toMatch(/^sha512-[A-Za-z0-9+/]+={0,2}$/);
+  });
 
   it('records integrity for registry tarballs required by the Nix dependency fetcher', () => {
     const packages = Object.entries(readPackageLock().packages ?? {});

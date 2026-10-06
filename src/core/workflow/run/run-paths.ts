@@ -53,12 +53,14 @@ export function resolveReportDirectory(cwd: string, reportDir: string): string {
   return isAbsolute(reportDir) ? reportDir : join(cwd, reportDir);
 }
 
+/** Joins persisted namespace paths with POSIX separators on every host OS. */
 function joinRel(base: string, namespace: string[] | undefined): string {
   return namespace && namespace.length > 0
     ? posix.join(base, ...namespace)
     : base;
 }
 
+/** Builds portable metadata paths alongside native absolute paths for filesystem access. */
 function buildRunPathsFromRoot(
   runsDirectory: string,
   slug: string,

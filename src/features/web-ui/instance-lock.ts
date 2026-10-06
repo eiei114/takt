@@ -70,6 +70,7 @@ function webUiPaths(globalConfigDirectory: string): {
   };
 }
 
+/** Validates an owner document, including lossless numeric or decimal-string inode IDs. */
 function parseOwner(value: unknown): LockOwner | null {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
   const raw = value as Readonly<Record<string, unknown>>;
@@ -128,6 +129,7 @@ function claimPath(path: string, instanceId: string): string {
   return `${path}.${createHash('sha256').update(instanceId).digest('hex')}.claim`;
 }
 
+/** Matches owner tokens and process identity, normalizing legacy numeric inode IDs. */
 function sameOwner(first: LockOwner, second: LockOwner): boolean {
   const identityMatches = first.processIdentity === undefined && second.processIdentity === undefined
     || sameProcessIdentity(first.processIdentity, second.processIdentity);
@@ -161,6 +163,7 @@ async function resolveOwnerOrigin(
   return `http://127.0.0.1:${owner.port}`;
 }
 
+/** Reads a managed instance only when its live owner matches the lock's current inode. */
 async function readManagedWebUiInstance(
   globalConfigDirectory: string,
 ): Promise<ManagedWebUiInstance | undefined> {
@@ -261,6 +264,7 @@ export async function stopWebUiInstance(
   };
 }
 
+/** Rechecks the expected owner and physical lock identity before removing its claim. */
 async function compareDeleteLock(
   path: string,
   owner: LockOwner,
@@ -303,6 +307,7 @@ async function compareDeleteLock(
   }
 }
 
+/** Publishes a complete, synced owner exclusively and returns endpoint publication and release hooks. */
 export async function acquireWebUiInstanceLock(
   globalConfigDirectory: string,
   port: number,

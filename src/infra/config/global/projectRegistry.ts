@@ -73,6 +73,7 @@ function requireTimestamp(value: unknown, label: string): string {
   return result;
 }
 
+/** Accepts only lossless persisted device and inode IDs in a directory fingerprint. */
 function parseFingerprint(value: unknown): DirectoryFingerprint {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('fingerprint is invalid');
@@ -160,6 +161,7 @@ function toPublicProject(stored: StoredProjectRegistration, available: boolean):
   };
 }
 
+/** Reads a non-symlink directory's bigint identity and encodes it without precision loss. */
 async function readDirectoryFingerprint(directory: string): Promise<DirectoryFingerprint> {
   const stats = await lstat(directory, { bigint: true });
   if (!stats.isDirectory() || stats.isSymbolicLink()) {
@@ -168,6 +170,7 @@ async function readDirectoryFingerprint(directory: string): Promise<DirectoryFin
   return { dev: persistFilesystemId(stats.dev), ino: persistFilesystemId(stats.ino) };
 }
 
+/** Requires accessible canonical storage with the registered physical directory identity. */
 async function isAvailableDirectory(stored: StoredProjectRegistration): Promise<boolean> {
   try {
     const canonical = await realpath(stored.canonicalDirectory);
@@ -202,6 +205,7 @@ async function atomicWriteRegistration(path: string, value: StoredProjectRegistr
   }
 }
 
+/** Registers canonical project storage without silently relinking an existing identity to a replacement. */
 export async function registerProject(options: {
   readonly globalConfigDirectory: string;
   readonly projectDirectory: string;

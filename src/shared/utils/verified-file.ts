@@ -14,6 +14,7 @@ export interface VerifiedRegularFile {
   assertIdentity(): Promise<void>;
 }
 
+/** Compares lossless physical device and inode identities, ignoring mutable file metadata. */
 function sameIdentity(expected: FileIdentity, actual: FileIdentity): boolean {
   return expected.dev === actual.dev && expected.ino === actual.ino;
 }

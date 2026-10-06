@@ -273,6 +273,7 @@ class ReportSnapshotConflict extends Error {
   }
 }
 
+/** Compares device, inode, and file kind without treating mutable timestamps or modes as identity. */
 function hasSameIdentity(expected: Stats, actual: Stats): boolean {
   // birthtime can fall back to mutable ctime; permission bits are not physical identity.
   return expected.dev === actual.dev

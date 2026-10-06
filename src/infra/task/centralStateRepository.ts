@@ -194,6 +194,7 @@ function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
 
+/** Compares persisted fingerprints across legacy numeric and lossless decimal-string encodings. */
 function sameFingerprint(
   first: DirectoryFingerprint | undefined,
   second: DirectoryFingerprint | undefined,
@@ -308,6 +309,7 @@ async function ensureCentralTree(paths: StatePaths): Promise<void> {
   ].map(ensurePrivateDirectory));
 }
 
+/** Requires the canonical state runs directory and, when supplied, its expected physical identity. */
 async function verifyRunsRoot(
   paths: StatePaths,
   expectedFingerprint?: DirectoryFingerprint,
@@ -347,6 +349,7 @@ async function verifyRunsRoot(
   return fingerprint;
 }
 
+/** Replaces a state file via a private same-directory temporary file and cleans up on every exit. */
 async function atomicWrite(path: string, content: string): Promise<void> {
   const temporary = join(dirname(path), `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`);
   try {
@@ -445,6 +448,7 @@ function lockInodeClaimPath(lockPath: string, ownerToken: string): string {
   return `${lockClaimPath(lockPath, ownerToken)}.inode`;
 }
 
+/** Validates a complete lock owner with lossless inode and optional process-start identity. */
 function parseStateLockOwner(value: unknown): StateLockOwner | undefined {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const raw = value as Readonly<Record<string, unknown>>;
@@ -464,6 +468,7 @@ function parseStateLockOwner(value: unknown): StateLockOwner | undefined {
   return raw as unknown as StateLockOwner;
 }
 
+/** Validates a cleanup claim's owner token and lossless physical lock fingerprint. */
 function parseStateLockClaim(value: unknown): StateLockClaim | undefined {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
   const raw = value as Readonly<Record<string, unknown>>;
@@ -500,6 +505,7 @@ async function readStateLockClaim(claimPath: string): Promise<StateLockClaim | u
   }
 }
 
+/** Matches owner token, PID, inode, and process-start identity without rounding filesystem IDs. */
 function sameLockOwner(first: StateLockOwner, second: StateLockOwner): boolean {
   const identityMatches = first.processIdentity === undefined && second.processIdentity === undefined
     || sameProcessIdentity(first.processIdentity, second.processIdentity);
@@ -537,6 +543,7 @@ function lockClaimOwnerIsStale(claim: StateLockClaim): boolean {
     && !sameProcessIdentity(claim.processIdentity, currentIdentity);
 }
 
+/** Deletes a claim only after its claim token and expected physical identity still match. */
 async function compareDeleteClaim(
   claimPath: string,
   expected: StateLockClaim,
@@ -557,6 +564,7 @@ async function compareDeleteClaim(
   }
 }
 
+/** Publishes an exclusive cleanup claim, retrying at most once after safely removing a stale claim. */
 async function publishStateLockClaim(
   lockPath: string,
   owner: StateLockOwner,
@@ -664,6 +672,7 @@ async function compareDeleteStateLock(
   }
 }
 
+/** Acquires a fully published lock or safely reclaims a stale owner, failing closed at the deadline. */
 async function waitForLock(lockPath: string): Promise<StateLockHandle> {
   const publish = async (): Promise<StateLockHandle | undefined> => {
     const temporary = join(
@@ -992,6 +1001,7 @@ export function parseCentralTasks(value: unknown): readonly CentralTaskRecord[] 
   return parsed.tasks.map(boundCentralTaskFailureMessage);
 }
 
+/** Validates persisted central state and its lossless directory fingerprints before repository use. */
 function parseState(value: unknown): CentralStateRecord {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new CentralTaskCasError('Central state file is malformed');
   const raw = value as Readonly<Record<string, unknown>>;
@@ -1056,6 +1066,7 @@ async function verifyStateLocationIdentity(
   }
 }
 
+/** Rejects state whose ID, canonical directory, or fingerprint differs from the project registry. */
 async function verifyStateRegistryIdentity(
   globalConfigDirectory: string,
   state: CentralStateRecord,

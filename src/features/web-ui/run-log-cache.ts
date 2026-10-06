@@ -829,6 +829,7 @@ async function matchesFingerprint(
   return currentNearOffset.equals(nearOffset);
 }
 
+/** Incrementally scans a verified log, resetting replaced content and rechecking identity before return. */
 async function scanFile(
   cache: RunLogCache,
   path: string,
@@ -1107,6 +1108,7 @@ function appendBoundedPrompt(accumulator: PromptReadAccumulator, prompt: RunProm
   accumulator.bodyBytes += bodyBytes;
 }
 
+/** Collects bounded occurrence prompts from a verified log and closes its handle on every exit. */
 async function readPromptLogFile(
   path: string,
   occurrence: Pick<RunLogEvent, 'step' | 'workflow' | 'childWorkflow' | 'callInstance' | 'iteration' | 'stack' | 'parallel'>,
