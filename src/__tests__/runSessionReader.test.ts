@@ -224,6 +224,30 @@ function createRunDir(
   return runDir;
 }
 
+function expectReportRaceRejected(
+  read: () => RunSessionContext,
+  control: FileRaceControl,
+  identityError: RegExp,
+  snapshotDirectory: string,
+): void {
+  let error: unknown;
+  try {
+    read();
+  } catch (caught) {
+    error = caught;
+  }
+  // Filesystem metadata visibility can make the listing-snapshot guard reject
+  // before the identity guard. Both must fail closed after this exact injection;
+  // never accept an unrelated snapshot conflict before the race was exercised.
+  expect(control.triggered).toBe(true);
+  expect(error).toBeInstanceOf(Error);
+  if (error instanceof Error
+    && error.message === `Report directory snapshot changed while reading: ${snapshotDirectory}`) {
+    return;
+  }
+  expect(() => { throw error; }).toThrow(identityError);
+}
+
 describe('listRecentRuns', () => {
   let tmpDir: string;
 
@@ -515,10 +539,12 @@ describe('loadRunSessionContext', () => {
       writeFileSync(replacementReportPath, '# Replacement', 'utf-8');
     };
 
-    expect(() => loadRunSessionContext(tmpDir, slug)).toThrow(
+    expectReportRaceRejected(
+      () => loadRunSessionContext(tmpDir, slug),
+      fsControl.replaceReportDirectory,
       /Report parent identity changed while reading/,
+      nestedDirectory,
     );
-    expect(fsControl.replaceReportDirectory.triggered).toBe(true);
   });
 
   it('should reject a nested report directory replaced after parent enumeration during earlier child traversal', () => {
@@ -572,10 +598,12 @@ describe('loadRunSessionContext', () => {
       writeFileSync(replacementReportPath, 'EXTERNAL_MARKER', 'utf-8');
     };
 
-    expect(() => loadRunSessionContext(tmpDir, slug)).toThrow(
+    expectReportRaceRejected(
+      () => loadRunSessionContext(tmpDir, slug),
+      fsControl.replaceReportListingDirectory,
       /Reports directory identity changed while reading/,
+      reportsDirectory,
     );
-    expect(fsControl.replaceReportListingDirectory.triggered).toBe(true);
   });
 
   it('should reject a nested report directory replaced after the directory snapshot', () => {
@@ -630,10 +658,12 @@ describe('loadRunSessionContext', () => {
       writeFileSync(replacementReportPath, 'EXTERNAL_MARKER', 'utf-8');
     };
 
-    expect(() => loadRunSessionContext(tmpDir, slug)).toThrow(
+    expectReportRaceRejected(
+      () => loadRunSessionContext(tmpDir, slug),
+      fsControl.replaceReportBeforeDirectoryOpen,
       /Report parent identity changed while opening/,
+      reportsDirectory,
     );
-    expect(fsControl.replaceReportBeforeDirectoryOpen.triggered).toBe(true);
   });
 
   it('should load only requested reports and ignore unexpected oversized reports', () => {
