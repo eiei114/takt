@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import { Dirent, existsSync, readdirSync, type Stats } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { readBoundedFileSync } from '../../shared/utils/bounded-file-read.js';
 import { readRunContextOrderContent } from '../../core/workflow/run/order-content.js';
 import { readRunMetaBySlug } from '../../core/workflow/run/run-meta.js';
 import {
@@ -273,10 +274,9 @@ class ReportSnapshotConflict extends Error {
 }
 
 function hasSameIdentity(expected: Stats, actual: Stats): boolean {
+  // birthtime can fall back to mutable ctime; permission bits are not physical identity.
   return expected.dev === actual.dev
     && expected.ino === actual.ino
-    && expected.birthtimeMs === actual.birthtimeMs
-    && expected.mode === actual.mode
     && expected.isFile() === actual.isFile()
     && expected.isDirectory() === actual.isDirectory()
     && expected.isSymbolicLink() === actual.isSymbolicLink();
@@ -735,7 +735,7 @@ function readReportFile(
       filename,
       parentListingSnapshots,
     );
-    const content = fs.readFileSync(descriptor, 'utf-8');
+    const bytes = readBoundedFileSync(descriptor, MAX_RUN_REPORT_BYTES);
     const afterReadStats = fs.fstatSync(descriptor);
     if (!afterReadStats.isFile() || !hasSameIdentity(expectedFileStats, afterReadStats)) {
       throw new Error(`Report file identity changed while reading: ${filename}`);
@@ -759,7 +759,10 @@ function readReportFile(
       });
     }
 
-    return { filename, content };
+    if (bytes === null) {
+      throw new Error(`Report file is too large: ${filename} exceeds the ${MAX_RUN_REPORT_BYTES} byte limit.`);
+    }
+    return { filename, content: bytes.toString('utf8') };
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ENOENT' || code === 'ENOTDIR') {

@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mkdirSync, renameSync, statSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdirSync, renameSync, statSync, symlinkSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -20,6 +20,7 @@ interface FileRaceControl {
   triggered: boolean;
   descriptor?: number;
   replacementBirthtimeMs?: number;
+  replacementMode?: number;
 }
 
 const fsControl = vi.hoisted(() => ({
@@ -31,6 +32,8 @@ const fsControl = vi.hoisted(() => ({
   replaceReportListingDirectory: { triggered: false } as FileRaceControl,
   replaceReportAfterOpen: { triggered: false } as FileRaceControl,
   replaceReportAfterRead: { triggered: false } as FileRaceControl,
+  appendReportBeforeRead: { triggered: false } as FileRaceControl,
+  reportBytesRead: 0,
   replaceReportBeforeDirectoryOpen: { triggered: false } as FileRaceControl,
   replaceSessionLog: { triggered: false } as FileRaceControl,
 }));
@@ -112,6 +115,9 @@ vi.mock('node:fs', async (importOriginal) => {
         fsControl.replaceSessionLog.run?.();
       }
       const descriptor = actual.openSync(...args);
+      if (String(args[0]) === fsControl.appendReportBeforeRead.targetPath) {
+        fsControl.appendReportBeforeRead.descriptor = descriptor;
+      }
       if (String(args[0]) === fsControl.replaceSessionLog.targetPath) {
         fsControl.replaceSessionLog.descriptor = descriptor;
       }
@@ -127,11 +133,19 @@ vi.mock('node:fs', async (importOriginal) => {
       const stats = actual.fstatSync(...args);
       if (args[0] === fsControl.replaceSessionLog.descriptor
         && fsControl.replaceSessionLog.replacementBirthtimeMs !== undefined) {
-        return Object.assign(stats, { birthtimeMs: fsControl.replaceSessionLog.replacementBirthtimeMs });
+        return Object.assign(stats, {
+          birthtimeMs: fsControl.replaceSessionLog.replacementBirthtimeMs,
+          mode: fsControl.replaceSessionLog.replacementMode ?? stats.mode,
+        });
       }
       return stats;
     }) as typeof actual.fstatSync,
     readFileSync: ((...args: Parameters<typeof actual.readFileSync>) => {
+      if (args[0] === fsControl.appendReportBeforeRead.descriptor
+        && !fsControl.appendReportBeforeRead.triggered) {
+        fsControl.appendReportBeforeRead.triggered = true;
+        fsControl.appendReportBeforeRead.run?.();
+      }
       const content = actual.readFileSync(...args);
       if (
         typeof args[0] === 'number'
@@ -144,6 +158,22 @@ vi.mock('node:fs', async (importOriginal) => {
       }
       return content;
     }) as typeof actual.readFileSync,
+    readSync: ((...args: Parameters<typeof actual.readSync>) => {
+      if (args[0] === fsControl.appendReportBeforeRead.descriptor
+        && !fsControl.appendReportBeforeRead.triggered) {
+        fsControl.appendReportBeforeRead.triggered = true;
+        fsControl.appendReportBeforeRead.run?.();
+      }
+      const bytesRead = actual.readSync(...args);
+      if (args[0] === fsControl.appendReportBeforeRead.descriptor) fsControl.reportBytesRead += bytesRead;
+      if (args[0] === fsControl.replaceReportAfterRead.descriptor
+        && !fsControl.replaceReportAfterRead.triggered) {
+        fsControl.replaceReportAfterRead.triggered = true;
+        fsControl.replaceReportAfterRead.targetPath = undefined;
+        fsControl.replaceReportAfterRead.run?.();
+      }
+      return bytesRead;
+    }) as typeof actual.readSync,
   };
 });
 
@@ -674,6 +704,32 @@ describe('loadRunSessionContext', () => {
     expect(() => loadRunSessionContext(tmpDir, slug)).toThrow(/too large/);
   });
 
+  it('accepts multibyte report content exactly at the byte limit', () => {
+    const slug = 'exact-report-limit';
+    const runDir = createRunDir(tmpDir, slug, {
+      task: 'bounded report', workflow: 'default', status: 'completed', startTime: '2026-02-01T00:00:00.000Z',
+    });
+    const content = 'é'.repeat(MAX_RUN_REPORT_BYTES / 2);
+    expect(Buffer.byteLength(content)).toBe(MAX_RUN_REPORT_BYTES);
+    writeFileSync(join(runDir, 'reports', 'report.md'), content, 'utf8');
+    expect(loadRunSessionContext(tmpDir, slug).reports).toEqual([{ filename: 'report.md', content }]);
+  });
+
+  it('rejects a same-inode append past the report byte limit using a bounded read', () => {
+    const slug = 'report-append-race';
+    const runDir = createRunDir(tmpDir, slug, {
+      task: 'bounded report', workflow: 'default', status: 'completed', startTime: '2026-02-01T00:00:00.000Z',
+    });
+    const reportPath = join(runDir, 'reports', 'report.md');
+    writeFileSync(reportPath, 'é'.repeat(MAX_RUN_REPORT_BYTES / 2), 'utf8');
+    fsControl.appendReportBeforeRead.targetPath = reportPath;
+    fsControl.appendReportBeforeRead.run = () => appendFileSync(reportPath, 'x'.repeat(MAX_RUN_REPORT_BYTES));
+
+    expect(() => loadRunSessionContext(tmpDir, slug)).toThrow(/too large/);
+    expect(fsControl.appendReportBeforeRead.triggered).toBe(true);
+    expect(fsControl.reportBytesRead).toBeLessThanOrEqual(MAX_RUN_REPORT_BYTES + 1);
+  });
+
   it('should reject requested reports outside the reports directory', () => {
     const slug = 'outside-report-request-run';
     createRunDir(tmpDir, slug, {
@@ -867,7 +923,7 @@ describe('loadRunSessionContext', () => {
     expect(mockLoadNdjsonLog).not.toHaveBeenCalled();
   });
 
-  it('rejects a new session log generation when the filesystem reuses its inode', () => {
+  it('accepts same-inode session logs despite mutable birthtime and permission bits', () => {
     const slug = 'session-log-reused-inode';
     const runDir = createRunDir(tmpDir, slug, {
       task: 'inode reuse', workflow: 'default', status: 'running', startTime: '2026-02-01T00:00:00.000Z',
@@ -877,14 +933,15 @@ describe('loadRunSessionContext', () => {
     const original = statSync(logPath);
     fsControl.replaceSessionLog.targetPath = logPath;
     fsControl.replaceSessionLog.run = () => {
-      // Emulate a replacement with the same dev/ino but a newer creation time.
+      // Node can expose ctime as birthtime; neither it nor permission bits is physical identity.
       writeFileSync(logPath, '{"replacement":true}', 'utf8');
       fsControl.replaceSessionLog.replacementBirthtimeMs = original.birthtimeMs + 1000;
+      fsControl.replaceSessionLog.replacementMode = original.mode ^ 0o020;
     };
 
-    expect(() => loadRunSessionContext(tmpDir, slug)).toThrow(/identity changed/);
+    expect(() => loadRunSessionContext(tmpDir, slug)).not.toThrow();
     expect(fsControl.replaceSessionLog.triggered).toBe(true);
-    expect(mockParseNdjsonLogContent).not.toHaveBeenCalled();
+    expect(mockParseNdjsonLogContent).toHaveBeenCalled();
   });
 
   it('should reject a session log replaced after selection and before opening', () => {
@@ -1171,6 +1228,8 @@ describe('loadRunSessionContext', () => {
     fsControl.replaceReportListingDirectory = { triggered: false };
     fsControl.replaceReportAfterOpen = { triggered: false };
     fsControl.replaceReportAfterRead = { triggered: false };
+    fsControl.appendReportBeforeRead = { triggered: false };
+    fsControl.reportBytesRead = 0;
     fsControl.replaceReportBeforeDirectoryOpen = { triggered: false };
     fsControl.replaceSessionLog = { triggered: false };
     rmSync(tmpDir, { recursive: true, force: true });

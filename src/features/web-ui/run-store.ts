@@ -1,5 +1,6 @@
 import { persistFilesystemId, type PersistedFilesystemId } from '../../shared/utils/filesystem-identity.js';
 import { openVerifiedRegularFile } from '../../shared/utils/verified-file.js';
+import { readBoundedFile } from '../../shared/utils/bounded-file-read.js';
 
 import { lstat, readdir, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
@@ -871,9 +872,15 @@ async function readReport(
     await verifyRunsRootSnapshot(location, snapshot);
     return { filename, content: '', omitted: true };
   }
-  const content = await readRegularFile(safePath, 'Report file');
-  await verifyRunsRootSnapshot(location, snapshot);
-  return { filename, content, omitted: false };
+  const { handle, assertIdentity } = await openVerifiedRegularFile(safePath, 'Report file');
+  try {
+    const bytes = await readBoundedFile(handle, MAX_REPORT_BYTES);
+    await assertIdentity();
+    await verifyRunsRootSnapshot(location, snapshot);
+    return { filename, content: bytes?.toString('utf8') ?? '', omitted: bytes === null };
+  } finally {
+    await handle.close();
+  }
 }
 
 /**

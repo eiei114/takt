@@ -5,7 +5,7 @@ const nativeFixturePath = await vi.hoisted(async () => (await import('node:path'
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { buildRunPaths } from '../core/workflow/run/run-paths.js';
+import { buildRunPaths, buildRunPathsFromRunsDirectory } from '../core/workflow/run/run-paths.js';
 import { generateExecutionReportDir } from '../core/workflow/run/run-slug.js';
 import { readRunContextOrderContent } from '../core/workflow/run/order-content.js';
 
@@ -56,6 +56,25 @@ describe('buildRunPaths', () => {
     expect(paths.contextRel).toBe('.takt/runs/20260210-demo-task/context/subworkflows/delegate-coding');
     expect(paths.reportsAbs).toBe(nativeFixturePath('/tmp/project/.takt/runs/20260210-demo-task/reports/subworkflows/delegate-coding'));
     expect(paths.contextKnowledgeAbs).toBe(nativeFixturePath('/tmp/project/.takt/runs/20260210-demo-task/context/subworkflows/delegate-coding/knowledge'));
+  });
+});
+
+describe('buildRunPathsFromRunsDirectory', () => {
+  it('keeps central persisted paths portable and absolute filesystem paths native', () => {
+    const runsDirectory = path.resolve('central-state', 'runs');
+    const paths = buildRunPathsFromRunsDirectory(runsDirectory, 'central-run', ['subworkflows', 'child']);
+
+    expect(paths.runRootRel).toBe('runs/central-run');
+    expect(paths.reportsRel).toBe('runs/central-run/reports/subworkflows/child');
+    expect(paths.contextRel).toBe('runs/central-run/context/subworkflows/child');
+    expect(paths.logsRel).toBe('runs/central-run/logs');
+    expect(paths.metaRel).toBe('runs/central-run/meta.json');
+    for (const [name, value] of Object.entries(paths)) {
+      if (name.endsWith('Rel')) expect(value).not.toContain('\\');
+    }
+    expect(paths.runRootAbs).toBe(path.join(runsDirectory, 'central-run'));
+    expect(paths.reportsAbs).toBe(path.join(runsDirectory, 'central-run', 'reports', 'subworkflows', 'child'));
+    expect(paths.metaAbs).toBe(path.join(runsDirectory, 'central-run', 'meta.json'));
   });
 });
 

@@ -139,6 +139,6 @@ export function buildRunPathsFromRunsDirectory(
   if (!isAbsolute(runsDirectory)) {
     throw new Error('runsDirectory must be an absolute path');
   }
-  const runRootRel = join(relative(resolve(runsDirectory, '..'), resolve(runsDirectory)), slug);
+  const runRootRel = posix.join(relative(resolve(runsDirectory, '..'), resolve(runsDirectory)), slug);
   return buildRunPathsFromRoot(runsDirectory, slug, namespace, runRootRel);
 }

@@ -1,13 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { link, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import { appendFile, link, lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openVerifiedRegularFile } from '../shared/utils/verified-file.js';
 import { readRunLogArtifactsForDiagnostics } from '../features/web-ui/run-log-cache.js';
+import { readRunDetail } from '../features/web-ui/run-store.js';
+import { resolveStatePaths } from '../core/execution/locations.js';
+import { readBoundedFile, readBoundedFileSync } from '../shared/utils/bounded-file-read.js';
 
 const control = vi.hoisted(() => ({
   beforeOpen: undefined as (() => Promise<void>) | undefined,
+  beforeRead: undefined as (() => Promise<void>) | undefined,
+  reportBytesRead: 0,
+  syncBytesRead: 0,
+  maxReadBytes: undefined as number | undefined,
   filePath: '',
   inode: undefined as bigint | undefined,
   handleInodeDelta: 0n,
@@ -21,6 +28,15 @@ vi.mock('node:fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs')>();
   return {
     ...actual,
+    readSync: ((...args: Parameters<typeof actual.readSync>) => {
+      const options = args[2];
+      if (control.maxReadBytes !== undefined && typeof options === 'object') {
+        args[2] = { ...options, length: Math.min(options.length ?? args[1].byteLength, control.maxReadBytes) };
+      }
+      const bytesRead = actual.readSync(...args);
+      control.syncBytesRead += bytesRead;
+      return bytesRead;
+    }) as typeof actual.readSync,
     constants: {
       ...actual.constants,
       get O_NOFOLLOW() {
@@ -48,8 +64,28 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       await beforeOpen?.();
       const handle = await actual.open(...args);
       control.opened.push(handle);
-      vi.spyOn(handle, 'read');
-      vi.spyOn(handle, 'readFile');
+      const beforeRead = async (): Promise<void> => {
+        if (String(args[0]) !== control.filePath) return;
+        const hook = control.beforeRead;
+        control.beforeRead = undefined;
+        await hook?.();
+      };
+      const originalRead = handle.read.bind(handle);
+      vi.spyOn(handle, 'read').mockImplementation((async (...readArgs: Parameters<FileHandle['read']>) => {
+        await beforeRead();
+        const options = readArgs[0];
+        if (control.maxReadBytes !== undefined && options?.buffer) {
+          options.length = Math.min(options.length ?? options.buffer.byteLength, control.maxReadBytes);
+        }
+        const result = await originalRead(...readArgs);
+        if (String(args[0]) === control.filePath) control.reportBytesRead += result.bytesRead;
+        return result;
+      }) as FileHandle['read']);
+      const originalReadFile = handle.readFile.bind(handle);
+      vi.spyOn(handle, 'readFile').mockImplementation((async (...readArgs: Parameters<FileHandle['readFile']>) => {
+        await beforeRead();
+        return originalReadFile(...readArgs);
+      }) as FileHandle['readFile']);
       vi.spyOn(handle, 'close');
       const originalStat = handle.stat.bind(handle);
       vi.spyOn(handle, 'stat').mockImplementation((async (options?: { bigint?: boolean }) => {
@@ -75,6 +111,10 @@ describe('verified regular file reads', () => {
   beforeEach(async () => {
     root = await realpath(await mkdtemp(join(tmpdir(), 'takt-verified-file-')));
     control.beforeOpen = undefined;
+    control.beforeRead = undefined;
+    control.reportBytesRead = 0;
+    control.syncBytesRead = 0;
+    control.maxReadBytes = undefined;
     control.filePath = '';
     control.inode = undefined;
     control.handleInodeDelta = 0n;
@@ -98,6 +138,68 @@ describe('verified regular file reads', () => {
       expect(handle.close).toHaveBeenCalledOnce();
     }
   }
+
+  async function writeReport(content: string) {
+    const statePaths = resolveStatePaths(join(root, 'global'), '11111111-1111-4111-8111-111111111111');
+    const slug = 'bounded-report';
+    const runRoot = join(statePaths.runsDirectory, slug);
+    await mkdir(join(runRoot, 'reports'), { recursive: true });
+    await mkdir(join(runRoot, 'logs'));
+    await writeFile(join(runRoot, 'meta.json'), JSON.stringify({
+      task: 'bounded report', workflow: 'default', runSlug: slug, runRoot: `runs/${slug}`,
+      reportDirectory: `runs/${slug}/reports`, contextDirectory: `runs/${slug}/context`,
+      logsDirectory: `runs/${slug}/logs`, status: 'completed', startTime: '2026-02-01T00:00:00.000Z',
+    }));
+    const reportPath = join(runRoot, 'reports', 'report.md');
+    await writeFile(reportPath, content, 'utf8');
+    control.filePath = reportPath;
+    return { statePaths, slug, reportPath };
+  }
+
+  it('returns multibyte report content exactly at the Web UI byte limit', async () => {
+    const content = 'é'.repeat(256 * 1024 / 2);
+    const { statePaths, slug } = await writeReport(content);
+    const detail = await readRunDetail(statePaths, slug);
+    expect(detail.reports).toEqual([{ filename: 'report.md', content, omitted: false }]);
+    expect(control.reportBytesRead).toBe(Buffer.byteLength(content));
+  });
+
+  it('omits a report appended past the byte limit between stat and reading without unbounded reads', async () => {
+    const limit = 256 * 1024;
+    const { statePaths, slug, reportPath } = await writeReport('é'.repeat(limit / 2));
+    let appended = false;
+    control.beforeRead = async () => {
+      appended = true;
+      await appendFile(reportPath, 'x'.repeat(limit));
+    };
+    const detail = await readRunDetail(statePaths, slug);
+    expect(appended).toBe(true);
+    expect(detail.reports.map(({ filename, content, omitted }) => ({ filename, size: content.length, omitted })))
+      .toEqual([{ filename: 'report.md', size: 0, omitted: true }]);
+    expect(control.reportBytesRead).toBeLessThanOrEqual(limit + 1);
+    expect(control.opened.at(-1)!.readFile).not.toHaveBeenCalled();
+    expect(control.opened.at(-1)!.close).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['', 0], ['é', 2], ['abcdef', 6], ['abcdef', 5],
+  ] as const)('bounds sync and async short reads for %j with byte limit %i', async (content, limit) => {
+    const path = join(root, 'short-read');
+    await writeFile(path, content);
+    control.filePath = path;
+    control.maxReadBytes = 3;
+    const opened = await openVerifiedRegularFile(path, 'Artifact');
+    try {
+      const expected = Buffer.byteLength(content) > limit ? null : Buffer.from(content);
+      expect(await readBoundedFile(opened.handle, limit)).toEqual(expected);
+      expect(readBoundedFileSync(opened.handle.fd, limit)).toEqual(expected);
+      expect(control.reportBytesRead).toBeLessThanOrEqual(limit + 1);
+      expect(control.syncBytesRead).toBeLessThanOrEqual(limit + 1);
+      await opened.assertIdentity();
+    } finally {
+      await opened.handle.close();
+    }
+  });
 
   it('reads a real regular file and permits append-only changes on the same inode', async () => {
     const path = join(root, 'record');
