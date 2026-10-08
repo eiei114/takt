@@ -92,6 +92,33 @@ describe('StatusLine', () => {
     expect(stdoutChunks).toEqual([]);
   });
 
+  it.each(['stdout', 'stderr'] as const)(
+    'keeps the spinner running when %s terminal metadata cannot be read',
+    async (streamName) => {
+      const closedFd = openSync(process.execPath, 'r');
+      closeSync(closedFd);
+      Object.defineProperty(process[streamName], 'fd', { value: closedFd, configurable: true });
+      Object.defineProperty(process.stderr, 'isTTY', { value: true, configurable: true });
+      const originalStdoutWrite = process.stdout.write;
+      const originalStderrWrite = process.stderr.write;
+
+      vi.useFakeTimers();
+      expect(() => statusLine.start('Working...')).not.toThrow();
+      vi.advanceTimersByTime(80);
+      process.stderr.write('warning');
+      expect(stdoutChunks).not.toContain('\r\x1b[K');
+      vi.advanceTimersByTime(80);
+      const output = stdoutChunks.join('');
+      statusLine.stop();
+      vi.useRealTimers();
+
+      expect(process.stdout.write).toBe(originalStdoutWrite);
+      expect(process.stderr.write).toBe(originalStderrWrite);
+      expect(await readTerminalText(output)).toContain('Working...');
+      expect(stderrChunks.join('')).toBe('warning');
+    },
+  );
+
   it.each([
     { name: 'without a newline', output: 'warning' },
     { name: 'with a newline', output: 'warning\n' },

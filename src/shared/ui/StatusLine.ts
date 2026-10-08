@@ -13,14 +13,18 @@ const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '
 
 type RawWrite = (str: string) => boolean;
 
-/** Compare device metadata to decide whether two TTY streams share a destination. */
+/** Compare TTY device metadata, treating unavailable metadata as separate destinations. */
 function sharesOutputTerminal(stdoutFd: number, stderrFd: number): boolean {
   // isTTY only identifies terminal streams; device metadata distinguishes their destinations.
-  const stdoutStats = fstatSync(stdoutFd);
-  const stderrStats = fstatSync(stderrFd);
-  return stdoutStats.dev === stderrStats.dev
-    && stdoutStats.ino === stderrStats.ino
-    && stdoutStats.rdev === stderrStats.rdev;
+  try {
+    const stdoutStats = fstatSync(stdoutFd);
+    const stderrStats = fstatSync(stderrFd);
+    return stdoutStats.dev === stderrStats.dev
+      && stdoutStats.ino === stderrStats.ino
+      && stdoutStats.rdev === stderrStats.rdev;
+  } catch {
+    return false;
+  }
 }
 
 class StatusLineImpl {
