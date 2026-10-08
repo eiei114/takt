@@ -20,19 +20,16 @@ type PackageLock = {
   packages?: Record<string, LockedPackage>;
 };
 
-/** Reads the repository manifest used by the dependency contracts. */
 function readPackageJson(): PackageJson {
   return JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8')) as PackageJson;
 }
 
-/** Reads the resolved dependency tree without modifying the lockfile. */
 function readPackageLock(): PackageLock {
   return JSON.parse(
     readFileSync(join(process.cwd(), 'package-lock.json'), 'utf-8'),
   ) as PackageLock;
 }
 
-/** Requires a lock entry, including optional peers needed by supported npm versions. */
 function getLockedPackage(packageLock: PackageLock, path: string): LockedPackage {
   const lockedPackage = packageLock.packages?.[path];
   if (!lockedPackage) {
