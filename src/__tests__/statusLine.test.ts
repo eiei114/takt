@@ -185,6 +185,69 @@ describe('StatusLine', () => {
     expect(sharedTerminal).not.toContain('Working...');
   });
 
+  it.each([
+    { name: 'spinner clear', output: '\r\x1b[K' },
+    { name: 'color reset', output: '\x1b[0m' },
+    { name: 'cursor visibility', output: '\x1b[?25h' },
+    { name: 'control characters', output: '\r\x07\x7f\x9f' },
+    { name: 'newline with color reset', output: 'completed\n\x1b[0m' },
+    { name: 'newline with spinner clear', output: 'completed\n\r\x1b[K' },
+    { name: 'newline with controls', output: 'completed\n\r\x07' },
+    { name: 'newline with terminal title', output: 'completed\n\x1b]0;title\x07' },
+  ])('redraws the spinner after $name without visible trailing text', async ({ output }) => {
+    vi.useFakeTimers();
+    statusLine.start('Working...');
+    vi.advanceTimersByTime(80);
+    process.stdout.write(output);
+    vi.advanceTimersByTime(160);
+    const captured = stdoutChunks.join('');
+    statusLine.stop();
+    vi.useRealTimers();
+
+    const screen = await readTerminalText(captured);
+    expect(screen).toContain('Working...');
+    if (output.startsWith('completed')) expect(screen).toContain('completed');
+  });
+
+  it('keeps a partial colored body open across control-only writes until its newline', async () => {
+    vi.useFakeTimers();
+    statusLine.start('Working...');
+    vi.advanceTimersByTime(80);
+    process.stdout.write('\x1b[32m日本語\x1b[0m');
+    process.stdout.write('\x1b[0m\x07');
+    vi.advanceTimersByTime(160);
+    const partialOutput = stdoutChunks.join('');
+    process.stdout.write('の本文\n\x1b[0m');
+    vi.advanceTimersByTime(160);
+    const completedOutput = stdoutChunks.join('');
+    statusLine.stop();
+    vi.useRealTimers();
+
+    const partialScreen = await readTerminalText(partialOutput);
+    expect(partialScreen).toContain('日本語');
+    expect(partialScreen).not.toContain('Working...');
+    const completedScreen = await readTerminalText(completedOutput);
+    expect(completedScreen).toContain('日本語の本文');
+    expect(completedScreen).toContain('Working...');
+  });
+
+  it('redraws after StreamDisplay clears a tool spinner before its first frame', async () => {
+    vi.useFakeTimers();
+    const display = new StreamDisplay('test-agent', false);
+    try {
+      statusLine.start('Working...');
+      display.showToolUse('Bash', { command: 'ls' });
+      display.flush();
+      vi.advanceTimersByTime(160);
+      const captured = stdoutChunks.join('');
+      statusLine.stop();
+      vi.useRealTimers();
+      expect(await readTerminalText(captured)).toContain('Working...');
+    } finally {
+      display.reset();
+    }
+  });
+
   it('should intercept stdout.write when started on TTY', () => {
     statusLine.start('Working...');
 

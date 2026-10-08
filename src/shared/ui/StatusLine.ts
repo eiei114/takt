@@ -8,10 +8,16 @@
 
 import chalk from 'chalk';
 import { fstatSync } from 'node:fs';
+import { stripVTControlCharacters } from 'node:util';
 
 const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 type RawWrite = (str: string) => boolean;
+
+/** Terminal housekeeping is not body text and must not silence progress feedback. */
+function hasVisibleContent(text: string): boolean {
+  return stripVTControlCharacters(text).replace(/\p{Cc}/gu, '').length > 0;
+}
 
 /**
  * TTY flags alone cannot establish that two streams have the same destination.
@@ -80,9 +86,9 @@ class StatusLineImpl {
         if (!sharesOutputTerminal) return result;
         if (output.includes('\n')) {
           const lastNewline = output.lastIndexOf('\n');
-          this.outputLineOpen = lastNewline !== output.length - 1;
+          this.outputLineOpen = hasVisibleContent(output.slice(lastNewline + 1));
           this.render();
-        } else if (output.length > 0) {
+        } else if (hasVisibleContent(output)) {
           this.outputLineOpen = true;
         }
         return result;
