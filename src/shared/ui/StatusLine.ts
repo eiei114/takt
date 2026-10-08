@@ -13,9 +13,11 @@ const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '
 
 type RawWrite = (str: string) => boolean;
 
-/** Compare TTY device metadata, treating unavailable metadata as separate destinations. */
+/**
+ * TTY flags alone cannot establish that two streams have the same destination.
+ * Terminal identity is a display concern, not a reason to abort the user's task.
+ */
 function sharesOutputTerminal(stdoutFd: number, stderrFd: number): boolean {
-  // isTTY only identifies terminal streams; device metadata distinguishes their destinations.
   try {
     const stdoutStats = fstatSync(stdoutFd);
     const stderrStats = fstatSync(stderrFd);
@@ -41,7 +43,7 @@ class StatusLineImpl {
   private suspendedMessage?: string;
   private suspendDepth = 0;
 
-  /** Start the TTY spinner, deferring redraws while streamed text has no final newline. */
+  /** Progress feedback must not corrupt streamed text or leak into redirected output. */
   start(message: string): void {
     if (this.suspendDepth > 0) {
       this.suspendedMessage = message;
@@ -67,9 +69,9 @@ class StatusLineImpl {
     const rawStderrWrite = process.stderr.write.bind(process.stderr) as RawWrite;
     const raw = this.rawStdoutWrite;
 
-    /** Wrap a stream writer, tracking partial lines only on the spinner's terminal. */
+    /** stderr may be redirected or attached to a different terminal than stdout. */
     const wrapWrite = (origRaw: RawWrite, sharesOutputTerminal: boolean) =>
-      /** Clear only an existing spinner before forwarding output and updating line state. */
+      /** A stream chunk need not be a complete line; earlier chunks still belong to the user. */
       (chunk: unknown): boolean => {
         const output = String(chunk);
         if (this.rendering) return origRaw(output);
@@ -92,7 +94,6 @@ class StatusLineImpl {
     this.intervalId = setInterval(() => this.render(), 80);
   }
 
-  /** Update the active or deferred spinner message. */
   update(message: string): void {
     if (this.suspendDepth > 0) {
       this.suspendedMessage = message;
@@ -101,7 +102,7 @@ class StatusLineImpl {
     this.message = message;
   }
 
-  /** Pause the spinner and finish partial output so prompts can safely start a new line. */
+  /** Readline can erase an unfinished body when its prompt begins on that body's line. */
   suspend(): void {
     if (this.suspendDepth > 0) {
       this.suspendDepth++;
@@ -122,7 +123,7 @@ class StatusLineImpl {
     this.suspendDepth = 1;
   }
 
-  /** Restart the deferred spinner after the outermost suspension ends. */
+  /** Nested prompt helpers may still own the terminal when an inner helper finishes. */
   resume(): void {
     if (this.suspendDepth === 0) return;
     this.suspendDepth--;
@@ -134,7 +135,7 @@ class StatusLineImpl {
     this.start(message);
   }
 
-  /** Clear a rendered spinner, restore stream writers, and cancel any deferred restart. */
+  /** Later tasks must not inherit terminal ownership or pending progress from an earlier task. */
   stop(): void {
     this.suspendDepth = 0;
     this.suspendedMessage = undefined;
@@ -156,7 +157,7 @@ class StatusLineImpl {
     this.rawStdoutWrite = undefined;
   }
 
-  /** Draw a spinner frame only when it cannot overwrite an unfinished output line. */
+  /** Timer ticks can occur between text chunks, where a carriage return would overwrite user text. */
   private render(): void {
     if (!this.rawStdoutWrite || !this.active || this.outputLineOpen) return;
     this.rendering = true;
@@ -166,7 +167,7 @@ class StatusLineImpl {
     this.spinnerRendered = true;
   }
 
-  /** Erase the current line only if it contains a spinner drawn by this instance. */
+  /** A newline-free body may occupy the final line even after task completion. */
   private clearSpinner(): void {
     if (!this.rawStdoutWrite || !this.spinnerRendered) return;
     this.rawStdoutWrite('\r\x1b[K');
