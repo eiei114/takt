@@ -3,6 +3,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { ProviderAgent } from '../infra/providers/types.js';
+import { DeepSeekHarnessProvider } from '../infra/providers/deepseek-harness.js';
+import type { StreamEvent } from '../shared/types/provider.js';
+import { StreamDisplay as TerminalStreamDisplay } from '../shared/ui/StreamDisplay.js';
 import {
   setupRawStdin,
   restoreStdin,
@@ -16,11 +20,17 @@ const {
   mockResolveFormalSpecConfigurationWithoutPrompt,
   mockSelectRecentSession,
   mockRunFormalSpecVerification,
+  mockDeepSeekClientCall,
 } = vi.hoisted(() => ({
   mockResolveFormalSpecConfiguration: vi.fn(),
   mockResolveFormalSpecConfigurationWithoutPrompt: vi.fn(),
   mockSelectRecentSession: vi.fn(),
   mockRunFormalSpecVerification: vi.fn(),
+  mockDeepSeekClientCall: vi.fn(),
+}));
+
+vi.mock('../infra/deepseek-harness/index.js', () => ({
+  callDeepSeekHarness: mockDeepSeekClientCall,
 }));
 
 vi.mock('../infra/config/global/globalConfig.js', () => ({
@@ -89,7 +99,7 @@ import { createInstructConversationPlan } from '../features/interactive/taskActi
 import { runDirectInstructMode } from '../features/tasks/resume/directInstructMode.js';
 import { selectOption } from '../shared/prompt/index.js';
 import { getLabel } from '../shared/i18n/index.js';
-import { info } from '../shared/ui/index.js';
+import { info, error, StreamDisplay } from '../shared/ui/index.js';
 
 const mockGetProvider = vi.mocked(getProvider);
 const mockSelectOption = vi.mocked(selectOption);
@@ -106,7 +116,7 @@ beforeEach(() => {
   mockResolveFormalSpecConfiguration.mockResolvedValue({ mode: false, comments: true, modelCheckTimeoutSeconds: 300 });
   mockResolveFormalSpecConfigurationWithoutPrompt.mockReturnValue({ mode: false, comments: true, modelCheckTimeoutSeconds: 300 });
   mockSelectRecentSession.mockResolvedValue(null);
-  mockRunFormalSpecVerification.mockResolvedValue({
+  mockRunFormalSpecVerification.mockReset().mockResolvedValue({
     verdict: 'passed',
     verificationStarted: true,
     quint: { status: 'passed' },
@@ -588,9 +598,9 @@ describe('interactiveMode', () => {
     expect(mockInfo).toHaveBeenCalledWith(getLabel('interactive.ui.verifyUnavailable', 'en'));
   });
 
-  it('should route /verify through generation and interpretation for Codex', async () => {
+  it.each(['codex', 'opencode', 'pi'] as const)('should route /verify through generation and interpretation for %s', async (providerType) => {
     setupRawStdin(toRawInputs(['/verify', '/cancel']));
-    const generatedResponse = '```quint\nmodule currentAgreement {}\n```';
+    const generatedResponse = '```quint\nmodule currentAgreement {}\n```\n```alloy\ncheck CurrentAgreement\n```';
     const { provider, capture } = createMockProvider([
       generatedResponse,
       'The current agreement passed verification.',
@@ -599,7 +609,7 @@ describe('interactiveMode', () => {
     mockResolveFormalSpecConfiguration.mockResolvedValue({ mode: true, comments: true, modelCheckTimeoutSeconds: 300 });
 
     const result = await interactiveMode('/project', undefined, undefined, undefined, undefined, {
-      provider: 'codex',
+      provider: providerType,
     });
 
     expect(result.action).toBe('cancel');
@@ -609,12 +619,79 @@ describe('interactiveMode', () => {
       '/project',
       { abortSignal: expect.any(AbortSignal), modelCheckTimeoutSeconds: 300 },
     );
-    expect(capture.allowedTools).toEqual([undefined, undefined]);
+    expect(provider._call.mock.invocationCallOrder[0]).toBeLessThan(mockRunFormalSpecVerification.mock.invocationCallOrder[0]!);
+    expect(mockRunFormalSpecVerification.mock.invocationCallOrder[0]).toBeLessThan(provider._call.mock.invocationCallOrder[1]!);
+    expect(capture.allowedTools).toEqual(providerType === 'codex' ? [undefined, undefined] : [[], ['Read']]);
     expect(capture.permissionModes).toEqual(['readonly', 'readonly']);
     expect(capture.internalAgentIsolations).toEqual(['strict-readonly', 'strict-readonly']);
+    expect(provider._call.mock.calls[1]![1]).toMatchObject({ allowReadonlyFileRead: true });
   });
 
-  it('should stop the /verify flow with an explicit error when the generated response has no formal blocks', async () => {
+  it('should reject DeepSeek Harness before specification generation reaches the client', async () => {
+    setupRawStdin(toRawInputs(['/verify', '/cancel']));
+    mockGetProvider.mockReturnValue(new DeepSeekHarnessProvider());
+    mockResolveFormalSpecConfiguration.mockResolvedValue({ mode: true, comments: true, modelCheckTimeoutSeconds: 300 });
+
+    const result = await interactiveMode('/project', undefined, undefined, undefined, undefined, {
+      provider: 'deepseek-harness',
+    });
+
+    expect(result.action).toBe('cancel');
+    expect(mockDeepSeekClientCall).not.toHaveBeenCalled();
+    expect(mockRunFormalSpecVerification).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('DeepSeek Harness cannot honor read-only file access'));
+  });
+
+  it.each(['codex', 'opencode', 'pi'] as const)('should display generated specifications before the interpretation when /verify succeeds for %s', async (providerType) => {
+    setupRawStdin(toRawInputs(['/verify', '/cancel']));
+    const generatedResponse = '```quint\nmodule currentAgreement {}\n```\n```alloy\ncheck CurrentAgreement\n```';
+    const interpretedResponse = 'Both specifications passed verification.';
+    const call = vi.fn<ProviderAgent['call']>()
+      .mockImplementationOnce(async (_prompt, options) => {
+        const event: StreamEvent = { type: 'text', data: { text: generatedResponse } };
+        options.onStream?.(event);
+        return { persona: 'test', status: 'done', content: generatedResponse, timestamp: new Date() };
+      })
+      .mockImplementationOnce(async (_prompt, options) => {
+        const event: StreamEvent = { type: 'text', data: { text: interpretedResponse } };
+        options.onStream?.(event);
+        return { persona: 'test', status: 'done', content: interpretedResponse, timestamp: new Date() };
+      });
+    const { provider } = createMockProvider([]);
+    vi.mocked(provider.setup).mockReturnValue({ call });
+    mockGetProvider.mockReturnValue(provider);
+    mockResolveFormalSpecConfiguration.mockResolvedValue({ mode: true, comments: true, modelCheckTimeoutSeconds: 300 });
+    mockRunFormalSpecVerification.mockResolvedValueOnce({
+      verdict: 'passed',
+      verificationStarted: true,
+      message: 'All formal specifications passed.',
+      quint: { status: 'passed' },
+      alloy: { status: 'passed' },
+    });
+
+    const displayMock = vi.mocked(StreamDisplay);
+    const originalDisplayImplementation = displayMock.getMockImplementation()!;
+    try {
+      displayMock.mockImplementation((agentName, quiet, progressInfo) =>
+        new TerminalStreamDisplay(agentName, quiet, progressInfo));
+
+      const result = await interactiveMode('/project', undefined, undefined, undefined, undefined, {
+        provider: providerType,
+      });
+
+      const output = vi.mocked(process.stdout.write).mock.calls.map(([chunk]) => String(chunk)).join('');
+      expect(result.action).toBe('cancel');
+      expect(output).toContain(generatedResponse);
+      expect(output).toContain(interpretedResponse);
+      expect(output.indexOf(interpretedResponse)).toBeGreaterThanOrEqual(
+        output.indexOf(generatedResponse) + generatedResponse.length,
+      );
+    } finally {
+      displayMock.mockImplementation(originalDisplayImplementation);
+    }
+  });
+
+  it('should stop the OpenCode /verify flow with an explicit error when the generated response has no formal blocks', async () => {
     setupRawStdin(toRawInputs(['/verify', '/cancel']));
     setupMockProvider(['The current agreement has no formal blocks.']);
     mockResolveFormalSpecConfiguration.mockResolvedValue({ mode: true, comments: true, modelCheckTimeoutSeconds: 300 });
@@ -626,7 +703,7 @@ describe('interactiveMode', () => {
       alloy: { status: 'skipped' },
     });
 
-    const result = await interactiveMode('/project');
+    const result = await interactiveMode('/project', undefined, undefined, undefined, undefined, { provider: 'opencode' });
 
     expect(result.action).toBe('cancel');
     const mockProvider = mockGetProvider.mock.results[0]!.value as { _call: ReturnType<typeof vi.fn> };

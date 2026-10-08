@@ -24,7 +24,7 @@ This document provides a complete reference for all TAKT CLI commands and option
 | `--model <name>` | Override agent model |
 | `--runtime-assignment <name>` | Select a merged runtime `provider.assignments` entry for this invocation; takes precedence over `provider.directories` |
 | `-c, --continue` | Continue from the last assistant session for the current project directory and provider |
-| `--tui` | The TUI is what a terminal gets anyway: with a TTY on stdin and stdout the task conversation is drawn by Ink whether or not this flag is given, and piped input keeps the plain reader. The flag only makes that requirement explicit — without a TTY it fails with `--tui requires an interactive terminal` instead of falling back. Workflow, mode and post-summary selection stay on the usual selectors; only the conversation is drawn by the TUI. Enter sends, Shift+Enter or Option+Enter inserts a newline, Ctrl+K cuts to the end of the line, Esc interrupts the answer in progress, and anything queued behind it is sent as the next turn. Lines submitted while the assistant is answering are queued and sent when it finishes; ↑ takes the last one back until the queue starts moving. The session stays open after a task runs, until /cancel. A result saved by an earlier run (for example a `takt run` finished in another terminal) is discarded silently when the TUI starts; only the plain reader still prints it once. Workflows started from the TUI session itself are still announced when they finish |
+| `--tui` | The TUI is what a terminal gets anyway: with a TTY on stdin and stdout the task conversation is drawn by Ink whether or not this flag is given, and piped input keeps the plain reader. The flag only makes that requirement explicit — without a TTY it fails with `--tui requires an interactive terminal` instead of falling back. Workflow, mode and post-summary selection stay on the usual selectors; only the conversation is drawn by the TUI. Enter sends, Shift+Enter or Option+Enter inserts a newline, Ctrl+K cuts to the end of the line, Esc interrupts the answer in progress, and anything queued behind it is sent as the next turn. Interrupted user messages are quoted in sending order before the next regular message, whether queued or typed later, until an answer completes. Commands such as /go keep them pending and summarize the original history; ending the conversation sends nothing further. User lines and history retain each original message once. Lines submitted while the assistant is answering are queued and sent when it finishes; ↑ takes the last one back until the queue starts moving. The session stays open after a task runs, until /cancel. A result saved by an earlier run (for example a `takt run` finished in another terminal) is discarded silently when the TUI starts; only the plain reader still prints it once. Workflows started from the TUI session itself are still announced when they finish |
 
 `--workflow` is the canonical option.
 
@@ -336,7 +336,8 @@ Refine task requirements through AI conversation, then add a task to `.takt/task
 takt add
 
 # Add task from GitHub Issue (issue number reflected in branch name)
-takt add #28
+takt add '#28'
+takt add --issue 28
 
 # Specify the workflow for the queued task
 takt add -w default
@@ -346,6 +347,17 @@ takt add --pr 123
 ```
 
 `-w, --workflow <name or path>` sets the workflow saved with the task, and `--pr <number>` creates a task from the PR's review comments.
+
+Markdown images and HTML `<img src>` references in GitHub PR and Issue bodies and comments become task attachments automatically. A PR whose description contains a GitHub attachment image can be registered even without review comments. Successful references keep their original syntax and receive `[Image #N]` immediately afterward, with paths listed in the `## 添付画像` section of `order.md`.
+
+```bash
+takt add --pr 123 -w default
+takt add --issue 28 -w default
+takt --pipeline --pr 123 -w default
+takt --pipeline --issue 28 -w default
+```
+
+Only GitHub attachment URLs are downloaded. PNG, JPEG, GIF, and WebP require matching Content-Type and magic bytes, with a 10 MiB limit per image. Retrieval, validation, or temporary saving failures warn and skip the affected image while registration and execution continue. This guarantee does not cover failures when copying images into the task spec. Authenticated `gh` credentials are preferred, but token authentication cannot access private attachments in some environments; successful retrieval is not guaranteed. See [Task Management](./task-management.md#automatic-github-pr-and-issue-image-attachments) for saved and execution-time paths.
 
 ### takt run
 

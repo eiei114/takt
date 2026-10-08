@@ -24,7 +24,7 @@
 | `--model <name>` | エージェントモデルを上書き |
 | `--runtime-assignment <name>` | 合成後の runtime `provider.assignments` を起動単位で選択。`provider.directories` より優先 |
 | `-c, --continue` | 現在のプロジェクトディレクトリ・プロバイダの直近アシスタントセッションから継続 |
-| `--tui` | 端末ではこれが既定の姿で、stdin と stdout が TTY ならフラグの有無にかかわらずタスク会話は Ink が描画し、パイプ入力では従来のリーダーが使われる。このフラグはその前提を明示するだけで、TTY がない場合はフォールバックせず `--tui requires an interactive terminal` で失敗する。ワークフロー選択・モード選択・要約後のアクション選択は従来のセレクタのままで、会話だけを TUI が描画する。Enter で送信、Shift+Enter / Option+Enter で改行、Ctrl+K で行末まで削除、Esc で応答を中断（キューに残っている行はそのまま次のターンとして送信される）。応答中の Enter はキューに積まれ、完了後に送信される（中断前なら ↑ で取り消して編集）。タスク実行後もセッションは続き、/cancel で終了する。別の実行（たとえば他の端末で完了した `takt run`）が保存した結果は TUI 起動時には表示せずに破棄し、従来のリーダーだけが起動時に一度表示する。TUI セッション内で開始したワークフローの完了通知は従来どおり表示される |
+| `--tui` | 端末ではこれが既定の姿で、stdin と stdout が TTY ならフラグの有無にかかわらずタスク会話は Ink が描画し、パイプ入力では従来のリーダーが使われる。このフラグはその前提を明示するだけで、TTY がない場合はフォールバックせず `--tui requires an interactive terminal` で失敗する。ワークフロー選択・モード選択・要約後のアクション選択は従来のセレクタのままで、会話だけを TUI が描画する。Enter で送信、Shift+Enter / Option+Enter で改行、Ctrl+K で行末まで削除、Esc で応答を中断し、キューの行があれば次のターンとして送信する。中断した発言は送信順に引用し、キューから出た行でも後から入力した行でも次の通常メッセージに前置する。再び中断した場合は今回の発言も保持し、応答が完了するまで次の通常送信へ引き継ぐ。コマンドには前置せず、その後も保持する。/go は未送達の発言も含む原文履歴を要約する。表示と履歴には各原文を一度だけ残し、次の通常送信なしに終了しても追加送信しない。応答中の Enter はキューに積まれ、完了後に送信される（中断前なら ↑ で取り消して編集）。タスク実行後もセッションは続き、/cancel で終了する。別の実行（たとえば他の端末で完了した `takt run`）が保存した結果は TUI 起動時には表示せずに破棄し、従来のリーダーだけが起動時に一度表示する。TUI セッション内で開始したワークフローの完了通知は従来どおり表示される |
 
 正式オプションは `--workflow` です。
 
@@ -332,7 +332,8 @@ AI との会話でタスク要件を精緻化し、`.takt/tasks.yaml` にタス�
 takt add
 
 # GitHub Issue からタスクを追加（Issue 番号がブランチ名に反映される）
-takt add #28
+takt add '#28'
+takt add --issue 28
 
 # 積むタスクの workflow を指定
 takt add -w default
@@ -342,6 +343,17 @@ takt add --pr 123
 ```
 
 `-w, --workflow <name or path>` はタスクに保存する workflow を指定し、`--pr <number>` は PR のレビューコメントからタスクを作成します。
+
+GitHubのPR・Issue本文と各種コメントにあるMarkdown画像とHTMLの`<img src>`は自動でタスク添付になります。PR本文にGitHub添付画像があれば、レビューコメントがなくても登録できます。成功画像は元構文の直後に`[Image #N]`が補足され、`order.md`の`## 添付画像`一覧から参照できます。
+
+```bash
+takt add --pr 123 -w default
+takt add --issue 28 -w default
+takt --pipeline --pr 123 -w default
+takt --pipeline --issue 28 -w default
+```
+
+GitHub添付URLだけを取得し、PNG、JPEG、GIF、WebPのContent-Typeとmagic bytesを検証します。上限は画像ごとに10 MiBです。取得・検証・一時保存の失敗は警告して該当画像だけをスキップし、登録・実行を続行します。task specへのコピー失敗はこの続行保証に含まれません。認証済み`gh`の資格情報を優先しますが、private添付はトークン認証では取得できない環境があり、成功は保証されません。保存先と実行時の参照先は[タスク管理](./task-management.ja.md#githubのprissue画像の自動添付)を参照してください。
 
 ### takt run
 
