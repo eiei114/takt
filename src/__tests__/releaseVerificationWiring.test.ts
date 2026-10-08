@@ -573,6 +573,11 @@ describe('release verification wiring', () => {
 
   it.each([
     {
+      target: 'src/__tests__/sdk-version-update.test.ts',
+      script: 'test:it:light',
+      normalized: 'src/__tests__/sdk-version-update.test.ts',
+    },
+    {
       target: 'companion-prompt-loop.test.ts',
       script: 'test:unit:parallel',
       normalized: 'companion-prompt-loop.test.ts',
