@@ -578,6 +578,16 @@ describe('release verification wiring', () => {
       normalized: 'companion-prompt-loop.test.ts',
     },
     {
+      target: 'src/__tests__/statusLine.test.ts',
+      script: 'test:it:light',
+      normalized: 'src/__tests__/statusLine.test.ts',
+    },
+    {
+      target: 'statusLine.test.ts',
+      script: 'test:it:light',
+      normalized: 'src/__tests__/statusLine.test.ts',
+    },
+    {
       target: 'src/__tests__/it-web-ui-retry-dom.test.ts',
       script: 'test:it:heavy:parallel',
       normalized: 'src/__tests__/it-web-ui-retry-dom.test.ts',
