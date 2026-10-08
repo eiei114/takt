@@ -12,6 +12,7 @@ export default tseslint.config(
             'eval/*.mjs',
             'eval/asserts/*.mjs',
             'eval/scripts/*.mjs',
+            'scripts/test-classification.mjs',
             'src/infra/deepseek-harness/*.mjs',
           ],
         },

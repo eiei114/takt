@@ -18,8 +18,8 @@ describe('pi SDK dependency versions', () => {
   it('declares and locks both SDK packages at 1.1.0', () => {
     expect(manifest.dependencies['@earendil-works/pi-ai']).toBe('^1.1.0');
     expect(manifest.dependencies['@earendil-works/pi-coding-agent']).toBe('^1.1.0');
-    expect(lockfile.packages[''].dependencies?.['@earendil-works/pi-ai']).toBe('^1.1.0');
-    expect(lockfile.packages[''].dependencies?.['@earendil-works/pi-coding-agent']).toBe('^1.1.0');
+    expect(lockfile.packages['']?.dependencies?.['@earendil-works/pi-ai']).toBe('^1.1.0');
+    expect(lockfile.packages['']?.dependencies?.['@earendil-works/pi-coding-agent']).toBe('^1.1.0');
     expect(lockfile.packages['node_modules/@earendil-works/pi-ai']?.version).toBe('1.1.0');
     expect(lockfile.packages['node_modules/@earendil-works/pi-coding-agent']?.version).toBe('1.1.0');
   });
