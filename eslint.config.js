@@ -13,6 +13,7 @@ export default tseslint.config(
             'eval/asserts/*.mjs',
             'eval/scripts/*.mjs',
             'src/infra/deepseek-harness/*.mjs',
+            'scripts/test-classification.mjs',
           ],
         },
         tsconfigRootDir: import.meta.dirname,

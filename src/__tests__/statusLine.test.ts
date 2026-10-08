@@ -1,5 +1,6 @@
 import { closeSync, openSync } from 'node:fs';
 import { format } from 'node:util';
+import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Terminal } from '@xterm/headless';
@@ -7,7 +8,10 @@ import { Terminal } from '@xterm/headless';
 // StatusLine is a singleton — import the same instance used by production code
 import { statusLine } from '../shared/ui/StatusLine.js';
 import { StreamDisplay } from '../shared/ui/StreamDisplay.js';
+import { confirm } from '../shared/prompt/confirm.js';
+import { selectOption } from '../shared/prompt/select.js';
 
+/** Replay captured ANSI output and return the text actually visible on screen. */
 async function readTerminalText(output: string): Promise<string> {
   const terminal = new Terminal({ cols: 120, rows: 30, allowProposedApi: true });
   try {
@@ -245,6 +249,54 @@ describe('StatusLine', () => {
       vi.useRealTimers();
     }
   });
+
+  it.each(['confirm', 'select'] as const)(
+    'preserves unfinished text and the real %s prompt across suspend and resume',
+    async (promptKind) => {
+      const input = new PassThrough();
+      Object.assign(input, { isTTY: true, isRaw: false, setRawMode: vi.fn() });
+      const stdin = vi.spyOn(process, 'stdin', 'get').mockReturnValue(input as unknown as typeof process.stdin);
+      const consoleLog = vi.spyOn(console, 'log').mockImplementation((...args) => {
+        process.stdout.write(`${format(...args)}\n`);
+      });
+      vi.stubEnv('TAKT_NO_TTY', '0');
+      vi.stubEnv('TAKT_TEST_FLG_TOUCH_TTY', '0');
+      vi.useFakeTimers();
+      try {
+        statusLine.start('Working...');
+        vi.advanceTimersByTime(80);
+        const display = new StreamDisplay('test-agent', false);
+        display.showText('改行前の本文を保持します。');
+
+        const answer = promptKind === 'confirm'
+          ? confirm('Continue?')
+          : selectOption('Select an option', [{ label: 'Keep text', value: 'keep' }]);
+        const waitingStart = stdoutChunks.length;
+        vi.advanceTimersByTime(240);
+        expect(stdoutChunks.slice(waitingStart).join('')).not.toContain('Working...');
+
+        input.write(promptKind === 'confirm' ? 'y\r' : '\r');
+        await expect(answer).resolves.toBe(promptKind === 'confirm' ? true : 'keep');
+        vi.advanceTimersByTime(160);
+        const resumedOutput = stdoutChunks.join('');
+        statusLine.stop();
+        vi.useRealTimers();
+
+        const screen = await readTerminalText(resumedOutput);
+        expect(screen).toContain('改行前の本文を保持します。');
+        expect(screen).toContain(promptKind === 'confirm' ? 'Continue? [Y/n]: y' : 'Select an option');
+        if (promptKind === 'select') expect(screen).toContain('✓ Keep text');
+        expect(screen).toContain('Working...');
+      } finally {
+        statusLine.stop();
+        vi.useRealTimers();
+        input.destroy();
+        stdin.mockRestore();
+        consoleLog.mockRestore();
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 
   it('should restore stdout and stderr on stop', () => {
     // Capture what write functions are set before start

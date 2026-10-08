@@ -13,6 +13,7 @@ const FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '
 
 type RawWrite = (str: string) => boolean;
 
+/** Compare device metadata to decide whether two TTY streams share a destination. */
 function sharesOutputTerminal(stdoutFd: number, stderrFd: number): boolean {
   // isTTY only identifies terminal streams; device metadata distinguishes their destinations.
   const stdoutStats = fstatSync(stdoutFd);
@@ -36,6 +37,7 @@ class StatusLineImpl {
   private suspendedMessage?: string;
   private suspendDepth = 0;
 
+  /** Start the TTY spinner, deferring redraws while streamed text has no final newline. */
   start(message: string): void {
     if (this.suspendDepth > 0) {
       this.suspendedMessage = message;
@@ -61,7 +63,9 @@ class StatusLineImpl {
     const rawStderrWrite = process.stderr.write.bind(process.stderr) as RawWrite;
     const raw = this.rawStdoutWrite;
 
+    /** Wrap a stream writer, tracking partial lines only on the spinner's terminal. */
     const wrapWrite = (origRaw: RawWrite, sharesOutputTerminal: boolean) =>
+      /** Clear only an existing spinner before forwarding output and updating line state. */
       (chunk: unknown): boolean => {
         const output = String(chunk);
         if (this.rendering) return origRaw(output);
@@ -84,6 +88,7 @@ class StatusLineImpl {
     this.intervalId = setInterval(() => this.render(), 80);
   }
 
+  /** Update the active or deferred spinner message. */
   update(message: string): void {
     if (this.suspendDepth > 0) {
       this.suspendedMessage = message;
@@ -92,6 +97,7 @@ class StatusLineImpl {
     this.message = message;
   }
 
+  /** Pause the spinner and finish partial output so prompts can safely start a new line. */
   suspend(): void {
     if (this.suspendDepth > 0) {
       this.suspendDepth++;
@@ -103,11 +109,16 @@ class StatusLineImpl {
     }
 
     const message = this.message;
+    if (this.outputLineOpen) {
+      this.rawStdoutWrite?.('\n');
+      this.outputLineOpen = false;
+    }
     this.stop();
     this.suspendedMessage = message;
     this.suspendDepth = 1;
   }
 
+  /** Restart the deferred spinner after the outermost suspension ends. */
   resume(): void {
     if (this.suspendDepth === 0) return;
     this.suspendDepth--;
@@ -119,6 +130,7 @@ class StatusLineImpl {
     this.start(message);
   }
 
+  /** Clear a rendered spinner, restore stream writers, and cancel any deferred restart. */
   stop(): void {
     this.suspendDepth = 0;
     this.suspendedMessage = undefined;
@@ -140,6 +152,7 @@ class StatusLineImpl {
     this.rawStdoutWrite = undefined;
   }
 
+  /** Draw a spinner frame only when it cannot overwrite an unfinished output line. */
   private render(): void {
     if (!this.rawStdoutWrite || !this.active || this.outputLineOpen) return;
     this.rendering = true;
@@ -149,6 +162,7 @@ class StatusLineImpl {
     this.spinnerRendered = true;
   }
 
+  /** Erase the current line only if it contains a spinner drawn by this instance. */
   private clearSpinner(): void {
     if (!this.rawStdoutWrite || !this.spinnerRendered) return;
     this.rawStdoutWrite('\r\x1b[K');
