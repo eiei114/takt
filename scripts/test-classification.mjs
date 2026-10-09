@@ -312,6 +312,7 @@ export const fileSystemIntegrationTestFiles = Object.freeze([
   'src/__tests__/selector-input.test.ts',
   'src/__tests__/session-reader.test.ts',
   'src/__tests__/sessionStore.test.ts',
+  'src/__tests__/statusLine.test.ts',
   'src/__tests__/task-delete-task.test.ts',
   'src/__tests__/taskDeleteActions.test.ts',
   'src/__tests__/taskResultHandler.test.ts',
