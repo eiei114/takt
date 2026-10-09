@@ -35,9 +35,11 @@ describe('readline conversation confirmation to menu routes', () => {
       const startId = buildTaskRetryStartOptions(fixture.workflow, {
         projectCwd: fixture.cwd, lookupCwd: fixture.worktreePath, preferredRootStep: 'implement',
       }).defaultId;
+      const tellInstruction = 'Keep the agreed scope.';
       const capture = fixture.provider([
         { content: 'Initial answer.' },
         ...(route === 'failed requeue' ? [{ content: JSON.stringify({ startOptionId: startId }) }] : []),
+        ...(route === 'tell' ? [{ content: tellInstruction }] : []),
         { content: 'Continued answer.' },
       ]);
       const run = interactiveMode(fixture.cwd, undefined, undefined, 'original-session');
@@ -65,7 +67,7 @@ describe('readline conversation confirmation to menu routes', () => {
         await terminal.waitForPrompt(getLabel('tui.tell.selectPrompt', 'en'), mark);
         mark = terminal.mark();
         await terminal.send('\r');
-        await terminal.waitForPrompt('keep scope', mark);
+        await terminal.waitForPrompt(tellInstruction, mark);
         await terminal.waitForPrompt('[Y/n]:', mark);
       } else {
         await terminal.waitForPrompt('[y/N]:', mark);
@@ -89,7 +91,7 @@ describe('readline conversation confirmation to menu routes', () => {
       } else if (route === 'exceeded requeue') {
         expect(menuMocks.requeueExceededTask).toHaveBeenCalledExactlyOnceWith('menu-task');
       } else if (route === 'tell') {
-        expect(menuMocks.issueTellableRunningTask).toHaveBeenCalledExactlyOnceWith(fixture.cwd, 'running-run', 'keep scope');
+        expect(menuMocks.issueTellableRunningTask).toHaveBeenCalledExactlyOnceWith(fixture.cwd, 'running-run', tellInstruction);
       }
 
       const callsBeforeNextInput = capture.callCount;
