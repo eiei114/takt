@@ -37,6 +37,7 @@
 ### Internal
 
 - リリース前に `package-lock.json` を `package.json` の範囲内で更新し、`npmDepsHash` を再計算する `npm run sync:nix-deps` を追加しました。`--check` はファイルを書き換えずに差分を出します (#1719)。
+- `update-notifier` をバージョン固定してパッケージに同梱するようにしました。更新後の lock では、グローバルインストール時に Ink が使う同梱の `wrap-ansi` / `widest-line` が古いバージョンに置き換えられる前提で計画され、起動に失敗していました。
 - テストの型検査のヒープ上限を 4 GB にしました。
 - インライン発話、セキュリティの脅威モデル、副次環境の裁定についての prompt eval を追加しました。
 

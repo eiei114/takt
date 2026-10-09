@@ -37,6 +37,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Internal
 
 - Added `npm run sync:nix-deps` to update `package-lock.json` within the `package.json` ranges and recompute `npmDepsHash` before a release; `--check` reports the difference without writing (#1719).
+- `update-notifier` is now pinned and bundled with the package. With the updated lockfile, a global install otherwise planned older `wrap-ansi` / `widest-line` versions over the bundled copies used by Ink and failed at startup.
 - Raised the heap limit of the test type check to 4 GB.
 - Added prompt evals for inline utterances, security threat models, and secondary-platform adjudication.
 
