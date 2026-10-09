@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import {
   createBashToolDefinition,
   createAgentSession,
+  createCodemodeExtension,
   DefaultPackageManager,
   DefaultResourceLoader,
   getAgentDir,
@@ -40,7 +41,7 @@ import { sanitizeSensitiveText } from '../../shared/utils/sensitiveText.js';
 import type { ProviderImageAttachment } from '../providers/types.js';
 import { validateProviderImageAttachments } from '../providers/imageAttachments.js';
 import type { PiCallOptions } from './types.js';
-import { resolvePiActiveTools } from '../providers/pi-tool-policy.js';
+import { PI_CODEMODE_TOOL_NAME, resolvePiActiveTools } from '../providers/pi-tool-policy.js';
 
 const PI_THINKING_LEVEL_VALUES = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 type PiThinkingLevel = (typeof PI_THINKING_LEVEL_VALUES)[number];
@@ -675,13 +676,16 @@ function createPiResourceLoader(
     cwd,
     agentDir,
     settingsManager,
-    extensionFactories: [(pi) => {
-      pi.on('tool_call', (event) => (
-        executionGuard.check(event.toolName)
-          ? undefined
-          : { block: true, reason: 'Tool is not allowed by the TAKT Pi tool policy' }
-      ));
-    }],
+    extensionFactories: [
+      { name: PI_CODEMODE_TOOL_NAME, factory: createCodemodeExtension({ models: false }) },
+      (pi) => {
+        pi.on('tool_call', (event) => (
+          executionGuard.check(event.toolName)
+            ? undefined
+            : { block: true, reason: 'Tool is not allowed by the TAKT Pi tool policy' }
+        ));
+      },
+    ],
     additionalExtensionPaths: enabledResourcePaths(resolvedResources, 'extensions'),
     additionalSkillPaths: enabledResourcePaths(resolvedResources, 'skills'),
     additionalPromptTemplatePaths: enabledResourcePaths(resolvedResources, 'prompts'),
