@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { verifyDeepSeekPackAssets, verifyStartupBundleLock } from '../../scripts/verify-deepseek-sdk-lock.mjs';
+import {
+  verifyDeepSeekManagedLock,
+  verifyDeepSeekPackAssets,
+  verifyStartupBundleLock,
+} from '../../scripts/verify-deepseek-sdk-lock.mjs';
 
 const dependencies = { '@modelcontextprotocol/sdk': '1.32.1', ink: '7.1.1', react: '19.2.8', 'update-notifier': '7.3.1' };
 
@@ -12,6 +16,77 @@ function createFixture() {
         `node_modules/${name}`, { version, inBundle: true },
       ])),
     } },
+  };
+}
+
+const SDK_VERSION = '0.2.1-alpha.2';
+const CORDIS_VERSION = '4.0.5-alpha.1';
+const STALE_VERSION = '0.0.0-stale';
+const sdkDependencies = {
+  '@deepseek-ai/cordis': CORDIS_VERSION,
+  '@deepseek-ai/dsh': SDK_VERSION,
+  '@deepseek-ai/dsh-llm': SDK_VERSION,
+  '@deepseek-ai/dsh-scope': SDK_VERSION,
+  '@deepseek-ai/dsh-sdk-client': SDK_VERSION,
+  '@deepseek-ai/dsh-sdk-protocol': SDK_VERSION,
+  '@deepseek-ai/dsh-session': SDK_VERSION,
+  '@deepseek-ai/dsh-subagent': SDK_VERSION,
+};
+
+function createDeepSeekFixture(): {
+  root: Parameters<typeof verifyDeepSeekManagedLock>[0];
+  rootLock: Parameters<typeof verifyDeepSeekManagedLock>[1];
+  managed: Parameters<typeof verifyDeepSeekManagedLock>[2];
+  lock: Parameters<typeof verifyDeepSeekManagedLock>[3];
+  constants: string;
+} {
+  const rootLockPackages = Object.fromEntries(Object.entries(sdkDependencies).map(([name, version]) => [
+    `node_modules/${name}`,
+    { version },
+  ]));
+  const managedDependencies = {
+    ...sdkDependencies,
+    '@deepseek-ai/libreoffice-kit': '0.1.5',
+  };
+  const managedLockPackages = Object.fromEntries(Object.entries(managedDependencies).map(([name, version]) => [
+    `node_modules/${name}`,
+    { version },
+  ]));
+
+  return {
+    root: {
+      dependencies: {},
+      bundleDependencies: [],
+      devDependencies: { ...sdkDependencies },
+      files: ['managed/deepseek-harness/'],
+    },
+    rootLock: {
+      packages: {
+        '': { devDependencies: { ...sdkDependencies } },
+        ...rootLockPackages,
+      },
+    },
+    managed: {
+      dependencies: managedDependencies,
+      overrides: { fflate: '0.8.3' },
+    },
+    lock: {
+      packages: {
+        '': { dependencies: { ...managedDependencies } },
+        ...managedLockPackages,
+        'node_modules/fflate': { version: '0.8.3' },
+        'node_modules/@deepseek-ai/dsh-sdk-client': {
+          version: SDK_VERSION,
+          peerDependencies: {
+            '@deepseek-ai/cordis': '~4.0.5-alpha.1',
+            '@deepseek-ai/dsh-llm': SDK_VERSION,
+            '@deepseek-ai/dsh-sdk-protocol': SDK_VERSION,
+            '@deepseek-ai/dsh-session': SDK_VERSION,
+          },
+        },
+      },
+    },
+    constants: `DEEPSEEK_HARNESS_SDK_VERSION = '${SDK_VERSION}'\nDEEPSEEK_HARNESS_RUNTIME_VERSION = '${SDK_VERSION}'`,
   };
 }
 
@@ -40,5 +115,29 @@ describe('CLI startup publish dependency bundle', () => {
     for (const file of [...assets, ...bundles]) {
       expect(() => verifyDeepSeekPackAssets([...assets, ...bundles].filter((entry) => entry !== file), manifest)).toThrow();
     }
+  });
+});
+
+describe('managed DeepSeek npm dependency graph', () => {
+  it.each([
+    ['root lock manifest entry', (fixture: ReturnType<typeof createDeepSeekFixture>) => {
+      fixture.rootLock.packages['']!.devDependencies!['@deepseek-ai/dsh-sdk-client'] = STALE_VERSION;
+    }],
+    ['root lock package resolution', (fixture: ReturnType<typeof createDeepSeekFixture>) => {
+      fixture.rootLock.packages['node_modules/@deepseek-ai/dsh-sdk-client']!.version = STALE_VERSION;
+    }],
+  ])('rejects a stale %s', (_description, makeStale) => {
+    const fixture = createDeepSeekFixture();
+    const verify = (): void => verifyDeepSeekManagedLock(
+      fixture.root,
+      fixture.rootLock,
+      fixture.managed,
+      fixture.lock,
+      fixture.constants,
+    );
+
+    expect(verify).not.toThrow();
+    makeStale(fixture);
+    expect(verify).toThrow();
   });
 });
