@@ -21,6 +21,7 @@ import type { ExecuteTaskOptions } from './types.js';
 import { readPrivateFileState, writePrivateFile } from '../../../shared/utils/private-file.js';
 import { prepareLoopAnalysisReportForPublication } from './loopAnalysisReportPublication.js';
 import { runLinkedCacciaSafely } from '../../caccia/index.js';
+import { runLinkedMergeSafely } from '../../merge/index.js';
 
 const log = createLogger('postExecution');
 
@@ -189,6 +190,7 @@ export async function postExecutionFlow(options: PostExecutionOptions): Promise<
           success(`PR updated with comment: ${existingPr.url}`);
         }
         await runLinkedCacciaSafely(projectCwd, existingPr.url, abortSignal, display);
+        await runLinkedMergeSafely(projectCwd, existingPr.url, abortSignal, display);
         return { prUrl: existingPr.url };
       } else {
         log.error('PR comment failed', {
@@ -222,6 +224,7 @@ export async function postExecutionFlow(options: PostExecutionOptions): Promise<
         }
         if (prResult.url) {
           await runLinkedCacciaSafely(projectCwd, prResult.url, abortSignal, display);
+          await runLinkedMergeSafely(projectCwd, prResult.url, abortSignal, display);
         }
         return { prUrl: prResult.url };
       } else {
