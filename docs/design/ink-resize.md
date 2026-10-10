@@ -1,8 +1,10 @@
 # Ink history-preserving resize
 
-[English](./README.md) | [日本語](./README.ja.md) | [简体中文](./README.zh-CN.md)
+[English](./ink-resize.md) | [日本語](./ink-resize.ja.md) | [简体中文](./ink-resize.zh-CN.md)
 
-`ink+7.1.1.patch` is applied by `npm run patch:dependencies` automatically after
+## Dependency patch application
+
+[`ink+7.1.1.patch`](../../patches/ink+7.1.1.patch) is applied by `npm run patch:dependencies` automatically after
 development dependency installation, before builds/watch, and before
 `npm test` / `npm run test:it`. The install hook runs only when both the patch
 asset and the local `patch-package` CLI exist. Published bundles already include
@@ -12,6 +14,14 @@ installation. Nix reapplies the patch directly after recreating its production
 dependency tree. Ink is pinned and bundled in the published npm package, so the
 build's patched renderer is shipped with TAKT.
 
+To apply or reapply the patch from the repository root with development dependencies installed:
+
+```sh
+npm run patch:dependencies
+```
+
+## Live resize pause
+
 On main-screen interactive TTY resize events, pause live drawing until there
 have been no further resize events for 150ms. Cancel queued old-width frames.
 Once resizing settles, erase only the owned live region and redraw the current
@@ -20,6 +30,8 @@ do not replay committed `<Static>` entries: the terminal owns existing history.
 This also handles bursts that finish at the original width. The main-screen
 fullscreen fallback also erases only live rows and prints only new static
 output, rather than clearing history and replaying the entire transcript.
+
+## Transcript reflow and limitations
 
 `TranscriptView` uses the patched `<Static renderOutput>` opt-in for terminal
 output. Each new item is serialized directly from sanitized source text, without
@@ -34,6 +46,8 @@ background padding is not repainted on resize. Output already printed
 by the old renderer retains its hard breaks; it cannot be repaired without
 replacing terminal history. Non-TTY and screen-reader output uses the normal
 React children rather than the terminal serializer.
+
+## Live-region cursor anchoring
 
 TAKT's `mountInk()` opts into `anchorLiveFrame`: the hidden physical cursor stays
 at the **first** live row, and the frame forms one soft-wrapped group. Xterm-like
@@ -52,6 +66,8 @@ at the current terminal width, including ANSI-styled padding and wide
 characters. Standard and incremental renderers restore a hardware cursor's
 position relative to that reflowed frame before erasing.
 
+## Lifecycle and rendering fallbacks
+
 Static output committed during the drawing pause is queued, not discarded.
 Explicit output/flush, clear, suspension and unmount settle the pending resize
 before taking over the terminal. Unmount cancels the timer so no delayed frame
@@ -60,14 +76,16 @@ instance also avoids registering a new process-exit listener. Alternate-screen,
 debug, non-TTY
 and screen-reader rendering keep their existing resize paths.
 
-Regression coverage in `src/__tests__/tui-conversation-view.test.tsx` checks the
+## Regression coverage
+
+Regression coverage in [`src/__tests__/tui-conversation-view.test.tsx`](../../src/__tests__/tui-conversation-view.test.tsx) checks the
 entire emulated terminal buffer, including preexisting shell scrollback. It
 covers narrowing/widening, rapid bursts, busy `/go` drafts, hardware cursors,
 height reductions with multiline drafts (including emoji/tabs), resizing between
 partial PTY-frame chunks, exact-right-margin user text, static commits during
 resizing, fullscreen transitions, unmount, queued handoffs
 and task dispatch.
-`e2e/specs/tui.e2e.ts` also resizes a real PTY and checks offscreen history,
+[`e2e/specs/tui.e2e.ts`](../../e2e/specs/tui.e2e.ts) also resizes a real PTY and checks offscreen history,
 selector remounts and the live input/Thinking region without replaying history.
 Tests commit English/Japanese user and AI paragraphs at a narrow width and verify
 that they become single rows again when widened. The PTY regression also keeps
