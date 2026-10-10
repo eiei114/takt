@@ -57,6 +57,7 @@ export function TranscriptEntryView({ entry, userMessageColors }: TranscriptEntr
   );
 }
 
+/** Commits each entry once, using native TTY wrapping and children-based fallback output. */
 function TranscriptViewComponent({ entries, userMessageColors }: TranscriptViewProps): ReactElement {
   const { stdout } = useStdout();
   return (

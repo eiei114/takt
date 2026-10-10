@@ -1369,6 +1369,7 @@ steps:
     await waitForPromptReady(tui, archive.at(-1));
     expect((await tui.visibleScreen()).join('\n')).not.toContain(archive[0]);
 
+    /** Checks offscreen history and ensures only the current input/status frame remains. */
     const assertHistoryAndLiveFrame = async (thinking: boolean): Promise<void> => {
       const transcript = (await tui.visibleTranscript()).join('\n');
       for (const entry of archive) {
@@ -1378,6 +1379,7 @@ steps:
       expect(transcript.split('╰').length - 1, transcript).toBe(1);
       expect(transcript.split(THINKING_MARKER).length - 1, transcript).toBe(thinking ? 1 : 0);
     };
+    /** Waits for one complete input box at the requested width after the resize debounce. */
     const waitForResizedFrame = async (columns: number): Promise<void> => {
       await tui.waitForScreen(`one prompt at width ${columns}`, (screen) => {
         const lines = screen.split('\n');
@@ -1473,6 +1475,7 @@ steps:
     await submitLine(tui, 'keep the committed history');
     await waitForPromptReady(tui, archive.at(-1));
     const draft = 'very long issue body '.repeat(130) + 'UNSENT_END_TOKEN';
+    /** Enters a long unsent draft and waits until its tail is visible. */
     const typeDraft = async (): Promise<void> => {
       tui.write(draft);
       await tui.waitForScreen('the multiline draft', (screen) => compactScreen(screen.split('\n')).includes('UNSENT_END_TOKEN'));

@@ -1,8 +1,14 @@
 # Ink history-preserving resize
 
-`ink+7.1.1.patch` is applied by `npm run patch:dependencies` before builds and
-`npm test` / `npm run test:it`. Ink is pinned and bundled in the published npm
-package, so the build's patched renderer is shipped with TAKT.
+`ink+7.1.1.patch` is applied by `npm run patch:dependencies` automatically after
+development dependency installation, before builds/watch, and before
+`npm test` / `npm run test:it`. The install hook runs only when both the patch
+asset and the local `patch-package` CLI exist. Published bundles already include
+patched Ink and omit these development assets, so their install hook does not
+require dev dependencies. Patch failures in development installs still fail the
+installation. Nix reapplies the patch directly after recreating its production
+dependency tree. Ink is pinned and bundled in the published npm package, so the
+build's patched renderer is shipped with TAKT.
 
 On main-screen interactive TTY resize events, pause live drawing until there
 have been no further resize events for 150ms. Cancel queued old-width frames.

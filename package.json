@@ -123,6 +123,7 @@
     "check:release": "node scripts/run-release-check.mjs",
     "prepublishOnly": "npm run lint && npm run build",
     "patch:dependencies": "patch-package",
+    "postinstall": "node -e \"const fs = require('node:fs'); if (fs.existsSync('patches/ink+7.1.1.patch') && fs.existsSync('node_modules/patch-package/index.js')) require('node:child_process').execSync('npm run patch:dependencies', {stdio: 'inherit'});\"",
     "canary:coder": "node scripts/canary-coder.mjs",
     "eval:prompts:resource-boundary:contracts": "node --test eval/asserts/resource-flow-fixture.test.mjs",
     "eval:prompts:resource-boundary": "npm run eval:prompts:resource-boundary:contracts && node eval/scripts/run-evals.mjs --prepare resource-flow-review resource-flow-adjudication --no-cache"

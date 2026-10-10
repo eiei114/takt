@@ -5,6 +5,7 @@ import { formatTranscriptEntryOutput } from '../features/tui/transcriptOutput.js
 import { toDisplayText } from '../features/tui/displayText.js';
 import { FALLBACK_USER_MESSAGE_COLORS } from '../features/tui/terminalColors.js';
 
+/** Forces true-color output for an assertion and restores Chalk even on failure. */
 function withColors(test: () => void): void {
   const level = chalk.level;
   chalk.level = 3;

@@ -104,6 +104,7 @@ function matches(output: string, pattern: string | RegExp): boolean {
   return stateless.test(output);
 }
 
+/** Runs TAKT in a real PTY and mirrors ordered output into a scrollback-aware emulator. */
 export function startTaktPty(options: TaktPtyOptions): TaktPtySession {
   const binPath = resolve(__dirname, '../../bin/takt');
   const provider = options.injectProvider === false ? undefined : process.env.TAKT_E2E_PROVIDER;
@@ -186,6 +187,7 @@ export function startTaktPty(options: TaktPtyOptions): TaktPtySession {
 
     visibleScreen: readScreen,
 
+    /** Drains prior output before resizing both the emulator and the application's PTY. */
     async resize(cols: number, rows: number): Promise<void> {
       await drainTerminal();
       terminal.resize(cols, rows);

@@ -308,6 +308,7 @@ class ResizableOutput extends PassThrough {
     });
   }
 
+  /** Updates the emulated TTY dimensions and notifies Ink with a resize event. */
   resize(columns: number, rows = this.rows): void {
     this.columns = columns;
     this.rows = rows;
@@ -469,6 +470,7 @@ async function writeTerminalFrames(terminal: Terminal, frames: readonly string[]
   }
 }
 
+/** Reads visible rows and native scrollback so stale frames cannot hide above the viewport. */
 function getTerminalText(terminal: Terminal): string {
   return Array.from({ length: terminal.buffer.active.length }, (_, index) => (
     terminal.buffer.active.getLine(index)?.translateToString(true) ?? ''
@@ -546,6 +548,7 @@ describe('TranscriptEntryView', () => {
     });
     let app: ReturnType<typeof renderInk> | undefined;
     let processedFrames = 0;
+    /** Applies only newly captured frames, preserving the emulator's existing history. */
     const updateTerminal = async (): Promise<void> => {
       const end = stdout.frames.length;
       await writeTerminalFrames(terminal, stdout.frames.slice(processedFrames, end));
@@ -702,6 +705,7 @@ describe('TranscriptEntryView', () => {
     const draft = 'long issue body 👩‍💻\t日本語 '.repeat(40) + 'DRAFT_END';
     let app: ReturnType<typeof renderInk> | undefined;
     let processedFrames = 0;
+    /** Applies new frames once while exercising height reductions around an unsent draft. */
     const updateTerminal = async (): Promise<void> => {
       await writeTerminalFrames(terminal, stdout.frames.slice(processedFrames));
       processedFrames = stdout.frames.length;
@@ -787,6 +791,7 @@ describe('TranscriptEntryView', () => {
     const terminal = new Terminal({ allowProposedApi: true, cols: stdout.columns, rows: stdout.rows, convertEol: true });
     const entries: TranscriptEntry[] = [{ role: 'assistant', content: 'committed once' }];
     const fullscreen = Array.from({ length: 4 }, (_, index) => `live fullscreen row ${index}`).join('\n');
+    /** Keeps committed entries stable while switching the live region into and out of fullscreen. */
     const tree = (live: string): ReactNode => (
       <>
         <TranscriptView entries={entries} userMessageColors={FALLBACK_USER_MESSAGE_COLORS} />
@@ -838,6 +843,7 @@ describe('TranscriptEntryView', () => {
       allowProposedApi: true, cols: wideColumns, rows: stdout.rows, convertEol: true,
     });
     let app: ReturnType<typeof renderInk> | undefined;
+    /** Builds separate static and live regions to test output queued during a resize. */
     const tree = (items: readonly TranscriptEntry[], live: string): ReactNode => (
       <>
         <TranscriptView entries={items} userMessageColors={FALLBACK_USER_MESSAGE_COLORS} />
@@ -920,6 +926,7 @@ describe('TranscriptEntryView', () => {
     });
     let processedFrames = 0;
 
+    /** Replays only new PTY frames into the emulator while a /go submission stays in flight. */
     const updateTerminal = async (): Promise<void> => {
       const end = stdout.frames.length;
       await writeTerminalFrames(terminal, stdout.frames.slice(processedFrames, end));
@@ -1056,6 +1063,7 @@ describe('TranscriptEntryView', () => {
     let processedFrames = 0;
     let app: ReturnType<typeof renderInk> | undefined;
 
+    /** Places a hardware cursor beneath a width-dependent row to expose stale reflowed tails. */
     function CursorPositionedOutput({ tail }: { readonly tail: string }): ReactNode {
       const { columns } = useWindowSize();
       const { setCursorPosition } = useCursor();
@@ -1063,6 +1071,7 @@ describe('TranscriptEntryView', () => {
       return <Text>{`${firstRow}\n${cursorRow}\n${tail}`}</Text>;
     }
 
+    /** Applies new output before checking the hardware cursor and remaining visible text. */
     const updateTerminal = async (): Promise<void> => {
       const end = stdout.frames.length;
       await writeTerminalFrames(terminal, stdout.frames.slice(processedFrames, end));
