@@ -7,6 +7,11 @@ import { pathToFileURL } from 'node:url';
 const sdkVersion = '0.2.1-alpha.2';
 const managedBase = 'managed/deepseek-harness/';
 
+/**
+ * Verify pinned SDK/runtime versions across development and managed dependency graphs.
+ * Also enforce managed-only shipping, required SDK peers, and the fflate safety override.
+ * @throws {Error} If a manifest, lock entry, version constant, or packaging contract is inconsistent.
+ */
 export function verifyDeepSeekManagedLock(root, rootLock, managed, lock, constants) {
   if (Object.keys(root.dependencies).some((name) => name.startsWith('@deepseek-ai/'))
     || root.bundleDependencies?.some((name) => name.startsWith('@deepseek-ai/'))
@@ -61,6 +66,10 @@ export function verifyDeepSeekManagedLock(root, rootLock, managed, lock, constan
   }
 }
 
+/**
+ * Require CLI startup dependencies to be exactly pinned, locked, and bundled.
+ * @throws {Error} If any required startup dependency violates the publish contract.
+ */
 export function verifyStartupBundleLock(root, lock) {
   // update-notifier is bundled because its boxen needs older wrap-ansi / widest-line than the bundled ink.
   // Left unbundled, a global install plans those older versions over the bundled top-level copies and
@@ -76,6 +85,10 @@ export function verifyStartupBundleLock(root, lock) {
   }
 }
 
+/**
+ * Check an npm pack inventory for managed manifests and every declared startup bundle.
+ * @throws {Error} If a required managed asset or bundled package manifest is missing.
+ */
 export function verifyDeepSeekPackAssets(files, root) {
   const paths = new Set(files.map((file) => file.path));
   for (const name of ['package.json', 'package-lock.json']) {

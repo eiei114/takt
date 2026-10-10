@@ -22,6 +22,7 @@ interface DeepSeekManagedManifest {
   overrides?: Record<string, string>;
 }
 
+/** Verify pinned development/managed SDK graphs and throw on version, peer, or shipping inconsistencies. */
 export function verifyDeepSeekManagedLock(
   root: DeepSeekRootManifest,
   rootLock: StartupLock,
@@ -29,5 +30,7 @@ export function verifyDeepSeekManagedLock(
   lock: StartupLock,
   constants: string,
 ): void;
+/** Require startup dependencies to be exactly pinned, locked, and bundled; throw on inconsistencies. */
 export function verifyStartupBundleLock(root: StartupManifest, lock: StartupLock): void;
+/** Verify managed assets and declared startup bundles are in the pack inventory; throw if missing. */
 export function verifyDeepSeekPackAssets(files: { path: string }[], root: StartupManifest): void;

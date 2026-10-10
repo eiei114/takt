@@ -7,6 +7,7 @@ import {
 
 const dependencies = { '@modelcontextprotocol/sdk': '1.32.1', ink: '7.1.1', react: '19.2.8', 'update-notifier': '7.3.1' };
 
+/** Build independent manifest/lock copies so each startup-bundle rejection test can mutate its own fixture. */
 function createFixture() {
   return {
     manifest: { dependencies: { ...dependencies }, bundleDependencies: Object.keys(dependencies) },
@@ -33,6 +34,7 @@ const sdkDependencies = {
   '@deepseek-ai/dsh-subagent': SDK_VERSION,
 };
 
+/** Build a consistent pinned SDK graph with independent root/managed lock entries for stale-version tests. */
 function createDeepSeekFixture(): {
   root: Parameters<typeof verifyDeepSeekManagedLock>[0];
   rootLock: Parameters<typeof verifyDeepSeekManagedLock>[1];
