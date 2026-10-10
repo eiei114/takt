@@ -70,6 +70,7 @@ export async function mountInk<T>(
   let primaryError: unknown;
   let hasPrimaryError = false;
   const teardownErrors: unknown[] = [];
+  /** Keeps the first failure primary and retains later failures for teardown reporting. */
   const recordFailure = (error: unknown): void => {
     if (hasPrimaryError) {
       teardownErrors.push(error);

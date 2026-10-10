@@ -299,6 +299,7 @@ class ResizableOutput extends PassThrough {
   readonly isTTY = true;
   readonly frames: string[] = [];
 
+  /** Creates a sized test TTY that records each write for later terminal-emulator playback. */
   constructor(columns: number, rows = 40) {
     super();
     this.columns = columns;

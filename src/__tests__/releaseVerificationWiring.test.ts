@@ -95,9 +95,13 @@ function runDependencyPostinstall(
     throw new Error('Expected a guarded Node postinstall hook');
   }
   runInNewContext(source, {
+    /** Supplies only controlled filesystem and process mocks to the install-hook sandbox. */
     require: (specifier: string) => {
       if (specifier === 'node:fs') {
-        return { existsSync: (path: string) => files.includes(path) };
+        return {
+          /** Reports fixture file presence without reading the actual dependency tree. */
+          existsSync: (path: string) => files.includes(path),
+        };
       }
       if (specifier === 'node:child_process') {
         return { execSync: execute };
