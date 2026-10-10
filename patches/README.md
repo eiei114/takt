@@ -1,5 +1,7 @@
 # Ink history-preserving resize
 
+[English](./README.md) | [日本語](./README.ja.md) | [简体中文](./README.zh-CN.md)
+
 `ink+7.1.1.patch` is applied by `npm run patch:dependencies` automatically after
 development dependency installation, before builds/watch, and before
 `npm test` / `npm run test:it`. The install hook runs only when both the patch
