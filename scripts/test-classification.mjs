@@ -10,6 +10,11 @@ export const parallelIntegrationTestGlobs = Object.freeze([
 // membership here for tests that run complete workflow engines, team leaders,
 // real child processes, or real Git boundaries.
 const legacyParallelIntegrationTestFiles = Object.freeze([
+  'src/__tests__/it-merge-workflow-execution.test.ts',
+  'src/__tests__/it-system-step-wait.test.ts',
+  'src/__tests__/merge-clone.integration.test.ts',
+  'src/__tests__/pr-merge-drivers.integration.test.ts',
+  'src/__tests__/merge-push.integration.test.ts',
   'src/__tests__/acp-entrypoint.test.ts',
   'src/__tests__/codex-spawn-guard.test.ts',
   'src/__tests__/runtime-provider-companion.integration.test.ts',
@@ -151,8 +156,6 @@ export const auditedIntegrationBoundaryTestFiles = Object.freeze([
   'src/__tests__/session.test.ts',
   'src/__tests__/sessionLogSpanProcessor.test.ts',
   'src/__tests__/sessionLogger.test.ts',
-  'src/__tests__/sessionState-concurrency.test.ts',
-  'src/__tests__/sessionState.test.ts',
   'src/__tests__/summarize-non-workflow-provider.test.ts',
   'src/__tests__/system-workflow-schema.test.ts',
   // These task-persistence suites use real store transitions and synchronous private-artifact subprocesses.
@@ -362,6 +365,7 @@ export const lightNamedIntegrationTestFiles = Object.freeze([
   'src/__tests__/it-cli-dynamic-import-error.test.ts',
   'src/__tests__/it-cli-entrypoint-lazy-loading.test.ts',
   'src/__tests__/it-cli-entrypoint-required-option-errors.test.ts',
+  'src/__tests__/it-handoff-progress.test.ts',
   'src/__tests__/it-interactive-esc-menu-routes.test.ts',
   'src/__tests__/it-interactive-routes.test.ts',
   'src/__tests__/it-list-esc-menu-routes.test.ts',
@@ -376,6 +380,8 @@ export const lightNamedIntegrationTestFiles = Object.freeze([
   'src/__tests__/it-workflow-policy.test.ts',
   'src/__tests__/kiro-provider-integration.test.ts',
   'src/__tests__/mcp-entrypoint.integration.test.ts',
+  'src/__tests__/merge-pagination.integration.test.ts',
+  'src/__tests__/merge-settings.integration.test.ts',
   'src/__tests__/pi-builtin-override.integration.test.ts',
   'src/__tests__/pi-sdk-compat.integration.test.ts',
   'src/__tests__/repertoire/add-integration.test.ts',
