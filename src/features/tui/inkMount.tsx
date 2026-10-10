@@ -117,6 +117,9 @@ export async function mountInk<T>(
         // terminal (`hasInteractiveTerminal`) and owns it, so that decision is
         // handed to Ink rather than re-made from the environment.
         interactive: true,
+        // Keep the real cursor at the live region's first row. Otherwise a
+        // height reduction can move old input-box rows into native scrollback.
+        anchorLiveFrame: true,
       });
 
       // An Ink teardown before the view settles would leave this pending.

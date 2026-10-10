@@ -53,6 +53,8 @@ export interface TaktPtySession {
   visibleTranscript(): Promise<string[]>;
   /** The rows of the live screen, oldest first. */
   visibleScreen(): Promise<string[]>;
+  /** Reflow the emulator and resize the real PTY (delivers SIGWINCH to TAKT). */
+  resize(cols: number, rows: number): Promise<void>;
   /** Resolve once the pattern appears in the output; reject with the output on timeout. */
   waitForOutput(pattern: string | RegExp, timeoutMs?: number): Promise<void>;
   /**
@@ -183,6 +185,12 @@ export function startTaktPty(options: TaktPtyOptions): TaktPtySession {
     },
 
     visibleScreen: readScreen,
+
+    async resize(cols: number, rows: number): Promise<void> {
+      await drainTerminal();
+      terminal.resize(cols, rows);
+      pty.resize(cols, rows);
+    },
 
     async waitForOutput(pattern: string | RegExp, timeoutMs = DEFAULT_OUTPUT_TIMEOUT): Promise<void> {
       const found = await waitFor(() => matches(output(), pattern), timeoutMs);
