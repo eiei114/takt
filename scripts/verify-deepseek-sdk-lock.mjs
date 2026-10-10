@@ -14,6 +14,7 @@ const managedBase = 'managed/deepseek-harness/';
  */
 export function verifyDeepSeekManagedLock(root, rootLock, managed, lock, constants) {
   if (Object.keys(root.dependencies).some((name) => name.startsWith('@deepseek-ai/'))
+    || Object.keys(root.optionalDependencies ?? {}).some((name) => name.startsWith('@deepseek-ai/'))
     || root.bundleDependencies?.some((name) => name.startsWith('@deepseek-ai/'))
     || !root.files.includes(managedBase)) {
     throw new Error('The TAKT package must ship the managed assets without production DeepSeek dependencies');

@@ -13,6 +13,7 @@ interface StartupLock {
 }
 
 interface DeepSeekRootManifest extends StartupManifest {
+  optionalDependencies?: Record<string, string>;
   devDependencies: Record<string, string>;
   files: string[];
 }

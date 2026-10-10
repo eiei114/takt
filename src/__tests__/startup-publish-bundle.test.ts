@@ -121,6 +121,35 @@ describe('CLI startup publish dependency bundle', () => {
 });
 
 describe('managed DeepSeek npm dependency graph', () => {
+  it.each(['@deepseek-ai/dsh', '@deepseek-ai/dsh-sdk-client'])(
+    'rejects %s declared as an optional production dependency',
+    (name) => {
+      const fixture = createDeepSeekFixture();
+      fixture.root.optionalDependencies = { [name]: SDK_VERSION };
+
+      expect(() => verifyDeepSeekManagedLock(
+        fixture.root,
+        fixture.rootLock,
+        fixture.managed,
+        fixture.lock,
+        fixture.constants,
+      )).toThrow('without production DeepSeek dependencies');
+    },
+  );
+
+  it('accepts unrelated optional dependencies while keeping DeepSeek development-only', () => {
+    const fixture = createDeepSeekFixture();
+    fixture.root.optionalDependencies = { fflate: '0.8.3' };
+
+    expect(() => verifyDeepSeekManagedLock(
+      fixture.root,
+      fixture.rootLock,
+      fixture.managed,
+      fixture.lock,
+      fixture.constants,
+    )).not.toThrow();
+  });
+
   it.each([
     ['root lock manifest entry', (fixture: ReturnType<typeof createDeepSeekFixture>) => {
       fixture.rootLock.packages['']!.devDependencies!['@deepseek-ai/dsh-sdk-client'] = STALE_VERSION;
