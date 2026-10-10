@@ -511,6 +511,7 @@ export async function runTui(options: RunTuiOptions): Promise<TuiRunResult> {
             return {
               kind: 'continue' as const,
               notice: await runTellCommand({
+                showProgress: true,
                 cwd: options.cwd,
                 lang: options.lang,
                 inlineText: text,
@@ -541,6 +542,7 @@ export async function runTui(options: RunTuiOptions): Promise<TuiRunResult> {
           return {
             kind: 'continue' as const,
             notice: await runAssistantRetryCommand({
+              showProgress: true,
               cwd: options.cwd,
               lang: options.lang,
               command: id === 'assistant-requeue' ? 'requeue' : 'retry',
