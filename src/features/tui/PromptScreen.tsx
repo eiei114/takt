@@ -90,6 +90,7 @@ export function PromptScreen({
         text={editor.text}
         cursor={editor.cursor}
         contentWidth={contentWidth}
+        cursorRowOffset={1}
         placeholder={placeholder}
         hint={hint}
         completions={[]}

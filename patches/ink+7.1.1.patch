@@ -3,18 +3,19 @@ new file mode 100644
 index 0000000..38e242d
 --- /dev/null
 +++ b/node_modules/ink/build/anchored-log-update.js
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,94 @@
 +import ansiEscapes from 'ansi-escapes';
 +import cliCursor from 'cli-cursor';
 +import sliceAnsi from 'slice-ansi';
 +
-+// Keep the hidden terminal cursor at the FIRST live row, not below the frame.
-+// Height reductions then discard live rows below it rather than committing
-+// their leading rows to scrollback. A single soft-wrapped group also lets
-+// xterm-like terminals leave the cursor's live group for the app to redraw.
++// Keep the saved terminal position at the FIRST live row, not below the frame.
++// The active cursor may move within the frame for IME input; restoring the saved
++// position before redraw keeps height reductions from committing live rows to
++// scrollback. A single soft-wrapped group lets the app redraw after resizing.
 +export default function createAnchored(stream) {
 +    let previousOutput = '';
 +    let hasFrame = false;
++    let cursorPosition;
 +    let cursorDirty = false;
 +    let cursorHidden = false;
 +    const render = (str) => {
@@ -30,7 +31,7 @@ index 0000000..38e242d
 +        const rows = Math.max(1, stream.rows || 24);
 +        const output = str.endsWith('\n') ? str.slice(0, -1) : str;
 +        const lines = output === '' ? [] : output.split('\n').slice(-rows);
-+        let frame = hadFrame ? ansiEscapes.eraseDown : '';
++        let frame = hadFrame ? '\x1b8' + ansiEscapes.eraseDown : '';
 +        if (lines.length > 0) {
 +            const below = lines.length - 1;
 +            // Make space using line feeds BEFORE drawing. Any scrolled rows
@@ -40,7 +41,7 @@ index 0000000..38e242d
 +                + ansiEscapes.cursorTo(0);
 +            // ASCII scaffolding establishes one wrapped group. Overwrite it
 +            // with wraparound disabled so tabs/emoji cannot add uncounted rows.
-+            // Save/restore keeps the real cursor at the group's first row.
++            // Save/restore keeps the saved cursor at the group's first row.
 +            // Paint bottom-to-top: even if a PTY splits this write and a
 +            // resize occurs mid-frame, no painted live rows precede the cursor.
 +            frame += '\x1b7' + ' '.repeat(columns * lines.length)
@@ -48,6 +49,10 @@ index 0000000..38e242d
 +                + [...lines].reverse().map(line => sliceAnsi(line.replaceAll('\t', ' '), 0, columns))
 +                    .join(ansiEscapes.cursorUp(1) + ansiEscapes.cursorTo(0))
 +                + '\x1b[?7h\x1b8';
++            if (cursorPosition !== undefined) {
++                frame += (cursorPosition.y > 0 ? ansiEscapes.cursorDown(cursorPosition.y) : '')
++                    + ansiEscapes.cursorTo(cursorPosition.x);
++            }
 +        }
 +        if (frame !== '') {
 +            stream.write(frame);
@@ -59,10 +64,11 @@ index 0000000..38e242d
 +    };
 +    render.clear = () => {
 +        if (hasFrame) {
-+            stream.write(ansiEscapes.eraseDown);
++            stream.write('\x1b8' + ansiEscapes.eraseDown);
 +        }
 +        previousOutput = '';
 +        hasFrame = false;
++        cursorPosition = undefined;
 +        cursorDirty = false;
 +    };
 +    render.done = () => {
@@ -75,17 +81,17 @@ index 0000000..38e242d
 +    render.reset = () => {
 +        previousOutput = '';
 +        hasFrame = false;
++        cursorPosition = undefined;
 +        cursorDirty = false;
 +    };
 +    render.sync = (str) => {
 +        previousOutput = str;
 +        hasFrame = str !== '' && str !== '\n';
++        cursorPosition = undefined;
 +        cursorDirty = false;
 +    };
 +    render.setCursorPosition = (position) => {
-+        if (position !== undefined) {
-+            throw new Error('anchorLiveFrame requires a software caret, not useCursor().');
-+        }
++        cursorPosition = position;
 +        cursorDirty = true;
 +    };
 +    render.isCursorDirty = () => cursorDirty;
@@ -399,13 +405,14 @@ diff --git a/node_modules/ink/build/render.d.ts b/node_modules/ink/build/render.
 index 867edca..16f2ddd 100644
 --- a/node_modules/ink/build/render.d.ts
 +++ b/node_modules/ink/build/render.d.ts
-@@ -68,4 +68,10 @@ export type RenderOptions = {
+@@ -68,4 +68,11 @@ export type RenderOptions = {
      */
      incrementalRendering?: boolean;
      /**
-+    Keep a software-caret live frame in one cursor-anchored wrapped group.
-+    Clears only the region below its first row and does not support useCursor.
-+    Main-screen interactive TTY only; overrides incremental rendering.
++    Keep a live frame in one cursor-anchored wrapped group, while allowing
++    useCursor to position the terminal cursor within that frame.
++    Clears only the region below its first row. Main-screen interactive TTY
++    only; overrides incremental rendering.
 +    */
 +    anchorLiveFrame?: boolean;
 +    /**

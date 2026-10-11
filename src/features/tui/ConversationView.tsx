@@ -295,6 +295,11 @@ export function ConversationView({
     : 0;
   remainingLiveRows -= visibleCompletionCount - visibleCompletionRows;
   const showModelRow = remainingLiveRows > 0;
+  const promptCursorRowOffset = Number(showQueueSummary)
+    + visibleQueueRows
+    + Number(showStatusLine)
+    + Number(showLiveStatus)
+    + Number(showNotice);
   const queuedSummary = queue.length > visibleQueueRows
     ? `${ui.queuedHint}  ${ui.queuedMore.replace('{count}', String(queue.length - visibleQueueRows))}`
     : ui.queuedHint;
@@ -838,6 +843,7 @@ export function ConversationView({
           text={editor.text}
           cursor={editor.cursor}
           contentWidth={contentWidth}
+          cursorRowOffset={promptCursorRowOffset}
           placeholder={ui.placeholder}
           hint={ui.hint}
           completions={completions}

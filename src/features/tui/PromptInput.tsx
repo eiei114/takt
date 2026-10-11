@@ -1,6 +1,6 @@
-import { Box, Text } from 'ink';
+import { Box, Text, useCursor } from 'ink';
 import type { ReactElement } from 'react';
-import { nextGraphemeEnd } from '../../shared/utils/grapheme.js';
+import { measureWidth, nextGraphemeEnd } from '../../shared/utils/grapheme.js';
 import { layoutPromptRows, selectVisibleRowRange } from './promptLayout.js';
 import type { SlashCompletion } from './slashCompletion.js';
 
@@ -17,6 +17,8 @@ export interface PromptInputProps {
   readonly cursor: number;
   /** Columns the box has for text; the view resolves it once for keys and layout. */
   readonly contentWidth: number;
+  /** Row of the prompt within Ink's live output frame; omitted when the caller does not own cursor positioning. */
+  readonly cursorRowOffset?: number;
   readonly placeholder: string;
   readonly hint: string;
   readonly completions: readonly SlashCompletion[];
@@ -51,6 +53,7 @@ export function PromptInput({
   text,
   cursor,
   contentWidth,
+  cursorRowOffset,
   placeholder,
   hint,
   completions,
@@ -61,6 +64,7 @@ export function PromptInput({
   showHint = true,
   showBorder = true,
 }: PromptInputProps): ReactElement {
+  const { setCursorPosition } = useCursor();
   const layout = layoutPromptRows(text, cursor, contentWidth);
   const { start, end } = selectVisibleRowRange(
     layout.rows.length,
@@ -70,6 +74,11 @@ export function PromptInput({
   const completionRange = maxVisibleCompletions > 0
     ? selectVisibleRowRange(completions.length, completionIndex, maxVisibleCompletions)
     : { start: 0, end: 0 };
+  const cursorText = layout.rows[layout.cursorRow] ?? '';
+  setCursorPosition(disabled || cursorRowOffset === undefined ? undefined : {
+    x: (showBorder ? 4 : 3) + measureWidth(cursorText.slice(0, layout.cursorColumn)),
+    y: cursorRowOffset + (showBorder ? 1 : 0) + layout.cursorRow - start,
+  });
 
   return (
     <Box flexDirection="column">

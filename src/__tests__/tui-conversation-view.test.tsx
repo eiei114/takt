@@ -698,7 +698,12 @@ describe('TranscriptEntryView', () => {
     }
   });
 
-  it.each([false, true])('should not archive a multiline input frame when height or width shrinks (incremental=%s)', async (incrementalRendering) => {
+  it.each([
+    [false, true],
+    [true, true],
+    [false, false],
+    [true, false],
+  ] as const)('should not archive a multiline input frame when height or width shrinks (incremental=%s, anchored=%s)', async (incrementalRendering, anchorLiveFrame) => {
     const conversation = createScriptedConversation(NO_LOCAL_COMMANDS, NO_ORDER_COMMANDS);
     const stdout = new ResizableOutput(80, 20);
     const input = createTestInput();
@@ -720,7 +725,7 @@ describe('TranscriptEntryView', () => {
         initialQueue={[]} residentSession={false} modelLabel={() => MODEL_LABEL} onExit={() => undefined}
       />, {
         stdout: stdout as unknown as NodeJS.WriteStream, stderr: new PassThrough() as unknown as NodeJS.WriteStream,
-        stdin: input, exitOnCtrlC: false, interactive: true, incrementalRendering, anchorLiveFrame: true, patchConsole: false,
+        stdin: input, exitOnCtrlC: false, interactive: true, incrementalRendering, anchorLiveFrame, patchConsole: false,
       });
       await app.waitUntilRenderFlush();
       await updateTerminal();
@@ -1046,6 +1051,47 @@ describe('TranscriptEntryView', () => {
     }
   });
 
+  it('should place the terminal cursor at the Japanese prompt insertion point in an anchored live frame', async () => {
+    const stdout = new ResizableOutput(40, 12);
+    const terminal = new Terminal({ allowProposedApi: true, cols: 40, rows: 12, convertEol: true });
+    let app: ReturnType<typeof renderInk> | undefined;
+
+    try {
+      app = renderInk(
+        <PromptInput
+          text="やあてすと"
+          cursor={2}
+          contentWidth={34}
+          cursorRowOffset={0}
+          placeholder="Type a message"
+          hint="Enter: send"
+          completions={[]}
+          completionIndex={0}
+          disabled={false}
+        />,
+        {
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          stderr: new PassThrough() as unknown as NodeJS.WriteStream,
+          stdin: createTestInput(),
+          exitOnCtrlC: false,
+          interactive: true,
+          anchorLiveFrame: true,
+          patchConsole: false,
+        },
+      );
+      await waitForOutput(stdout, (captured) => captured.includes('やあてすと'), 'Japanese prompt');
+      await writeTerminalFrames(terminal, stdout.frames);
+
+      expect(terminal.buffer.active.cursorX).toBe(8);
+      expect(terminal.buffer.active.cursorY).toBe(1);
+    } finally {
+      app?.unmount();
+      await app?.waitUntilExit();
+      app?.cleanup();
+      terminal.dispose();
+    }
+  });
+
   it.each([false, true])('should clear reflowed rows above and below a hardware cursor (incremental=%s)', async (incrementalRendering) => {
     const wideColumns = 20;
     const narrowColumns = 5;
@@ -1160,6 +1206,7 @@ describe('TranscriptEntryView', () => {
         text="not submitted"
         cursor={13}
         contentWidth={24}
+        cursorRowOffset={0}
         placeholder="Type a message"
         hint="Enter: send"
         completions={[]}
@@ -3763,6 +3810,147 @@ describe('ConversationView', () => {
 });
 
 describe('TUI scrollback output', () => {
+  it('should keep the terminal input cursor at the insertion point inside a Japanese draft', async () => {
+    const conversation = createScriptedConversation(NO_LOCAL_COMMANDS, NO_ORDER_COMMANDS);
+    const stdout = new ResizableOutput(80, 20);
+    const stderr = new PassThrough();
+    const terminal = new Terminal({
+      allowProposedApi: true,
+      cols: stdout.columns,
+      rows: stdout.rows,
+      convertEol: true,
+    });
+    let app: ReturnType<typeof renderInk> | undefined;
+
+    try {
+      app = renderInk(
+        <ConversationView
+          ui={UI}
+          lang="en"
+          conversation={conversation}
+          userMessageColors={FALLBACK_USER_MESSAGE_COLORS}
+          initialEntries={[]}
+          submitMode="chat"
+          autoSubmit={false}
+          initialHistory={[]}
+          initialDraft={{ text: 'やあてすと', cursor: 2 }}
+          initialQueue={[]}
+          residentSession={false}
+          modelLabel={() => MODEL_LABEL}
+          onExit={() => undefined}
+        />,
+        {
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          stderr: stderr as unknown as NodeJS.WriteStream,
+          stdin: createTestInput(),
+          exitOnCtrlC: false,
+          interactive: true,
+          patchConsole: false,
+        },
+      );
+
+      await waitForOutput(stdout, (value) => value.includes('やあてすと'), 'Japanese draft');
+      await flushFrames();
+      await writeTerminalFrames(terminal, stdout.frames);
+
+      const screenRows = Array.from({ length: stdout.rows }, (_, index) => (
+        terminal.buffer.active.getLine(terminal.buffer.active.baseY + index)?.translateToString(true) ?? ''
+      ));
+      const promptRow = screenRows.find((row) => row.includes('やあてすと'));
+      if (promptRow === undefined) {
+        throw new Error('The Japanese draft was not present in the terminal screen.');
+      }
+      const draftStart = promptRow.indexOf('やあてすと');
+
+      expect(terminal.buffer.active.cursorX).toBe(draftStart + stringWidth('やあ'));
+      expect(terminal.buffer.active.cursorY + terminal.buffer.active.baseY)
+        .toBe(screenRows.indexOf(promptRow));
+    } finally {
+      terminal.dispose();
+      app?.unmount();
+    }
+  });
+
+  it('should keep the terminal input cursor at the Japanese draft insertion point with queued lines visible', async () => {
+    const conversation = createScriptedConversation(NO_LOCAL_COMMANDS, NO_ORDER_COMMANDS);
+    const stdout = new ResizableOutput(80, 20);
+    const stderr = new PassThrough();
+    const input = createTestInput();
+    const terminal = new Terminal({
+      allowProposedApi: true,
+      cols: stdout.columns,
+      rows: stdout.rows,
+      convertEol: true,
+    });
+    let app: ReturnType<typeof renderInk> | undefined;
+
+    try {
+      app = renderInk(
+        <ConversationView
+          ui={UI}
+          lang="en"
+          conversation={conversation}
+          userMessageColors={FALLBACK_USER_MESSAGE_COLORS}
+          initialEntries={[]}
+          submitMode="chat"
+          autoSubmit={false}
+          initialHistory={[]}
+          initialDraft={undefined}
+          initialQueue={[]}
+          residentSession={false}
+          modelLabel={() => MODEL_LABEL}
+          onExit={() => undefined}
+        />,
+        {
+          stdout: stdout as unknown as NodeJS.WriteStream,
+          stderr: stderr as unknown as NodeJS.WriteStream,
+          stdin: input,
+          exitOnCtrlC: false,
+          interactive: true,
+          patchConsole: false,
+        },
+      );
+
+      await waitForOutput(stdout, (value) => value.includes(UI.placeholder), 'initial prompt');
+      input.write('first question');
+      await waitForOutput(stdout, (value) => value.includes('first question'), 'first question draft');
+      input.write(ENTER);
+      await waitForOutput(stdout, (value) => value.includes(UI.thinking), 'busy status');
+      input.write('queued one');
+      await waitForOutput(stdout, (value) => value.includes('queued one'), 'first queued draft');
+      input.write(ENTER);
+      await waitForOutput(stdout, (value) => value.includes(UI.queuedHint), 'visible queue summary');
+      input.write('queued two');
+      await waitForOutput(stdout, (value) => value.includes('queued two'), 'second queued draft');
+      input.write(ENTER);
+      await flushFrames();
+      input.write('やあ');
+      await waitForOutput(stdout, (value) => value.includes('やあ'), 'initial Japanese draft');
+      input.write('てすと');
+      await waitForOutput(stdout, (value) => value.includes('やあてすと'), 'continued Japanese draft');
+      await writeTerminalFrames(terminal, stdout.frames);
+
+      const screenRows = Array.from({ length: stdout.rows }, (_, index) => (
+        terminal.buffer.active.getLine(terminal.buffer.active.baseY + index)?.translateToString(true) ?? ''
+      ));
+      expect(screenRows.some((row) => row.includes('❯ queued one'))).toBe(true);
+      expect(screenRows.some((row) => row.includes('❯ queued two'))).toBe(true);
+      const promptRow = screenRows.find((row) => row.includes('やあてすと'));
+      if (promptRow === undefined) {
+        throw new Error('The Japanese draft was not present in the terminal screen.');
+      }
+      const draftStart = promptRow.indexOf('やあてすと');
+      const expectedCursorX = draftStart + stringWidth('やあてすと');
+
+      expect(terminal.buffer.active.cursorX).toBe(expectedCursorX);
+      expect(terminal.buffer.active.cursorY + terminal.buffer.active.baseY)
+        .toBe(screenRows.indexOf(promptRow));
+    } finally {
+      terminal.dispose();
+      app?.unmount();
+    }
+  });
+
   it('should show local notices at five and six terminal rows', async () => {
     const renderLocalNotice = async (rows: number) => {
       const conversation = createScriptedConversation(
