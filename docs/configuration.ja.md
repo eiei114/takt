@@ -186,7 +186,7 @@ assistant:
 | `logging.debug` | boolean | `false` | デバッグログを有効化（`debug.log` + `prompts.jsonl`） |
 | `logging.provider_events` | boolean | `false` | provider stream イベントを永続化 |
 | `logging.usage_events` | boolean | `false` | usage イベントログを永続化 |
-| `provider` | `"claude"` \| `"claude-sdk"` \| `"claude-headless"` \| `"claude-terminal"` \| `"codex"` \| `"opencode"` \| `"deepseek-harness"` \| `"pi"` \| `"cursor"` \| `"copilot"` \| `"kiro"` \| `"mock"` | `"claude-sdk"` | デフォルトの具体 AI provider（`claude-sdk` = Agent SDK モード、`claude` = `claude-sdk` のエイリアス、`claude-headless` = ヘッドレス CLI モード、`claude-terminal` = experimental interactive terminal モード、`pi` = Pi SDK モード、`deepseek-harness` = 公式 DeepSeek Harness TypeScript SDK/runtime `0.2.0-rc.2`） |
+| `provider` | `"claude"` \| `"claude-sdk"` \| `"claude-headless"` \| `"claude-terminal"` \| `"codex"` \| `"opencode"` \| `"deepseek-harness"` \| `"pi"` \| `"cursor"` \| `"copilot"` \| `"kiro"` \| `"mock"` | `"claude-sdk"` | デフォルトの具体 AI provider（`claude-sdk` = Agent SDK モード、`claude` = `claude-sdk` のエイリアス、`claude-headless` = ヘッドレス CLI モード、`claude-terminal` = experimental interactive terminal モード、`pi` = Pi SDK モード、`deepseek-harness` = 公式 DeepSeek Harness TypeScript SDK/runtime `0.2.1-alpha.2`） |
 | `model` | string | - | デフォルトモデル名（provider にそのまま渡される） |
 | `branch_name_strategy` | `"romaji"` \| `"ai"` | `"romaji"` | ブランチ名生成方式 |
 | `prevent_sleep` | boolean | `false` | macOS アイドルスリープ防止（caffeinate） |
@@ -477,7 +477,45 @@ validation に失敗します。
 
 ほとんどの設定キーは `TAKT_` に設定キーパスをアンダースコア区切り・大文字化して続けた環境変数で上書きできます。`logging.debug` は `TAKT_LOGGING_DEBUG`、`telemetry.routing_decisions` は `TAKT_TELEMETRY_ROUTING_DECISIONS` になります。よく使う例: `TAKT_PROVIDER`、`TAKT_MODEL`、`TAKT_CONCURRENCY`、`TAKT_LOGGING_DEBUG`、`TAKT_TELEMETRY_ROUTING_DECISIONS`、`TAKT_OBSERVABILITY_ENABLED`。環境変数の値は対応するファイルの値を上書きし、キーを持つ層で適用されます。グローバル専用キー（例: `logging`、`disabled_builtins`）はグローバル `~/.takt/config.yaml` 層で、プロジェクト上書き可能キー（例: `concurrency`、`telemetry.routing_decisions`）はプロジェクト `.takt/config.yaml` 層でも解決されます。
 
-設定キー上書きとは別に、`TAKT_NOTIFY_WEBHOOK` には Slack Incoming Webhook URL を設定できます。設定すると、pipeline 完了時と `takt run` のタスクバッチ完了時（run summary）に Slack へ通知が送信されます。
+設定キー上書きとは別に、`TAKT_NOTIFY_WEBHOOK` には Slack Incoming Webhook URL を設定できます。設定すると、pipeline 完了時と `takt run` のタスクバッチ完了時（run summary）に Slack へ通知が送信されます。manager の有効なゴール通知にも同じ Webhook を使用します。
+
+## manager の通知設定
+
+プロジェクト `.takt/config.yaml` とグローバル `~/.takt/config.yaml` の
+`manager.notifications` で、ゴール通知の種類ごとに有効・無効を指定できます。
+
+| 設定キー | 通知する出来事 | 既定値 |
+|----------|----------------|--------|
+| `question` | 質問の保存 | `true` |
+| `awaiting_merge` | 人の取り込み待ち | `true` |
+| `completed` | ゴールの完成 | `true` |
+| `progress` | 作業単位の取り込み | `true` |
+| `blocked` | manager が通知ツールで伝える行き詰まり | `true` |
+| `custom` | manager が通知ツールで伝える任意の出来事 | `true` |
+
+```yaml
+manager:
+  notifications:
+    question: true
+    awaiting_merge: true
+    completed: true
+    progress: false
+    blocked: true
+    custom: true
+```
+
+各種類を独立して、プロジェクト設定 → グローバル設定 → `true` の順に解決します。
+明示した `false` も優先されます。たとえばグローバルの `question: false` は
+プロジェクトの `question: true` で上書きでき、プロジェクトでそのキーを省略すると
+グローバルの値を使います。他の種類の指定には影響しません。
+
+`false` は該当種類の通知の保存と Slack 送信を無効にします。
+質問の保存・回答・依存する作業の投入判定、作業単位の取り込み、ゴールの状態更新は維持します。
+通知を無効にしても回答待ちの質問は TUI に表示されます。
+`TAKT_NOTIFY_WEBHOOK` が未設定なら Slack には送らず、有効な保存通知は
+次の TUI 起動時・発言時に表示します。Slack 送信に失敗しても manager の処理は止めず、
+診断を保存して TUI に表示します。通常の run・pipeline の既存通知には
+`manager.notifications` を適用しません。
 
 ## API キー設定
 
@@ -1387,7 +1425,7 @@ credential は公式 store `$DSH_HOME/.credentials.yaml`（既定 `~/.dsh/.crede
 
 runtime が稼働し、対応設定が同じ間は複数 turn を同一 session で受け付け、FIFO で直列化します。SDK は runtime 終了・再起動後に保存済み履歴を復元できず、設定変更で runtime 交換が必要な場合も履歴を保持できません。その状態での継続要求は固定診断で拒否します。推論強度、model、credential、runtime 設定を変える場合は新しい session identity を使ってください。過去履歴は再送せず、拒否したturnをID変更で再実行しません。対話の後続turnでは、後述の方針に従い新IDを許容します。workflowには新しいTAKT session/runが必要です。これは意図的な破壊的変更で、runtimeをまたぐ履歴保持は後続対応です。
 
-provider error が credential を含んで session file に保存されることを防ぐため、TAKT は runtime の JSONL session-persistence plugin を無効にします。同一 runtime 内の turn はメモリ上で引き続き利用できます。既存の DeepSeek session file は読み込み・削除しません。
+provider error が credential を含んで session log に保存・送信されることを防ぐため、TAKT は runtime の JSONL session-persistence plugin と `dsh_session_log` の API 送信を無効にします。同一 runtime 内の turn はメモリ上で引き続き利用できます。既存の DeepSeek session file は読み込み・削除しません。
 
 公式SDKのファイル操作・検索・shell・subagent/fork・workflow toolは有効です。他のローカルcoding providerと同じ、信頼するworkspaceでの実行を前提にします。モデルのtoolからcredentialを絶対に読めない保証ではありません。SDKのworkspace-write境界は書き込みを制御しますが、secret fileの読み取り隔離ではありません。認証設定は引き続きstore path/referenceだけを渡し、credential bindingとruntime homeを分離します。明示された未対応のTAKT制約は起動前に拒否し、黙って無視しません。
 
@@ -1770,6 +1808,8 @@ merge:
 
 draft の除外は `where` より先に適用します。`where.draft: true` で draft だけを選ぶ場合も、`include_draft: true` が必要です。
 fork の除外も `where` より先に適用します。fork を対象にするには `include_forks: true` または CLI の `--include-forks` が必要です。PR 番号指定は選定条件を無視しますが、fork の脅威検査は行います。
+
+番号を省略した一括処理では open PR の番号一覧を全ページ取得した後に詳細と条件を確認します。一覧取得に失敗した場合は PR の処理を開始しません。
 
 `threat_check_max_diff_bytes` は fork の AI 評価へ渡す累積差分の上限で、正の整数（UTF-8 バイト数）です。既定は200,000です。上限超過では差分を切り詰めて判定せず、人間による確認を求める PR コメントを残して停止します。機械的検査で指示ファイル・CI 定義や危険な Git 設定を検出した場合、AI 評価と本体 workflow は実行しません。
 

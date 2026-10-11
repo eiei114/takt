@@ -186,7 +186,7 @@ assistant:
 | `logging.debug` | boolean | `false` | Enable debug logging (`debug.log` + `prompts.jsonl`) |
 | `logging.provider_events` | boolean | `false` | Persist provider stream events |
 | `logging.usage_events` | boolean | `false` | Persist usage event logs |
-| `provider` | `"claude"` \| `"claude-sdk"` \| `"claude-headless"` \| `"claude-terminal"` \| `"codex"` \| `"opencode"` \| `"deepseek-harness"` \| `"pi"` \| `"cursor"` \| `"copilot"` \| `"kiro"` \| `"mock"` | `"claude-sdk"` | Default concrete AI provider (`claude-sdk` = Agent SDK mode, `claude` = alias for `claude-sdk`, `claude-headless` = headless CLI mode, `claude-terminal` = experimental interactive terminal mode, `pi` = Pi SDK mode, `deepseek-harness` = official DeepSeek Harness TypeScript SDK/runtime `0.2.0-rc.2`) |
+| `provider` | `"claude"` \| `"claude-sdk"` \| `"claude-headless"` \| `"claude-terminal"` \| `"codex"` \| `"opencode"` \| `"deepseek-harness"` \| `"pi"` \| `"cursor"` \| `"copilot"` \| `"kiro"` \| `"mock"` | `"claude-sdk"` | Default concrete AI provider (`claude-sdk` = Agent SDK mode, `claude` = alias for `claude-sdk`, `claude-headless` = headless CLI mode, `claude-terminal` = experimental interactive terminal mode, `pi` = Pi SDK mode, `deepseek-harness` = official DeepSeek Harness TypeScript SDK/runtime `0.2.1-alpha.2`) |
 | `model` | string | - | Default model name (passed to provider as-is) |
 | `branch_name_strategy` | `"romaji"` \| `"ai"` | `"romaji"` | Branch name generation strategy |
 | `prevent_sleep` | boolean | `false` | Prevent macOS idle sleep (caffeinate) |
@@ -484,7 +484,47 @@ fails config validation.
 
 Most config keys can be overridden with an environment variable named `TAKT_` plus the config key path, uppercased and joined with underscores: `logging.debug` becomes `TAKT_LOGGING_DEBUG`, `telemetry.routing_decisions` becomes `TAKT_TELEMETRY_ROUTING_DECISIONS`. Common examples: `TAKT_PROVIDER`, `TAKT_MODEL`, `TAKT_CONCURRENCY`, `TAKT_LOGGING_DEBUG`, `TAKT_TELEMETRY_ROUTING_DECISIONS`, `TAKT_OBSERVABILITY_ENABLED`. An environment value overrides the corresponding file value and is applied at the layer that owns the key: global-only keys (e.g. `logging`, `disabled_builtins`) resolve at the global `~/.takt/config.yaml` layer, while project-overridable keys (e.g. `concurrency`, `telemetry.routing_decisions`) also resolve at the project `.takt/config.yaml` layer.
 
-Separately from config-key overrides, `TAKT_NOTIFY_WEBHOOK` sets a Slack Incoming Webhook URL. When it is set, TAKT posts a Slack notification on pipeline completion and when a `takt run` task batch finishes (run summary).
+Separately from config-key overrides, `TAKT_NOTIFY_WEBHOOK` sets a Slack Incoming Webhook URL. When it is set, TAKT posts a Slack notification on pipeline completion and when a `takt run` task batch finishes (run summary). Enabled manager goal notifications use the same webhook.
+
+## Manager Notification Settings
+
+Use `manager.notifications` in project `.takt/config.yaml` or global
+`~/.takt/config.yaml` to enable or disable each kind of goal notification.
+
+| Setting key | Event | Default |
+|-------------|-------|---------|
+| `question` | A question is saved | `true` |
+| `awaiting_merge` | A goal awaits a human merge | `true` |
+| `completed` | A goal is completed | `true` |
+| `progress` | A work unit is integrated | `true` |
+| `blocked` | The manager reports a blocker through the notification tool | `true` |
+| `custom` | The manager reports another event through the notification tool | `true` |
+
+```yaml
+manager:
+  notifications:
+    question: true
+    awaiting_merge: true
+    completed: true
+    progress: false
+    blocked: true
+    custom: true
+```
+
+Each kind resolves independently in this order: project setting → global setting →
+`true`. An explicit `false` takes precedence too. For example, project
+`question: true` overrides global `question: false`; omitting that key in the
+project uses the global value. Settings for other kinds are unaffected.
+
+Setting a kind to `false` disables saving notifications of that kind and sending
+them to Slack. Saving and answering questions, checking work dependencies,
+integrating work units, and updating goal state continue to operate.
+Pending questions remain visible in the TUI even when their notifications are disabled.
+Without `TAKT_NOTIFY_WEBHOOK`, Slack delivery is skipped and enabled saved
+notifications appear when the TUI next opens or receives a user message.
+Slack delivery failures do not stop manager processing; diagnostics are saved and
+displayed in the TUI. `manager.notifications` does not affect existing run or
+pipeline notifications.
 
 ## API Key Configuration
 
@@ -1454,7 +1494,7 @@ Credentials resolve from the official store `$DSH_HOME/.credentials.yaml` (defau
 
 A live runtime accepts multiple turns with the same supported configuration. TAKT serializes turns for the same session in FIFO order. The SDK cannot resume persisted history after runtime termination/restart or preserve history when a runtime replacement is required by a configuration change. A continuation request in those states is refused with a fixed diagnostic. Use a new session identity for new reasoning effort, model, credential, or runtime settings. TAKT does not replay old history or rerun the refused turn under a different ID. Subsequent interactive user turns may use a fresh ID under the policy below; workflows still require a new TAKT session/run. This is a deliberate breaking reduction; cross-runtime history preservation is deferred.
 
-TAKT disables the runtime's JSONL session-persistence plugin because a provider error body can echo a credential into a newly written session file. Same-runtime turns remain available in memory. TAKT does not read or delete existing DeepSeek session files.
+TAKT disables the runtime's JSONL session-persistence plugin and its `dsh_session_log` API upload because provider error bodies can echo credentials into session logs. Same-runtime turns remain available in memory. TAKT does not read or delete existing DeepSeek session files.
 
 The official SDK's file/search, shell, subagent/fork, and workflow tools remain enabled. This follows the trusted-workspace model of other local coding providers, not a guarantee that model-callable tools cannot read credentials. The SDK's workspace-write boundary governs writes, not secret-file confidentiality. Authentication configuration still passes only a store path/reference and keeps credential binding separate from runtime home. Unsupported explicit TAKT controls continue to fail before startup; they are never silently ignored.
 
@@ -1809,3 +1849,7 @@ Companion structured calls use the same provider-neutral fresh-session transport
 | `cursor`, `copilot`, `kiro` | Unavailable |
 
 When live tool events are unavailable, completion review and turn-boundary finding delivery still run.
+
+## Merge selection
+
+For a bulk `takt merge` run, TAKT collects all open PR numbers in creation order before reading each PR's details and applying `merge.where`, `include_draft`, and `include_forks`. A PR closed before its details are read is skipped. If the number listing fails, no PR workflow starts. An explicit PR number ignores selection conditions and still runs the fork threat check.
