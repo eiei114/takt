@@ -164,6 +164,13 @@ describe('content width', () => {
   it('should never go below a width a row can be read at', () => {
     expect(resolvePromptContentWidth(10)).toBe(12);
   });
+
+  it('should fit a cursor-first input to a narrow terminal instead of clipping the caret', () => {
+    expect(resolvePromptContentWidth(14, 1)).toBe(8);
+    expect(resolvePromptContentWidth(10, 1)).toBe(4);
+    expect(resolvePromptContentWidth(6, 1)).toBe(1);
+    expect(resolvePromptContentWidth(undefined, 1)).toBe(74);
+  });
 });
 
 describe('visible row range', () => {

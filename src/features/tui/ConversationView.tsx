@@ -121,7 +121,7 @@ export interface ConversationViewProps {
 
 const CANCELLED: InteractiveModeResult = { action: 'cancel', task: '' };
 
-/** Queued lines shown above the prompt; the rest are counted in one row. */
+/** Queued lines shown below the prompt; the rest are counted in one row. */
 const MAX_QUEUE_ROWS = 3;
 
 /** `/go` asks the session for a task instruction rather than for a reply. */
@@ -232,7 +232,8 @@ export function ConversationView({
     return () => clearInterval(interval);
   }, [liveStatusReader, liveStatusRefreshIntervalMs]);
   // Resolved once per render: the keys and the box must agree on the row width.
-  const contentWidth = resolvePromptContentWidth(columns);
+  // The IME caret must fit the reported width, even below the legacy minimum.
+  const contentWidth = resolvePromptContentWidth(columns, 1);
   const allCompletions = useMemo(
     () => resolveSlashCompletions(editor.text, lang, conversation.commandAvailability),
     [conversation.commandAvailability, editor.text, lang],
@@ -244,22 +245,25 @@ export function ConversationView({
   // A submission can lazily replace the session before this component renders
   // its response, so read the current value on every render.
   const modelRow = toSingleLineText(modelLabel());
-  const promptRowCount = layoutPromptRows(editor.text, editor.cursor, contentWidth).rows.length;
+  const promptLayout = layoutPromptRows(editor.text, editor.cursor, contentWidth);
+  const promptRowCount = promptLayout.rows.length - promptLayout.cursorRow
+    + Number(promptLayout.cursorRow > 0);
 
-  // Ink redraws this frame on every update and writes a trailing line break.
-  // Leave one terminal row free so cursor advance cannot scroll the buffer.
-  let remainingLiveRows = Math.max(1, (rows || 24) - 1);
-  const showStatusLine = remainingLiveRows > 1;
+  // Only the input's top border is above the caret row. Everything else is
+  // below it so a height reduction cannot commit an old prompt/status prefix
+  // to scrollback.
+  // Leave one terminal row free for Ink's trailing line break.
+  let remainingLiveRows = Math.max(1, (rows || 24) - 1) - 1;
+  const showStatusLine = remainingLiveRows > 0;
   if (showStatusLine) {
     remainingLiveRows -= 1;
   }
-  // Keep one editor row before optional content is assigned.
-  remainingLiveRows -= 1;
   const showNotice = notice !== null && remainingLiveRows > 0;
   if (showNotice) {
     remainingLiveRows -= 1;
   }
-  const showPromptBorder = remainingLiveRows >= 2;
+  // A notice and a queued-input summary take priority over the two border rows.
+  const showPromptBorder = remainingLiveRows > 1 + Number(queue.length > 0);
   if (showPromptBorder) {
     remainingLiveRows -= 2;
   }
@@ -295,11 +299,6 @@ export function ConversationView({
     : 0;
   remainingLiveRows -= visibleCompletionCount - visibleCompletionRows;
   const showModelRow = remainingLiveRows > 0;
-  const promptCursorRowOffset = Number(showQueueSummary)
-    + visibleQueueRows
-    + Number(showStatusLine)
-    + Number(showLiveStatus)
-    + Number(showNotice);
   const queuedSummary = queue.length > visibleQueueRows
     ? `${ui.queuedHint}  ${ui.queuedMore.replace('{count}', String(queue.length - visibleQueueRows))}`
     : ui.queuedHint;
@@ -820,14 +819,22 @@ export function ConversationView({
     <>
       <TranscriptView entries={transcript} userMessageColors={userMessageColors} />
       <Box flexDirection="column">
-        {showQueueSummary && (
-          <Box flexDirection="column">
-            <Text dimColor wrap="truncate-end">{queuedSummary}</Text>
-            {queue.slice(queue.length - visibleQueueRows).map((line, index) => (
-              <Text key={index} dimColor wrap="truncate-end">{`❯ ${toSingleLineText(line)}`}</Text>
-            ))}
-          </Box>
-        )}
+        <PromptInput
+          text={editor.text}
+          cursor={editor.cursor}
+          contentWidth={contentWidth}
+          cursorRowOffset={0}
+          cursorFirst
+          placeholder={ui.placeholder}
+          hint={ui.hint}
+          completions={completions}
+          completionIndex={completionIndex}
+          disabled={isFinishing}
+          maxVisibleRows={visiblePromptRows}
+          maxVisibleCompletions={visibleCompletionCount}
+          showHint={false}
+          showBorder={showPromptBorder}
+        />
         {showStatusLine && (
           <StatusLine
             busy={isBusy}
@@ -839,21 +846,15 @@ export function ConversationView({
           <Text dimColor wrap="truncate-end">{liveStatus || ' '}</Text>
         )}
         {showNotice && <Text color="red" wrap="truncate-end">{notice ?? ' '}</Text>}
-        <PromptInput
-          text={editor.text}
-          cursor={editor.cursor}
-          contentWidth={contentWidth}
-          cursorRowOffset={promptCursorRowOffset}
-          placeholder={ui.placeholder}
-          hint={ui.hint}
-          completions={completions}
-          completionIndex={completionIndex}
-          disabled={isFinishing}
-          maxVisibleRows={visiblePromptRows}
-          maxVisibleCompletions={visibleCompletionCount}
-          showHint={showPromptHint}
-          showBorder={showPromptBorder}
-        />
+        {showQueueSummary && (
+          <Box flexDirection="column">
+            <Text dimColor wrap="truncate-end">{queuedSummary}</Text>
+            {queue.slice(queue.length - visibleQueueRows).map((line, index) => (
+              <Text key={index} dimColor wrap="truncate-end">{`❯ ${toSingleLineText(line)}`}</Text>
+            ))}
+          </Box>
+        )}
+        {showPromptHint && <Text dimColor wrap="truncate-end">{ui.hint}</Text>}
         {showModelRow && <Text dimColor wrap="truncate-end">{modelRow}</Text>}
       </Box>
     </>

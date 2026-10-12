@@ -34,11 +34,14 @@ export interface PromptLayout {
 }
 
 /** Columns the prompt box has left for text once its own chrome is paid for. */
-export function resolvePromptContentWidth(terminalColumns: number | undefined): number {
+export function resolvePromptContentWidth(
+  terminalColumns: number | undefined,
+  minimumWidth = MIN_CONTENT_WIDTH,
+): number {
   const columns = terminalColumns === undefined || terminalColumns <= 0
     ? FALLBACK_TERMINAL_COLUMNS
     : terminalColumns;
-  return Math.max(columns - BOX_CHROME_COLUMNS, MIN_CONTENT_WIDTH);
+  return Math.max(columns - BOX_CHROME_COLUMNS, minimumWidth);
 }
 
 /**

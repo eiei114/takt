@@ -209,7 +209,7 @@ export async function runTuiConversation(
           settle({ exit, carried });
         }}
       />
-    ), exitedEarly, colorResolution.delayedResponseGuard);
+    ), exitedEarly, colorResolution.delayedResponseGuard, { anchorLiveFrame: true });
 
     history = settled.carried.history;
     queue = settled.carried.queue;

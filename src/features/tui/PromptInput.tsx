@@ -6,9 +6,9 @@ import type { SlashCompletion } from './slashCompletion.js';
 
 /**
  * The draft can grow past the terminal height, and every extra row makes the
- * interactive frame taller. Only a window around the caret is drawn so the frame
- * Ink has to erase each tick stays short and predictable, however long the draft
- * or its wrapped lines become.
+ * interactive frame taller. The conversation starts its window on the caret's
+ * row, so no draft row sits above the IME cursor near the live-region anchor.
+ * Other callers keep the centered window they used before.
  */
 export const MAX_VISIBLE_ROWS = 6;
 
@@ -19,6 +19,8 @@ export interface PromptInputProps {
   readonly contentWidth: number;
   /** Row of the prompt within Ink's live output frame; omitted when the caller does not own cursor positioning. */
   readonly cursorRowOffset?: number;
+  /** Start the editor window on the caret row; only the top border may precede it. */
+  readonly cursorFirst?: boolean;
   readonly placeholder: string;
   readonly hint: string;
   readonly completions: readonly SlashCompletion[];
@@ -54,6 +56,7 @@ export function PromptInput({
   cursor,
   contentWidth,
   cursorRowOffset,
+  cursorFirst = false,
   placeholder,
   hint,
   completions,
@@ -66,15 +69,18 @@ export function PromptInput({
 }: PromptInputProps): ReactElement {
   const { setCursorPosition } = useCursor();
   const layout = layoutPromptRows(text, cursor, contentWidth);
-  const { start, end } = selectVisibleRowRange(
-    layout.rows.length,
-    layout.cursorRow,
-    Math.max(1, Math.min(maxVisibleRows, MAX_VISIBLE_ROWS)),
-  );
+  const rowLimit = Math.max(1, Math.min(maxVisibleRows, MAX_VISIBLE_ROWS));
+  const cursorText = layout.rows[layout.cursorRow] ?? '';
+  const showFoldHint = cursorFirst && rowLimit > 1 && layout.cursorRow > 0;
+  const { start, end } = cursorFirst
+    ? {
+      start: layout.cursorRow,
+      end: Math.min(layout.rows.length, layout.cursorRow + rowLimit - Number(showFoldHint)),
+    }
+    : selectVisibleRowRange(layout.rows.length, layout.cursorRow, rowLimit);
   const completionRange = maxVisibleCompletions > 0
     ? selectVisibleRowRange(completions.length, completionIndex, maxVisibleCompletions)
     : { start: 0, end: 0 };
-  const cursorText = layout.rows[layout.cursorRow] ?? '';
   setCursorPosition(disabled || cursorRowOffset === undefined ? undefined : {
     x: (showBorder ? 4 : 3) + measureWidth(cursorText.slice(0, layout.cursorColumn)),
     y: cursorRowOffset + (showBorder ? 1 : 0) + layout.cursorRow - start,
@@ -100,14 +106,15 @@ export function PromptInput({
             const index = start + offset;
             return (
               <Box key={index}>
-                {/* Only the very first row is marked; the rest align under it. */}
-                <Text color="cyan">{index === 0 ? '❯ ' : '  '}</Text>
+                {/* The active window is marked, including a folded cursor-first draft. */}
+                <Text color="cyan">{index === (cursorFirst ? start : 0) ? '❯ ' : '  '}</Text>
                 {index === layout.cursorRow && !disabled
                   ? renderCaretRow(rowText, layout.cursorColumn)
                   : <Text wrap="truncate-end">{rowText}</Text>}
               </Box>
             );
           })}
+        {showFoldHint && <Text dimColor wrap="truncate-end">{`↑ ${start}`}</Text>}
       </Box>
       {completions.slice(completionRange.start, completionRange.end).map((completion, offset) => {
         const index = completionRange.start + offset;

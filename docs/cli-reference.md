@@ -34,6 +34,10 @@ selectors and tasks. User and AI paragraphs use the terminal's native wrapping, 
 previously committed paragraphs can widen again; explicit source newlines remain.
 History printed by the older hard-wrapping renderer retains its existing breaks.
 The draft, queued input, and in-flight requests are retained.
+In the task conversation, the caret row is the first row inside the input box;
+status, notices and queued input appear below the box. Earlier display rows are folded,
+with `↑ N` indicating their count. Up/down still edits those rows, and folding or
+resizing does not change the submitted text.
 
 `--workflow` is the canonical option.
 
