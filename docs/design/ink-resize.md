@@ -49,7 +49,9 @@ React children rather than the terminal serializer.
 
 ## Live-region cursor anchoring
 
-TAKT's `mountInk()` opts into `anchorLiveFrame`: the hidden physical cursor stays
+Only the task conversation mount passes `{ anchorLiveFrame: true }` to
+`mountInk()`; manager, auxiliary prompts and dispatch mounts keep Ink's default
+render options. In the anchored conversation frame, the hidden physical cursor stays
 at the **top** of the live frame (the first row, or the row below a one-row
 border), and the frame forms one soft-wrapped group. Xterm-like
 terminals leave the cursor's group for the application to redraw. Height
@@ -85,6 +87,28 @@ silently disappear until the next input edit. Oversized output is clipped from
 its bottom; rows above the cursor (the border) are dropped only when the caret
 row would not fit otherwise.
 
+### Input width and confirmation rows
+
+The editor draws each preserved tab as one space. Wrapping, up/down movement and
+the physical cursor all measure that same display width; submission and handoff
+retain the original tabs. A pending provider confirmation reserves one row below
+the input before status and optional chrome. It is sanitized to one line and
+truncated to the terminal width. At heights 1–2 only the input row fits, so the
+confirmation becomes visible after enlargement. Ctrl+C/Ctrl+D rejects the pending
+confirmation before draining its submission.
+
+### IME commit and Enter input contract
+
+Ink's `useInput()` exposes text and key flags, not IME composition state. When a
+terminal delivers committed Japanese text (including a CR within the same text
+event), it edits the draft without sending; a separate Return event sends it.
+Regression tests cover these distinct input events in chat and summarize modes.
+If a terminal instead reports conversion confirmation as a separate bare CR,
+that event is indistinguishable from the user's send Enter. No timing or
+Japanese-character heuristic can reliably separate them. Supporting that case
+requires terminal/IME-specific composition signalling and a real input trace;
+the existing tests do not claim universal composition-Enter detection.
+
 ### macOS Terminal.app
 
 Terminal.app differs from xterm.js terminals (Orca, VS Code) in three measured ways:
@@ -98,7 +122,8 @@ Narrowing therefore makes the full-width group taller (five 120-cell rows become
 ten rows at 60 columns). A redraw that only erased from the anchor would leave the
 extra rows blank below the new frame. On the next height reduction Terminal.app
 keeps those blank rows and archives the input's top rows instead. When
-`TERM_PROGRAM` is `Apple_Terminal`, `mountInk()` sets `reflowsCursorGroup`. The
+`TERM_PROGRAM` is `Apple_Terminal`, an explicitly anchored conversation mount
+also sets `reflowsCursorGroup`; other mounts do not receive this option. The
 anchored renderer then recomputes the drawn group's height at the new width,
 including the cursor's row when the caret reflows past the new width. It ends the
 redraw where the rewrapped group ended, and the leftover rows become blank leading

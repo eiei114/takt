@@ -29,6 +29,7 @@ export interface PromptScreenProps {
   readonly onDone: (answer: string | null) => void;
 }
 
+/** Edits one answer, aligns its IME cursor below the question, and reports submission or cancellation. */
 export function PromptScreen({
   question,
   hint,

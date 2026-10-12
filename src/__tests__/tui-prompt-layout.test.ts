@@ -70,6 +70,16 @@ describe('prompt layout', () => {
     expect(layout.cursorColumn).toBe(3);
   });
 
+  it('should count each preserved tab as one displayed space when wrapping', () => {
+    const text = 'ab\t日z';
+    const layout = layoutPromptRows(text, text.length, 6);
+    expect(layout.rows).toEqual(['ab\t日', 'z']);
+    expect(layout.rowStarts).toEqual([0, 4]);
+    expect(layout.cursorRow).toBe(1);
+    expect(layout.cursorColumn).toBe(1);
+    expect(layout.rows.join('')).toBe(text);
+  });
+
   it('should keep an empty line as a row of its own', () => {
     const layout = layoutPromptRows('\n', 1, WIDTH);
     expect(layout.rows).toEqual(['', '']);
@@ -141,6 +151,12 @@ describe('caret movement by row', () => {
     expect(moveCaretByRow('あいうえ', 4, 7, 'up')).toBe(1);
     // The same column going the other way lands after 'え'.
     expect(moveCaretByRow('あいうえ', 1, 7, 'down')).toBe(4);
+  });
+
+  it('should preserve the displayed column across tabs without changing buffer offsets', () => {
+    const text = 'a\tb\n1234';
+    expect(moveCaretByRow(text, 3, WIDTH, 'down')).toBe(7);
+    expect(moveCaretByRow(text, 7, WIDTH, 'up')).toBe(3);
   });
 
   it('should land on a grapheme boundary, never inside a pair', () => {

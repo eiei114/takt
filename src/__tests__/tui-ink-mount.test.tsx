@@ -31,6 +31,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+/** Settles a minimal mount immediately so tests can inspect its rendering options and teardown. */
 function mountWithOptions(options?: InkMountOptions): Promise<string> {
   return mountInk(({ settle }) => {
     settle('done');

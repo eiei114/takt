@@ -195,6 +195,7 @@ export function startTaktPty(options: TaktPtyOptions): TaktPtySession {
 
     visibleScreen: readScreen,
 
+    /** Drains queued terminal writes before returning the zero-based physical cursor coordinates. */
     async cursorPosition(): Promise<{ readonly column: number; readonly row: number }> {
       await drainTerminal();
       return { column: terminal.buffer.active.cursorX, row: terminal.buffer.active.cursorY };

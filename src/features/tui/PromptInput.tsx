@@ -1,7 +1,7 @@
 import { Box, Text, useCursor } from 'ink';
 import type { ReactElement } from 'react';
 import { measureWidth, nextGraphemeEnd } from '../../shared/utils/grapheme.js';
-import { layoutPromptRows, selectVisibleRowRange } from './promptLayout.js';
+import { layoutPromptRows, selectVisibleRowRange, toPromptDisplayText } from './promptLayout.js';
 import type { SlashCompletion } from './slashCompletion.js';
 
 /**
@@ -35,6 +35,7 @@ export interface PromptInputProps {
   readonly showBorder?: boolean;
 }
 
+/** Highlights the grapheme at the buffer-relative caret in an already normalized display row. */
 function renderCaretRow(text: string, column: number): ReactElement {
   // The highlighted cell is the whole grapheme under the caret: inverting half
   // of an emoji sequence would both look wrong and mis-measure the row.
@@ -51,6 +52,7 @@ function renderCaretRow(text: string, column: number): ReactElement {
   );
 }
 
+/** Draws a bounded editor window and aligns the physical IME cursor with its rendered caret. */
 export function PromptInput({
   text,
   cursor,
@@ -82,7 +84,7 @@ export function PromptInput({
     ? selectVisibleRowRange(completions.length, completionIndex, maxVisibleCompletions)
     : { start: 0, end: 0 };
   setCursorPosition(disabled || cursorRowOffset === undefined ? undefined : {
-    x: (showBorder ? 4 : 3) + measureWidth(cursorText.slice(0, layout.cursorColumn)),
+    x: (showBorder ? 4 : 3) + measureWidth(toPromptDisplayText(cursorText.slice(0, layout.cursorColumn))),
     y: cursorRowOffset + (showBorder ? 1 : 0) + layout.cursorRow - start,
   });
 
@@ -104,13 +106,14 @@ export function PromptInput({
           )
           : layout.rows.slice(start, end).map((rowText, offset) => {
             const index = start + offset;
+            const displayRow = toPromptDisplayText(rowText);
             return (
               <Box key={index}>
                 {/* The active window is marked, including a folded cursor-first draft. */}
                 <Text color="cyan">{index === (cursorFirst ? start : 0) ? '❯ ' : '  '}</Text>
                 {index === layout.cursorRow && !disabled
-                  ? renderCaretRow(rowText, layout.cursorColumn)
-                  : <Text wrap="truncate-end">{rowText}</Text>}
+                  ? renderCaretRow(displayRow, layout.cursorColumn)
+                  : <Text wrap="truncate-end">{displayRow}</Text>}
               </Box>
             );
           })}

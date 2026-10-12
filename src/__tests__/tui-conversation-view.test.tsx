@@ -324,6 +324,7 @@ class ResizableOutput extends PassThrough {
   }
 }
 
+/** Waits for a bounded output predicate and detaches its listener on success or timeout. */
 function waitForOutput(
   output: ResizableOutput,
   predicate: (captured: string) => boolean,
@@ -1103,6 +1104,42 @@ describe('TranscriptEntryView', () => {
   });
 
   it.each([
+    { anchorLiveFrame: false, columns: 40 },
+    { anchorLiveFrame: true, columns: 40 },
+    { anchorLiveFrame: false, columns: 14 },
+    { anchorLiveFrame: true, columns: 14 },
+  ])('should align the physical cursor with preserved tabs (anchored=$anchorLiveFrame, columns=$columns)', async ({ anchorLiveFrame, columns }) => {
+    const text = 'a\tやあ\tてすと';
+    const cursor = 6;
+    const contentWidth = resolvePromptContentWidth(columns, 1);
+    const layout = layoutPromptRows(text, cursor, contentWidth);
+    const row = (layout.rows[layout.cursorRow] ?? '').replaceAll('\t', ' ');
+    const stdout = new ResizableOutput(columns, 12);
+    const terminal = new Terminal({ allowProposedApi: true, cols: columns, rows: 12, convertEol: true });
+    const app = renderInk(<PromptInput
+      text={text} cursor={cursor} contentWidth={contentWidth} cursorRowOffset={0} cursorFirst
+      placeholder="Type a message" hint="Enter: send" completions={[]} completionIndex={0} disabled={false}
+    />, {
+      stdout: stdout as unknown as NodeJS.WriteStream, stderr: new PassThrough() as unknown as NodeJS.WriteStream,
+      stdin: createTestInput(), exitOnCtrlC: false, interactive: true, anchorLiveFrame, patchConsole: false,
+    });
+    try {
+      await app.waitUntilRenderFlush();
+      await writeTerminalFrames(terminal, stdout.frames);
+      const buffer = terminal.buffer.active;
+      const line = buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true) ?? '';
+      expect(line).toContain(`❯ ${row}`);
+      expect(buffer.cursorX).toBe(line.indexOf('❯ ') + 2 + stringWidth(row.slice(0, layout.cursorColumn)));
+      expect(stdout.frames.join('')).not.toContain('\t');
+    } finally {
+      app.unmount();
+      await app.waitUntilExit();
+      app.cleanup();
+      terminal.dispose();
+    }
+  });
+
+  it.each([
     { name: 'a shorter rewrapped group', columns: 60, rows: 30, anchor: '\x1b[1G\x1b[J', below: 2 + 2 },
     { name: 'a group taller than the window', columns: 30, rows: 4, anchor: '\x1b[1;1H\x1b[J', below: 1 + 2 },
   ])('should end a Terminal.app redraw where the rewrapped live group ended: $name', async ({ columns, rows, anchor, below }) => {
@@ -1110,6 +1147,7 @@ describe('TranscriptEntryView', () => {
     // the cursor on a height reduction. Two 120-cell rows and the 5-cell model
     // row become five rows at 60 columns, two of them blank leading rows.
     const stdout = new ResizableOutput(120, 30);
+    /** Anchors a three-line fixture on its first row to expose Terminal.app reflow offsets. */
     function CursorFirstFrame(): ReactNode {
       const { setCursorPosition } = useCursor();
       setCursorPosition({ x: 2, y: 0 });
@@ -1142,6 +1180,7 @@ describe('TranscriptEntryView', () => {
     // At 60 columns the 120-cell border row becomes two rows, so Terminal.app
     // moves the cursor's row from 1 to 2; xterm.js leaves the group as drawn.
     const stdout = new ResizableOutput(120, 30);
+    /** Positions the hardware cursor below a one-row border for resize-origin assertions. */
     function BorderedFrame(): ReactNode {
       const { setCursorPosition } = useCursor();
       setCursorPosition({ x: 2, y: 1 });
@@ -1171,6 +1210,7 @@ describe('TranscriptEntryView', () => {
     // The blank rows a narrow redraw leaves belong to the same wrapped group,
     // so widening rewraps them away instead of leaving a growing gap.
     const stdout = new ResizableOutput(120, 30);
+    /** Keeps a fixed cursor intent while repeated resizes exercise the same live group. */
     function CursorFirstFrame(): ReactNode {
       const { setCursorPosition } = useCursor();
       setCursorPosition({ x: 2, y: 0 });
@@ -1203,6 +1243,7 @@ describe('TranscriptEntryView', () => {
 
   it('should redraw an xterm.js live group in place after a width reduction', async () => {
     const stdout = new ResizableOutput(120, 30);
+    /** Exposes the first-row anchor used when xterm.js leaves its cursor group unrewrapped. */
     function CursorFirstFrame(): ReactNode {
       const { setCursorPosition } = useCursor();
       setCursorPosition({ x: 2, y: 0 });
@@ -1573,6 +1614,112 @@ describe('TranscriptView', () => {
 });
 
 describe('ConversationView', () => {
+  it.each([CTRL_C, CTRL_D])('should exit a pending install confirmation after one interrupt (%j)', async (interrupt) => {
+    const conversation = createScriptedConversation(NO_LOCAL_COMMANDS, NO_ORDER_COMMANDS);
+    const onExit = vi.fn();
+    const answers: boolean[] = [];
+    conversation.submit = async (input) => {
+      answers.push(await input.confirmManagedProvider!('Install pi (52 MB)?'));
+      return { kind: 'assistant_response', content: 'must not be committed after cancellation' };
+    };
+    const draft = 'retained draft';
+    const view = renderConversation(conversation, 'chat', onExit, {
+      autoSubmit: true, initialDraft: { text: draft, cursor: draft.length },
+    });
+    try {
+      await vi.waitFor(() => expect(view.lastFrame()).toContain('Install pi (52 MB)?'));
+      view.stdin.write(interrupt);
+      await vi.waitFor(() => expect(onExit).toHaveBeenCalledOnce());
+      expect(answers).toEqual([false]);
+      expect(onExit).toHaveBeenCalledWith(
+        { kind: 'result', result: { action: 'cancel', task: '' } },
+        { history: [], queue: [], draft: { text: draft, cursor: draft.length } },
+      );
+      expect(view.lastFrame()).not.toContain('must not be committed');
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it.each([1, 2, 3, 4, 6, 8])('should budget one truncated confirmation row in a %s-row terminal', async (rows) => {
+    const conversation = createScriptedConversation(NO_LOCAL_COMMANDS, NO_ORDER_COMMANDS);
+    const requested = vi.fn();
+    conversation.submit = async (input) => {
+      requested();
+      await input.confirmManagedProvider!(`Install pi?\n${'long description '.repeat(10)}`);
+      return { kind: 'error', message: 'installation declined' };
+    };
+    const stdout = new ResizableOutput(40, rows);
+    const app = renderInk(<ConversationView
+      ui={UI} lang="en" conversation={conversation} initialEntries={[]}
+      userMessageColors={FALLBACK_USER_MESSAGE_COLORS} submitMode="chat" autoSubmit
+      initialHistory={[]} initialDraft={{ text: 'retained draft', cursor: 14 }} initialQueue={[]} residentSession={false}
+      modelLabel={() => MODEL_LABEL} onExit={() => undefined}
+    />, {
+      stdout: stdout as unknown as NodeJS.WriteStream, stderr: new PassThrough() as unknown as NodeJS.WriteStream,
+      stdin: createTestInput(), exitOnCtrlC: false, debug: true, patchConsole: false,
+    });
+    try {
+      await vi.waitFor(() => expect(requested).toHaveBeenCalledOnce());
+      await app.waitUntilRenderFlush();
+      const frame = stripAnsi(stdout.frames.filter((value) => value.includes('❯')).at(-1) ?? '');
+      expect(frame).toContain('❯ retained draft');
+      expect(frame.replace(/\n$/, '').split('\n').length).toBeLessThanOrEqual(Math.max(1, rows - 1));
+      if (rows > 2) expect(frame).toContain('Install pi? long description');
+      else expect(frame).not.toContain('Install pi?');
+    } finally {
+      app.unmount();
+      await app.waitUntilExit();
+      app.cleanup();
+    }
+  });
+
+  it('should preserve original tabs when submitting a normalized display draft', async () => {
+    const conversation = createScriptedConversation(NO_LOCAL_COMMANDS, NO_ORDER_COMMANDS);
+    const text = 'a\t日\tb';
+    const view = renderConversation(conversation, 'chat', vi.fn(), {
+      initialDraft: { text, cursor: text.length },
+    });
+    try {
+      await flushFrames();
+      expect(view.lastFrame()).toContain('❯ a 日 b');
+      expect(view.lastFrame()).not.toContain('\t');
+      view.stdin.write(ENTER);
+      await flushFrames();
+      expect(conversation.submitCalls[0]?.text).toBe(text);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  it.each([
+    { submitMode: 'chat', committed: 'てすと' },
+    { submitMode: 'chat', committed: 'てすと\r' },
+    { submitMode: 'summarize', committed: 'てすと' },
+    { submitMode: 'summarize', committed: 'てすと\r' },
+  ] as const)('should insert committed Japanese text without sending until a separate Enter ($submitMode, $committed)', async ({ submitMode, committed }) => {
+    const conversation = createScriptedConversation(NO_LOCAL_COMMANDS, NO_ORDER_COMMANDS);
+    const view = renderConversation(conversation, submitMode, vi.fn());
+    try {
+      await flushFrames();
+      // Exercise terminals reporting committed text, with or without a CR in
+      // that same text event. A separate bare CR has no composition metadata.
+      view.stdin.write('やあ、');
+      view.stdin.write(committed);
+      await flushFrames();
+      expect(view.lastFrame()).toContain('❯ やあ、てすと');
+      expect(conversation.submitCalls).toHaveLength(0);
+      expect(conversation.instructionCalls).toHaveLength(0);
+      view.stdin.write(ENTER);
+      await flushFrames();
+      const calls = submitMode === 'chat' ? conversation.submitCalls : conversation.instructionCalls;
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.text).toBe('やあ、てすと');
+    } finally {
+      view.unmount();
+    }
+  });
+
   it.each(['abort', 'unmount'] as const)('releases a pending install confirmation on %s and retains an in-progress draft on abort', async (action) => {
     const conversation = createScriptedConversation(NO_LOCAL_COMMANDS, NO_ORDER_COMMANDS);
     const answers: boolean[] = [];

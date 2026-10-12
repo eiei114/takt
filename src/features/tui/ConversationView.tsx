@@ -134,6 +134,7 @@ function transcriptEntry(role: TranscriptEntry['role'], content: string): Transc
   return { role, content: toDisplayText(content) };
 }
 
+/** Owns the editable conversation frame, queued turns, confirmation input and terminal handoffs. */
 export function ConversationView({
   ui,
   lang,
@@ -256,6 +257,12 @@ export function ConversationView({
   // to scrollback.
   // Leave one terminal row free for Ink's trailing line break.
   let remainingLiveRows = Math.max(1, (rows || 24) - 1) - 1;
+  // Keep the caret row; a pending confirmation gets the next row before status
+  // and optional chrome. Its single-line rendering cannot exceed this budget.
+  const showConfirmation = confirmationMessage !== null && remainingLiveRows > 0;
+  if (showConfirmation) {
+    remainingLiveRows -= 1;
+  }
   const showStatusLine = remainingLiveRows > 0;
   if (showStatusLine) {
     remainingLiveRows -= 1;
@@ -530,6 +537,9 @@ export function ConversationView({
    */
   const finishRun = useCallback(async (next: ConversationExit): Promise<void> => {
     cancellingRef.current = true;
+    // Reject any pending answer before waiting on its submission. The drain
+    // also aborts its controller, but confirmation must never hold exit open.
+    confirmationRef.current?.(false);
     // The terminal is about to belong to a selector, so the prompt stops taking
     // keys at the moment the decision is made rather than when the tree goes.
     setIsFinishing(true);
@@ -857,7 +867,9 @@ export function ConversationView({
           showHint={false}
           showBorder={showPromptBorder}
         />
-        {confirmationMessage !== null && <Text>{`${confirmationMessage} [y/N]`}</Text>}
+        {showConfirmation && (
+          <Text wrap="truncate-end">{`${toSingleLineText(confirmationMessage ?? '')} [y/N]`}</Text>
+        )}
         {showStatusLine && (
           <StatusLine
             busy={isBusy}
