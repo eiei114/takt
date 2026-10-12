@@ -56,9 +56,27 @@ takt --pipeline --runtime-assignment cost "#123"
 共有するコスト重視・品質重視のプリセットと、個人の `~/.takt/runtime.yaml` に別名を追加する手順は
 [名前付き assignment](./configuration.ja.md#名前付き-assignment) を参照してください。
 
+## 管理SDKの導入と更新
+
+Claude SDK、Codex、OpenCode、Pi、DeepSeek HarnessのSDKは通常のTAKTインストールには含まれません。TAKTリリースごとに固定したmanifestとlockを配布し、`npm ci --omit=dev --ignore-scripts`で管理ディレクトリへ導入します。npmとレジストリへの接続が必要です。
+
+```sh
+takt install claude-sdk
+takt install codex
+takt install opencode
+takt install pi
+takt install deepseek-harness
+takt update           # 導入済みで固定版と異なる対象だけを更新
+takt update codex     # 指定対象だけを更新
+```
+
+端末では実行前に必要なプロバイダと容量の目安を示して確認します。未導入の導入を拒否すると実行は開始しません。会話ではinstall案内を表示して入力へ戻ります。正常な旧版の更新を拒否した場合は警告して続行し、その版で失敗した場合にupdate案内を添えます。実行中は導入・更新・確認を行いません。CI、pipeline、watcherでは実行前に必要な対象を明示的に導入してください。
+
+容量の目安はClaude SDKが約250 MB、Codexが約340 MB、OpenCodeが約60 MB、Piが約52 MB、DeepSeek Harnessが約510 MBです。DeepSeekはmacOS arm64で依存込みの導入先を測定しました。OSとアーキテクチャによって変わります。ClaudeとCodexはCLIバイナリも管理します。`TAKT_CLAUDE_CLI_PATH`と`TAKT_CODEX_CLI_PATH`の明示上書きは保持し、PATH上の同名CLIは自動で流用しません。OpenCodeの外部CLIは別途導入してください。`takt install <provider> --force`で再導入できます。更新失敗時は以前の正常な世代を保持します。
+
 ## DeepSeek Harness
 
-`takt install deepseek-harness` は固定版の公式 SDK/runtime を TAKT 管理ディレクトリへ導入します。導入には npm レジストリへのネットワーク接続が必要で、npm のレジストリ・プロキシ設定をそのまま使います。TAKT を実行する Node に同梱の npm を優先し、なければ `PATH` 上の npm を使います。検査を通る導入済み環境では何も変更せず、検出した破損は修復します。検査を通っても動作がおかしい場合は `takt install deepseek-harness --force` で入れ直せます。`takt install` 単独は従来どおり `install` というタスクとして扱います。`takt deepseek-harness install` は削除済みです。`provider: deepseek-harness` と credential source は[設定ガイド](./configuration.ja.md#deepseek-harness-deepseek-harness)を参照してください。
+`takt install deepseek-harness` は固定版の公式 SDK/runtime を TAKT 管理ディレクトリへ導入します。導入には npm レジストリへのネットワーク接続が必要で、npm のレジストリ・プロキシ設定をそのまま使います。TAKT を実行する Node に同梱の npm を優先し、なければ `PATH` 上の npm を使います。検査を通り、現在の固定版と一致する導入済み環境では何も変更しません。正常な旧版は固定版へ更新し、検出した破損は修復します。検査を通っても動作がおかしい場合は `takt install deepseek-harness --force` で入れ直せます。`takt install` 単独は従来どおり `install` というタスクとして扱います。`takt deepseek-harness install` は削除済みです。`provider: deepseek-harness` と credential source は[設定ガイド](./configuration.ja.md#deepseek-harness-deepseek-harness)を参照してください。
 
 ## manager（実験的）
 
@@ -672,7 +690,9 @@ takt merge --concurrency 4
 
 workflow は CLI、`merge.workflow`、`merge-review-fix-simple` の順に選びます。既定では gather の後に1体のエージェントが動的ファセットでレビュー・修正・検証を行います。同期、必要なコンフリクト解消、push 後の CI 待機、承認、マージは `merge-review-fix` と共通です。並列レビューと裁定を使う場合は `--workflow merge-review-fix` を指定します。
 
-PR ごとに一時クローンで head を checkout し、一括処理では既定で2件を同時実行します。`merge.concurrency` で変更でき、`--concurrency` が指定された場合はそれを優先します。番号指定時は1件だけを処理します。`caccia.enabled: true` の場合、workflow が PR を push した後に CodeRabbit のレビューと Caccia の処理を待ち、最新の head で CI 判定とマージを進めます。各 PR の失敗で他の PR を中止せず、終了後にクローンを削除します。レポートは元リポジトリの `.takt/runs` に残ります。
+PR ごとに隔離クローンで head を checkout し、一括処理では既定で2件を同時実行します。`merge.concurrency` で変更でき、`--concurrency` が指定された場合はそれを優先します。番号指定時は1件だけを処理します。`caccia.enabled: true` の場合、workflow が PR を push した後に CodeRabbit のレビューと Caccia の処理を待ち、最新の head で CI 判定とマージを進めます。各 PR の失敗で他の PR を中止しません。レポートは元リポジトリの `.takt/runs` に残ります。
+
+マージ処理は `takt list` にタスクとして記録します。隔離クローンの配置には通常タスクと同じ `worktree_dir` を使います。既定は `../takt-worktrees` で、親ディレクトリに書き込めない場合は既存の代替先 `.takt/worktrees` を使います。失敗や競合で停止した場合はクローンと Git のマージ状態を残します。`takt merge` を再実行すると新しいタスクと隔離クローンを作り、失敗したタスクとクローンは保持します。既存のタスクを再開するには `takt list` の **Requeue** を使い、指示を直して再開するには **Retry** を使います。再開時には保存した PR の識別情報と fork の脅威を再確認します。同じ PR のマージタスクが実行中または保留中なら、新しい起動と失敗タスクの再開を拒否します。PR のマージ完了を確認した後にクローンを削除します。AI が競合に関連するソース、テスト、lockfile を変更した場合も TAKT がその差分を stage し、作業開始前からある未stageや未追跡の利用者の変更を保持します。
 
 対象の fork は、番号指定・一括処理・自動起動のいずれでも本体 workflow の前に脅威検査を行います。同一リポジトリの PR は検査を省略します。まず clone の危険な Git 設定キーと、累積差分に含まれる指示ファイル・CI 定義の追加や変更を検出します。通過した差分は元リポジトリの project root で AI が一回評価し、構造化判定を返します。差分と変更ファイル一覧は信頼できないデータとして渡します。
 
