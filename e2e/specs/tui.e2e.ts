@@ -1407,7 +1407,12 @@ steps:
     await assertHistoryAndLiveFrame(false);
 
     await submitLine(tui, 'keep answering');
-    await tui.waitForOutput(THINKING_MARKER);
+    // Raw output still contains /go's old spinner. Wait for this Enter to
+    // clear the live draft and start the current answer before typing again.
+    await tui.waitForScreen('the empty prompt while keep answering is in flight', (screen) => (
+      hasBusyStatus(screen)
+      && PROMPT_PLACEHOLDERS.some((placeholder) => hasCurrentPromptLine(screen, `❯  ${placeholder}`))
+    ), 10_000);
     const draft = '/go not submitted';
     tui.write(draft);
     await tui.waitForScreen('unsent /go draft while busy', (screen) => screen.includes(`❯ ${draft}`));
