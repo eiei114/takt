@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   normalizeProviderOptions,
   mergeProviderOptions,
+  assertAllowedNormalizedProviderBaseUrls,
 } from '../infra/config/providerOptions.js';
 import {
   buildRawTaktProvidersOrThrow,
@@ -68,6 +69,33 @@ describe('DeepSeek Harness provider options', () => {
     });
     expect(mergeProviderOptions(undefined, normalized)).toEqual(normalized);
     expect(denormalizeProviderOptions(normalized)).toEqual(raw);
+  });
+
+  it.each(['local', 'default'] as const)('rejects executable plugins from %s origin', (origin) => {
+    const plugins = [{ id: 'unsafe', source: 'https://example.test/plugin.git', config: { token: 'SECRET' } }];
+    const policy = { baseUrlTrust: 'local-loopback-only' as const, getOrigin: () => origin };
+    expect(() => normalizeProviderOptions({ deepseek_harness: { plugins } }, policy))
+      .toThrow('provider_options.deepseek_harness.plugins is not allowed');
+    expect(() => assertAllowedNormalizedProviderBaseUrls({ deepseekHarness: { plugins } }, policy))
+      .toThrow('provider_options.deepseek_harness.plugins is not allowed');
+    expect(() => normalizeProviderOptions({ deepseek_harness: { plugins } }, { getOrigin: () => origin }))
+      .toThrow('provider_options.deepseek_harness.plugins is not allowed');
+  });
+
+  it.each(['global', 'env', 'cli'] as const)('preserves plugins from trusted %s origin', (origin) => {
+    const plugins = [{ id: 'trusted', source: 'https://example.test/plugin.git', config: { token: 'SECRET' } }];
+    expect(normalizeProviderOptions({ deepseek_harness: { plugins } }, {
+      baseUrlTrust: 'local-loopback-only', getOrigin: () => origin,
+    })).toEqual({ deepseekHarness: { plugins } });
+  });
+
+  it('rejects workflow plugins but permits disabling them with an empty list', () => {
+    const policy = { baseUrlTrust: 'loopback-only' as const, pathPrefix: 'profile.options' };
+    expect(() => normalizeProviderOptions({ deepseek_harness: {
+      plugins: [{ id: 'unsafe', source: 'https://example.test/plugin.git' }],
+    } }, policy)).toThrow('profile.options.deepseek_harness.plugins is not allowed');
+    expect(normalizeProviderOptions({ deepseek_harness: { plugins: [] } }, policy))
+      .toEqual({ deepseekHarness: { plugins: [] } });
   });
 
   it('redacts a configured DeepSeek base URL without dropping runtime options', () => {

@@ -48,7 +48,7 @@ import {
   closeDeepSeekHarnessProcesses,
 } from '../infra/deepseek-harness/index.js';
 import { DeepSeekHarnessProvider } from '../infra/providers/deepseek-harness.js';
-import { installDeepSeekHarness } from '../infra/deepseek-harness/managed-package.js';
+import { DeepSeekHarnessInstallRequiredError, installDeepSeekHarness } from '../infra/deepseek-harness/managed-package.js';
 import {
   assertDeepSeekRuntimeCreationAllowed,
   getDeepSeekRuntimePaths,
@@ -202,6 +202,7 @@ async function waitForExit(child: ReturnType<typeof spawn>): Promise<void> {
   await new Promise<void>((resolve) => child.once('exit', () => resolve()));
 }
 
+/** Find a nonexistent process-group ID for deterministic stale-owner cleanup fixtures. */
 function unusedProcessGroupPid(): number {
   let pid = process.pid + 100_000;
   while (true) {
@@ -302,6 +303,23 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       else process.env[key] = value;
     }
     savedEnvironment.clear();
+  });
+
+  it.skipIf(!SUPPORTED_RUNTIME)('reports missing or damaged SDK before resolving any configured Git plugin', async () => {
+    managedModuleLoads.mockImplementationOnce(() => { throw new DeepSeekHarnessInstallRequiredError(); });
+    const cloneDirectoriesBefore = (await readdir(tmpdir()))
+      .filter((entry) => entry.startsWith('takt-deepseek-plugin-'));
+    const response = await callDeepSeekHarness('worker', 'Must not fetch a plugin.', {
+      cwd: temporaryRoot,
+      providerOptions: { plugins: [{ id: 'unreachable', source: 'unsupported-plugin-source' }] },
+    });
+    expect(response.status).toBe('error');
+    expect(response.content).toContain('takt install deepseek-harness');
+    expect(response.content).not.toContain('plugin source');
+    expect(managedModuleLoads).toHaveBeenCalledOnce();
+    expect(sdkConstructorOptions).toHaveLength(0);
+    expect((await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-plugin-')))
+      .toEqual(cloneDirectoriesBefore);
   });
 
   it.skipIf(!SUPPORTED_RUNTIME)('keeps real SDK initialization, turn and shutdown deadlines independent', async () => {

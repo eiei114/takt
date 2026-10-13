@@ -877,6 +877,7 @@ describe('workflow OpenTelemetry spans', () => {
             plugins: [{
               id: 'private-plugin',
               source: 'git:https://github.com/acme/plugin.git?auth=span-auth-secret&passwd=span-pass-secret&note=auth&label=passwd',
+              config: { token: 'span-plugin-secret', nested: { value: 'span-nested-secret' } },
             }],
           },
         },
@@ -892,6 +893,7 @@ describe('workflow OpenTelemetry spans', () => {
           plugins: [{
             id: 'private-plugin',
             source: 'git:https://github.com/acme/plugin.git?auth=[configured]&passwd=[configured]&note=auth&label=passwd',
+            config: { token: '[configured]', nested: '[configured]' },
           }],
         },
       }),
@@ -901,6 +903,8 @@ describe('workflow OpenTelemetry spans', () => {
     });
     expect(JSON.stringify(spans[0]?.attributes)).not.toContain('span-auth-secret');
     expect(JSON.stringify(spans[0]?.attributes)).not.toContain('span-pass-secret');
+    expect(JSON.stringify(spans[0]?.attributes)).not.toContain('span-plugin-secret');
+    expect(JSON.stringify(spans[0]?.attributes)).not.toContain('span-nested-secret');
   });
 
   it('redacts span text when observability is enabled but no sanitizer is threaded (fail closed)', async () => {

@@ -2,6 +2,7 @@ import type { StepProviderOptions } from '../models/workflow-provider-options.js
 
 export const CONFIGURED_PROVIDER_OPTION_VALUE = '[configured]';
 
+/** Hide URL credentials and secret query values without changing public source metadata. */
 function redactExtensionSource(source: string): string {
   const trimmedSource = source.trim();
   const credentials = /^(.*?:\/\/)[^/@]+@(.+)$/u.exec(trimmedSource);
@@ -27,6 +28,7 @@ function redactExtensionSource(source: string): string {
   );
 }
 
+/** Produce safe display/log/telemetry options without mutating runtime configuration. */
 export function redactProviderOptions(
   providerOptions: StepProviderOptions | undefined,
 ): StepProviderOptions | undefined {
@@ -59,6 +61,13 @@ export function redactProviderOptions(
               plugins: providerOptions.deepseekHarness.plugins.map((plugin) => ({
                 ...plugin,
                 source: redactExtensionSource(plugin.source),
+                ...(plugin.config === undefined
+                  ? {}
+                  : {
+                      config: Object.fromEntries(
+                        Object.keys(plugin.config).map((key) => [key, CONFIGURED_PROVIDER_OPTION_VALUE]),
+                      ),
+                    }),
               })),
             }),
       };

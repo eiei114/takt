@@ -17,6 +17,7 @@ export type DeepSeekHarnessPluginFailureStage =
   | 'entrypoint';
 
 export class DeepSeekHarnessPluginResolutionError extends Error {
+  /** Report the failed resolution stage without copying upstream credential-bearing diagnostics. */
   constructor(readonly stage: DeepSeekHarnessPluginFailureStage) {
     super(`DeepSeek Harness Git plugin ${stage} failed`);
     this.name = 'DeepSeekHarnessPluginResolutionError';
@@ -39,9 +40,13 @@ interface ParsedGitSource {
   remote: string;
 }
 
+/** Validate encrypted remote transports or local file sources before any clone is allocated. */
 function parseGitSource(source: string): ParsedGitSource {
   const remote = source.startsWith('git:') && !source.startsWith('git://') ? source.slice(4) : source;
-  if (/^(?:https?|ssh|git|file):\/\//iu.test(remote)) {
+  if (/^(?:http|git):\/\//iu.test(remote)) {
+    throw new Error('DeepSeek Harness plugin source must be a Git HTTPS or SSH source');
+  }
+  if (/^(?:https|ssh|file):\/\//iu.test(remote)) {
     let parsed: URL;
     try {
       parsed = new URL(remote);
@@ -72,6 +77,7 @@ function parseGitSource(source: string): ParsedGitSource {
   throw new Error('DeepSeek Harness plugin source must be a Git HTTPS or SSH source');
 }
 
+/** Disable user-configured filters during local checkout while leaving clone authentication intact. */
 function gitEnvironmentWithoutConfiguredFilters(): NodeJS.ProcessEnv {
   // A repository's attributes must not activate external commands from the user's Git configuration.
   const environment: NodeJS.ProcessEnv = {
@@ -87,15 +93,30 @@ function gitEnvironmentWithoutConfiguredFilters(): NodeJS.ProcessEnv {
   return environment;
 }
 
+/** Preserve helpers and SSH agents but disable interactive authentication for bounded Git operations. */
+function nonInteractiveGitEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return {
+    ...environment,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_ASKPASS: '',
+    SSH_ASKPASS: '',
+    ...(environment.GIT_SSH_COMMAND === undefined && environment.GIT_SSH === undefined
+      ? { GIT_SSH_COMMAND: 'ssh -o BatchMode=yes' }
+      : {}),
+  };
+}
+
+/** Execute a hook-free, non-interactive Git operation with cancellation and a fixed deadline. */
 async function runGit(args: string[], signal: AbortSignal | undefined, environment: NodeJS.ProcessEnv): Promise<void> {
   await execFile('git', ['-c', `core.hooksPath=${devNull}`, ...args], {
-    env: environment,
+    env: nonInteractiveGitEnvironment(environment),
     signal,
     timeout: 120_000,
     maxBuffer: 1024 * 1024,
   });
 }
 
+/** Resolve tags, commits and origin branches to a verified commit without interpreting ref options. */
 async function resolveCommit(directory: string, ref: string, signal?: AbortSignal): Promise<string> {
   const candidates = [ref, `refs/remotes/origin/${ref}`];
   for (const candidate of candidates) {
@@ -103,7 +124,7 @@ async function resolveCommit(directory: string, ref: string, signal?: AbortSigna
       const { stdout } = await execFile(
         'git',
         ['-c', `core.hooksPath=${devNull}`, '-C', directory, 'rev-parse', '--verify', '--end-of-options', `${candidate}^{commit}`],
-        { env: gitEnvironmentWithoutConfiguredFilters(), signal, timeout: 120_000, maxBuffer: 1024 * 1024 },
+        { env: nonInteractiveGitEnvironment(gitEnvironmentWithoutConfiguredFilters()), signal, timeout: 120_000, maxBuffer: 1024 * 1024 },
       );
       return stdout.trim();
     } catch {
@@ -113,6 +134,7 @@ async function resolveCommit(directory: string, ref: string, signal?: AbortSigna
   throw new Error('Git ref did not resolve to a commit');
 }
 
+/** Select a JavaScript manifest or index entrypoint contained within the cloned repository. */
 async function resolveEntrypoint(directory: string): Promise<string> {
   let manifest: { main?: unknown; module?: unknown } | undefined;
   try {
@@ -140,6 +162,7 @@ async function resolveEntrypoint(directory: string): Promise<string> {
   throw new DeepSeekHarnessPluginResolutionError('entrypoint');
 }
 
+/** Install manifest dependencies without lifecycle scripts, skipping repositories without a manifest. */
 async function installDependencies(directory: string, signal?: AbortSignal): Promise<void> {
   try {
     await stat(path.join(directory, 'package.json'));
@@ -159,6 +182,7 @@ async function installDependencies(directory: string, signal?: AbortSignal): Pro
   }
 }
 
+/** Resolve plugins into temporary Cordis entrypoints; callers own successful clones until disposal. */
 export async function resolveDeepSeekHarnessGitPlugins(
   options: readonly DeepSeekHarnessPluginOption[] | undefined,
   signal?: AbortSignal,

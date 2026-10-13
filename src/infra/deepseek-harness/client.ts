@@ -998,6 +998,7 @@ class DeepSeekHarnessProcess {
   private closed = false;
   private runtimeStartAttempted = false;
   private resourceDisposal: Promise<void> | undefined;
+  private cleanupReconciliation: Promise<boolean> | undefined;
   private cleanupReceiptListener: (() => void) | undefined;
   activeTurns = 1;
   lastUsed = ++runtimeUseSequence;
@@ -1189,13 +1190,23 @@ class DeepSeekHarnessProcess {
       this.releasePendingCleanupOwnership();
       return true;
     }
-    if (!(await this.confirmRuntimeExit(allowMissingOwnerAfterSdkClose))) return false;
-    await this.disposeResources();
-    this.closed = true;
-    this.releasePendingCleanupOwnership();
-    return true;
+    if (this.cleanupReconciliation !== undefined) return this.cleanupReconciliation;
+    const reconciliation = (async (): Promise<boolean> => {
+      if (!(await this.confirmRuntimeExit(allowMissingOwnerAfterSdkClose))) return false;
+      await this.disposeResources();
+      this.closed = true;
+      this.releasePendingCleanupOwnership();
+      return true;
+    })();
+    this.cleanupReconciliation = reconciliation;
+    try {
+      return await reconciliation;
+    } finally {
+      if (this.cleanupReconciliation === reconciliation) this.cleanupReconciliation = undefined;
+    }
   }
 
+  /** Wait a bounded grace period for durable process-group exit evidence. */
   private async waitForRuntimeExitConfirmation(allowMissingOwnerAfterSdkClose: boolean): Promise<boolean> {
     const deadline = Date.now() + DEEPSEEK_HARNESS_DISPOSAL_GRACE_MS;
     while (true) {
@@ -1211,6 +1222,7 @@ class DeepSeekHarnessProcess {
     }
   }
 
+  /** Reconcile this runtime's receipt, permitting a missing owner only after successful SDK close. */
   private async confirmRuntimeExit(
     allowMissingOwnerAfterSdkClose: boolean,
   ): Promise<boolean | undefined | null> {
@@ -1220,6 +1232,7 @@ class DeepSeekHarnessProcess {
     return cleanupAcknowledged;
   }
 
+  /** Share concurrent resource disposal and classify failures without exposing plugin or credential data. */
   private async disposeResources(): Promise<void> {
     if (this.resourceDisposal !== undefined) return this.resourceDisposal;
     const disposal = (async (): Promise<void> => {
@@ -1248,6 +1261,7 @@ class DeepSeekHarnessProcess {
     }
   }
 
+  /** Retain cleanup ownership and retry when a delayed supervisor receipt changes. */
   private retainPendingCleanupOwnership(): void {
     pendingCleanupProcesses.add(this);
     if (this.cleanupReceiptListener === undefined) {
@@ -1267,6 +1281,7 @@ class DeepSeekHarnessProcess {
     this.cleanupReceiptListener?.();
   }
 
+  /** Release receipt watching and pending-failure bookkeeping after confirmed cleanup. */
   private releasePendingCleanupOwnership(): void {
     pendingCleanupProcesses.delete(this);
     pendingCleanupFailures.delete(this);
@@ -1453,11 +1468,11 @@ async function getOrCreateProcess(
   }
 
   await assertDeepSeekRuntimeCreationAllowed();
+  const managedModules = await loadManagedDeepSeekHarnessModules();
   const pluginResolution = await resolveDeepSeekHarnessGitPlugins(providerOptions?.plugins, options.abortSignal);
   let credentialPatch: DeepSeekCredentialPatch | undefined;
   let processRecord: DeepSeekHarnessProcess | undefined;
   try {
-    const managedModules = await loadManagedDeepSeekHarnessModules();
     credentialPatch = await createDeepSeekCredentialPatch(
       binding,
       configuration.systemPrompt,

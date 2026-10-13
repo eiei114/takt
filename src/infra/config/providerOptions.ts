@@ -221,6 +221,22 @@ function assertAllowedDeepSeekHarnessReasoningEffort(
   );
 }
 
+/** Reject executable plugins from project/workflow settings while preserving trusted user configuration. */
+function assertAllowedDeepSeekHarnessPlugins(
+  path: string,
+  plugins: DeepSeekHarnessProviderOptions['plugins'],
+  options: NormalizeProviderOptionsOptions,
+): void {
+  if (plugins === undefined || plugins.length === 0) return;
+  const origin = options.getOrigin?.(path);
+  if (!shouldRequireLoopbackBaseUrl(path, options) && origin !== 'local' && origin !== 'default') return;
+  throw new Error(
+    `Configuration error: ${path} is not allowed in workflow or project config. `
+    + 'Define DeepSeek Harness plugins in global config.',
+  );
+}
+
+/** Enforce endpoint and executable-plugin trust policies on already-normalized provider options. */
 export function assertAllowedNormalizedProviderBaseUrls(
   providerOptions: StepProviderOptions | undefined,
   options: NormalizeProviderOptionsOptions = {},
@@ -239,6 +255,11 @@ export function assertAllowedNormalizedProviderBaseUrls(
   assertAllowedProviderBaseUrl(
     `${prefix}.deepseek_harness.base_url`,
     providerOptions?.deepseekHarness?.baseUrl,
+    options,
+  );
+  assertAllowedDeepSeekHarnessPlugins(
+    `${prefix}.deepseek_harness.plugins`,
+    providerOptions?.deepseekHarness?.plugins,
     options,
   );
 }
@@ -427,6 +448,11 @@ export function normalizeProviderOptions(
     assertAllowedDeepSeekHarnessReasoningEffort(
       deepseekReasoningEffortPath,
       options.deepseek_harness.reasoning_effort,
+      normalizationOptions,
+    );
+    assertAllowedDeepSeekHarnessPlugins(
+      `${deepseekOptionsPath}.plugins`,
+      options.deepseek_harness.plugins,
       normalizationOptions,
     );
     const deepseekHarness: DeepSeekHarnessProviderOptions = {

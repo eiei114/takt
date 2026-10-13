@@ -1051,6 +1051,7 @@ describe('SessionLogger', () => {
           plugins: [{
             id: 'private-plugin',
             source: 'git:https://github.com/acme/plugin.git?auth=session-auth-secret&passwd=session-pass-secret&note=auth&label=passwd',
+            config: { token: 'session-plugin-secret', nested: { value: 'session-nested-secret' } },
           }],
         },
       },
@@ -1067,12 +1068,15 @@ describe('SessionLogger', () => {
         plugins: [{
           id: 'private-plugin',
           source: 'git:https://github.com/acme/plugin.git?auth=[configured]&passwd=[configured]&note=auth&label=passwd',
+          config: { token: '[configured]', nested: '[configured]' },
         }],
       },
     });
     expect(stepStart?.providerOptionsSources).toEqual({ 'deepseekHarness.plugins': 'project' });
     expect(JSON.stringify(stepStart)).not.toContain('session-auth-secret');
     expect(JSON.stringify(stepStart)).not.toContain('session-pass-secret');
+    expect(JSON.stringify(stepStart)).not.toContain('session-plugin-secret');
+    expect(JSON.stringify(stepStart)).not.toContain('session-nested-secret');
   });
 
   it('step_start record includes provider/model/source when providerInfo is given (#370)', () => {

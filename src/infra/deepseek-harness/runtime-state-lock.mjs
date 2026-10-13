@@ -107,6 +107,7 @@ export async function cleanupDeepSeekRuntimeResources(
   }
 }
 
+/** Require complete, validated cleanup metadata before acting on a durable runtime owner. */
 function ownerCleanup(owner, stateDirectory) {
   const hasPaths = Object.hasOwn(owner, 'cleanupPaths');
   const hasReceipt = Object.hasOwn(owner, 'cleanupConfirmationPath');
@@ -124,6 +125,7 @@ function ownerCleanup(owner, stateDirectory) {
   );
 }
 
+/** Atomically retain resource ownership after cleanup fails. */
 async function persistCleanupFailure(ownerPath, owner) {
   const temporaryPath = `${ownerPath}.${process.pid}.tmp`;
   await writeFile(temporaryPath, `${JSON.stringify({ ...owner, cleanupFailed: true })}\n`, { mode: 0o600 });
@@ -135,6 +137,7 @@ async function persistCleanupFailure(ownerPath, owner) {
   }
 }
 
+/** Persist failed cleanup or retain the state lock so uncertain resources cannot be reused. */
 async function failClosedAfterCleanupError(lock, stateDirectory, ownerDirectory, ownerPath, owner) {
   try {
     await persistCleanupFailure(ownerPath, owner);
