@@ -98,6 +98,7 @@ export async function mountInk<T>(
   let outcome: { readonly value: T } | undefined;
   try {
     let instance: Instance | undefined;
+    let exitPromise: ReturnType<Instance['waitUntilExit']> | undefined;
     try {
       // Readline prompts leave stdin paused when they release the terminal. Ink
       // can then mount without receiving any keypresses unless the next owner
@@ -136,7 +137,8 @@ export async function mountInk<T>(
       });
 
       // An Ink teardown before the view settles would leave this pending.
-      instance.waitUntilExit().then(
+      exitPromise = instance.waitUntilExit();
+      exitPromise.then(
         () => fail(new Error(exitedEarlyMessage)),
         (error: unknown) => fail(error),
       );
@@ -157,7 +159,7 @@ export async function mountInk<T>(
         await teardown(() => mounted.clear());
         await teardown(() => mounted.unmount());
         await teardown(async () => {
-          await mounted.waitUntilExit();
+          await exitPromise;
         });
       }
       await teardown(() => {

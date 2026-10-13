@@ -102,17 +102,18 @@ export class TaskLifecycleService {
     this.store.update((current) => {
       const index = current.tasks.findIndex((task) => task.name === taskName);
       const task = current.tasks[index];
-      if (task?.status !== 'running' || task.merge_task !== true) {
-        throw new Error(`Running PR merge task not found: ${taskName}`);
+      if ((task?.status !== 'running' && task?.status !== 'failed') || task.merge_task !== true) {
+        throw new Error(`Active or failed PR merge task not found: ${taskName}`);
       }
       const tasks = [...current.tasks];
       tasks[index] = { ...task, merge_pushed_head_sha: headSha,
-        merge_push_base_head_sha: previousRemoteHeadSha, merge_caccia_approved_head_sha: undefined };
+        merge_push_base_head_sha: previousRemoteHeadSha,
+        merge_caccia_approved_head_sha: undefined, merge_caccia_skipped_head_sha: undefined };
       return { tasks };
     });
   }
 
-  recordPrMergeCacciaApproval(taskName: string, headSha: string): void {
+  recordPrMergeCacciaHandoff(taskName: string, headSha: string, outcome: 'reviewed' | 'skipped'): void {
     this.store.update((current) => {
       const index = current.tasks.findIndex((task) => task.name === taskName);
       const task = current.tasks[index];
@@ -120,7 +121,9 @@ export class TaskLifecycleService {
         throw new Error(`Pushed PR merge task not found: ${taskName}`);
       }
       const tasks = [...current.tasks];
-      tasks[index] = { ...task, merge_caccia_approved_head_sha: headSha };
+      tasks[index] = { ...task,
+        merge_caccia_approved_head_sha: outcome === 'reviewed' ? headSha : undefined,
+        merge_caccia_skipped_head_sha: outcome === 'skipped' ? headSha : undefined };
       return { tasks };
     });
   }

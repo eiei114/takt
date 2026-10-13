@@ -252,6 +252,12 @@ describe('E2E: Ink TUI', () => {
     return hasExactVisibleLine(promptLines.join('\n'), expected);
   }
 
+  function hasCompletePromptFrame(screen: string, columns: number): boolean {
+    const lines = screen.split('\n');
+    return lines.some((line) => line.startsWith('╭') && line.endsWith('╮') && line.length === columns)
+      && lines.some((line) => line.startsWith('╰') && line.endsWith('╯') && line.length === columns);
+  }
+
   function selectableRows(screen: string): string[] {
     return screen.split('\n').flatMap((line) => {
       const match = /^(?:  ❯ |    )(\S.*)$/.exec(line);
@@ -1385,7 +1391,8 @@ steps:
       await tui.waitForScreen(`one prompt at width ${columns}`, (screen) => {
         const lines = screen.split('\n');
         return lines.filter((line) => line.startsWith('│ ❯ ')).length === 1
-          && lines.some((line) => line.startsWith('╰') && line.endsWith('╯') && line.length === columns);
+          && lines.filter((line) => line.startsWith('╭')).length === 1
+          && hasCompletePromptFrame(screen, columns);
       });
     };
     for (const columns of [80, 50, 32, 80]) {
@@ -1415,7 +1422,7 @@ steps:
     ), 10_000);
     const draft = '/go not submitted';
     tui.write(draft);
-    await tui.waitForScreen('unsent /go draft while busy', (screen) => screen.includes(`❯ ${draft}`));
+    await tui.waitForScreen('unsent /go draft while busy', (screen) => hasBusyStatus(screen) && hasCurrentPromptLine(screen, `❯ ${draft}`));
     const burstOffset = tui.output().length;
     for (const columns of [32, 100, 48, 64]) {
       await tui.resize(columns, 50);
@@ -1447,8 +1454,10 @@ steps:
     const tui = start('tui-conversation.json', ['--workflow', WORKFLOW_PATH], { TAKT_MOCK_SCENARIO: scenario });
     await chooseHighlighted(tui, MODE_PROMPT);
     await waitForPromptReady(tui);
+    const narrowOutputOffset = tui.output().length;
     await tui.resize(32, 50);
-    await tui.waitForScreen('the narrow input box', (screen) => screen.split('\n').some((line) => line.startsWith('╰') && line.length === 32));
+    await waitForNewOutput(tui, narrowOutputOffset, '╭');
+    await tui.waitForScreen('the narrow input box', (screen) => hasCompletePromptFrame(screen, 32));
     tui.write(userParagraph);
     await tui.waitForScreen('the draft caret row', (screen) => screen.split('\n').some((line) => line.startsWith('│ ❯ ') && line.includes(userParagraph.slice(-3))));
     // Home exposes the following wrapped rows; folded rows remain in the buffer.
@@ -1458,8 +1467,10 @@ steps:
     await tui.waitForScreen('the completed narrow reply', (screen) => !hasBusyStatus(screen) && screen.includes('Type a task') && compactScreen(screen.split('\n')).includes(replyParagraph.replace(/\s/g, '')));
     expect((await tui.visibleScreen()).join('\n')).not.toContain('saved-history-00');
     for (const columns of [120, 32, 120]) {
+      const outputOffset = tui.output().length;
       await tui.resize(columns, 50);
-      await tui.waitForScreen(`the input box at width ${columns}`, (screen) => screen.split('\n').some((line) => line.startsWith('╰') && line.length === columns));
+      await waitForNewOutput(tui, outputOffset, '╭');
+      await tui.waitForScreen(`the input box at width ${columns}`, (screen) => hasCompletePromptFrame(screen, columns));
       const transcript = (await tui.visibleTranscript()).join('\n');
       expect(transcript).toContain('saved-history-00');
       expect(transcript.includes(userParagraph), transcript).toBe(columns === 120);
