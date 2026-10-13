@@ -1024,7 +1024,15 @@ provider_options:
     max_tokens: 4096
     request_timeout_ms: 3600000
     shutdown_timeout_ms: 1000
+    plugins:
+      - id: example-plugin
+        source: git:https://github.com/example/plugin.git
+        ref: v1.2.3
+        config:
+          enabled: true
 ```
+
+DeepSeek Harness plugin 可以从 Git HTTPS 或 SSH 仓库加载。可按需在 Git URL 前添加 `git:`，并通过 `ref` 指定 tag、branch 或 commit。建议固定 tag 或 commit 来选择 Git source revision，但仅固定 ref 并不能保证依赖解析的可复现性：仓库包含 `package.json` 时，TAKT 使用 `npm install --package-lock=false` 安装依赖，因此每次运行解析出的依赖版本可能不同。省略 `ref` 时会使用仓库的默认 revision 并显示警告。不会执行 lifecycle script，不支持 npm package source。私有仓库使用现有 SSH 密钥或 Git credential helper 认证；SSH source 可以使用惯例中的 `git` 用户名，但不得嵌入 password、token 或 secret。其他包含 credential 的 URL 会在运行 Git 前被拒绝。
 
 `runtime_mode` 和 Python/uv 专用选项已删除，作为未知配置拒绝。`base_url` 的环境变量覆盖项是 `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_BASE_URL`；provider 原生 endpoint 设置为 `DEEPSEEK_BASE_URL`。非 loopback endpoint 只能在 global config 或用户管理的 TAKT 环境变量中设置，project 配置仅允许 loopback；workflow YAML 不接受 `provider_options`。
 
