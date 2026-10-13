@@ -43,6 +43,33 @@ describe('DeepSeek Harness provider options', () => {
     expect(denormalizeProviderOptions(normalized)).toEqual(deepseekYaml);
   });
 
+  it('normalizes, merges, and serializes Git plugin objects with their id and config', () => {
+    const raw = {
+      deepseek_harness: {
+        plugins: [{
+          id: 'acme-plugin',
+          source: 'git:https://example.test/acme/plugin.git',
+          ref: 'v1.2.3',
+          config: { enabled: true, label: 'custom' },
+        }],
+      },
+    };
+
+    const normalized = normalizeProviderOptions(raw);
+    expect(normalized).toEqual({
+      deepseekHarness: {
+        plugins: [{
+          id: 'acme-plugin',
+          source: 'git:https://example.test/acme/plugin.git',
+          ref: 'v1.2.3',
+          config: { enabled: true, label: 'custom' },
+        }],
+      },
+    });
+    expect(mergeProviderOptions(undefined, normalized)).toEqual(normalized);
+    expect(denormalizeProviderOptions(normalized)).toEqual(raw);
+  });
+
   it('redacts a configured DeepSeek base URL without dropping runtime options', () => {
     expect(redactProviderOptions({
       deepseekHarness: {
@@ -55,6 +82,31 @@ describe('DeepSeek Harness provider options', () => {
         requestTimeoutMs: 1000,
       },
     });
+  });
+
+  it('redacts plugin source credentials from provider option output', () => {
+    const redacted = redactProviderOptions({
+      deepseekHarness: {
+        plugins: [{
+          id: 'private-plugin',
+          source: 'git:https://user:secret@example.test/plugin.git?access_token=token-value',
+        }],
+      },
+    });
+
+    expect(redacted?.deepseekHarness?.plugins?.[0]?.source)
+      .toBe('git:https://[configured]@example.test/plugin.git?access_token=[configured]');
+
+    const scpRedacted = redactProviderOptions({
+      deepseekHarness: {
+        plugins: [{
+          id: 'private-plugin',
+          source: 'git:private-user@example.test:team/plugin.git',
+        }],
+      },
+    });
+    expect(scpRedacted?.deepseekHarness?.plugins?.[0]?.source)
+      .toBe('git:[configured]@example.test:team/plugin.git');
   });
 
   it('rejects unknown options and Node timer values above the supported maximum', () => {

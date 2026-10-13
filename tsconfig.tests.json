@@ -99,6 +99,7 @@
     "src/__tests__/deepseek-harness-credential-store.integration.test.ts",
     "src/__tests__/deepseek-harness-endpoint-consistency.test.ts",
     "src/__tests__/deepseek-harness-error-mapping.test.ts",
+    "src/__tests__/deepseek-harness-git-plugin.integration.test.ts",
     "src/__tests__/deepseek-harness-live-smoke.test.ts",
     "src/__tests__/deepseek-harness-provider.test.ts",
     "src/__tests__/deepseek-harness-sdk-probe.integration.test.ts",

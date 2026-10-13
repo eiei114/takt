@@ -1484,7 +1484,15 @@ provider_options:
     max_tokens: 4096
     request_timeout_ms: 3600000
     shutdown_timeout_ms: 1000
+    plugins:
+      - id: example-plugin
+        source: git:https://github.com/example/plugin.git
+        ref: v1.2.3
+        config:
+          enabled: true
 ```
+
+DeepSeek Harness plugins can be loaded from Git HTTPS or SSH repositories. Use `git:` before a Git URL when desired; set `ref` to a tag, branch, or commit. Pin a tag or commit to select a Git source revision. This alone does not guarantee reproducible dependency resolution: when the repository has a `package.json`, TAKT installs dependencies with `npm install --package-lock=false`, so resolved dependency versions may vary between runs. Omitting `ref` uses the repository's default revision and emits a warning. Lifecycle scripts are not run. npm package sources are not supported. Private repositories use the existing SSH keys or Git credential helper; SSH sources may use the conventional `git` username, but must not embed passwords, tokens, or secrets. Other credential-bearing URLs are rejected before Git is run.
 
 `runtime_mode` and Python/uv-only options have been removed and are rejected as unknown configuration. The `base_url` environment override is `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_BASE_URL`; `DEEPSEEK_BASE_URL` remains the provider-native endpoint setting. A non-loopback endpoint can be configured only in global configuration or through a user-controlled TAKT environment variable, not in workflow/project configuration.
 

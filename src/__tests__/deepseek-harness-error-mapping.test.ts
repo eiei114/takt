@@ -77,6 +77,7 @@ vi.mock('@deepseek-ai/dsh-sdk-client', async (importOriginal) => {
         runtimeBehavior.closeCount += 1;
         await runtimeBehavior.onClose?.();
         if (runtimeBehavior.confirmedExit && this.options.env?.TAKT_DSH_CLEANUP_CONFIRMATION) {
+          await mkdir(path.dirname(this.options.env.TAKT_DSH_CLEANUP_CONFIRMATION), { recursive: true });
           await writeFile(this.options.env.TAKT_DSH_CLEANUP_CONFIRMATION, 'confirmed\n');
         }
         if (runtimeBehavior.closeError !== undefined) {

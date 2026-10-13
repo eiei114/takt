@@ -1415,7 +1415,15 @@ provider_options:
     max_tokens: 4096
     request_timeout_ms: 3600000
     shutdown_timeout_ms: 1000
+    plugins:
+      - id: example-plugin
+        source: git:https://github.com/example/plugin.git
+        ref: v1.2.3
+        config:
+          enabled: true
 ```
+
+DeepSeek Harness plugin は Git の HTTPS または SSH repository から読み込めます。必要に応じて Git URL の前に `git:` を付け、`ref` に tag、branch、commit を指定してください。Git source revision の指定には tag または commit の固定を推奨します。ただし、固定 ref だけでは依存関係の解決の再現性は保証されません。repository に `package.json` がある場合、TAKT は `npm install --package-lock=false` で依存関係を導入するため、実行ごとに解決される依存バージョンが変わることがあります。`ref` を省略すると repository の既定 revision を使い、warning を表示します。lifecycle script は実行しません。npm package source は対応していません。private repository は既存の SSH 鍵または Git credential helper で認証してください。SSH source では標準の `git` username を使用できますが、password、token、secret は埋め込まないでください。それ以外の credential を含む URL は Git 実行前に拒否されます。
 
 `runtime_mode` と Python/uv 専用 option は削除され、未知の設定として拒否されます。`base_url` の環境変数 override は `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_BASE_URL`、provider-native endpoint は `DEEPSEEK_BASE_URL` です。non-loopback endpoint は global config または利用者が管理する TAKT 環境変数でのみ指定できます。workflow/project config では loopback のみを許可します。
 

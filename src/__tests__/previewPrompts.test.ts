@@ -303,18 +303,21 @@ describe('previewPrompts', () => {
     );
   });
 
-  it('selector provider optionsを共通redaction後にだけ端末表示する', async () => {
+  it('selector plugin sourceのauth/passwd query値を端末表示前にredactする', async () => {
     mockResolveWorkflowSelector.mockReturnValueOnce({
       applies: true,
       selectorProvider: {
-        provider: 'codex',
-        model: 'gpt-selector',
+        provider: 'deepseek-harness',
+        model: 'deepseek-chat',
         providerSource: 'project',
         modelSource: 'project',
         providerOptions: {
-          codex: {
+          deepseekHarness: {
             baseUrl: 'http://selector-user:selector-password@127.0.0.1:8787?token=selector-token',
-            reasoningEffort: 'medium',
+            plugins: [{
+              id: 'private-plugin',
+              source: 'git:https://github.com/acme/plugin.git?auth=selector-auth-secret&passwd=selector-pass-secret&note=auth&label=passwd',
+            }],
           },
         },
       },
@@ -347,7 +350,10 @@ describe('previewPrompts', () => {
     expect(output).not.toContain('selector-user');
     expect(output).not.toContain('selector-password');
     expect(output).not.toContain('selector-token');
+    expect(output).not.toContain('selector-auth-secret');
+    expect(output).not.toContain('selector-pass-secret');
     expect(output).not.toContain('127.0.0.1:8787');
+    expect(output).toContain('git:https://github.com/acme/plugin.git?auth=[configured]&passwd=[configured]&note=auth&label=passwd');
   });
 
   it('CLI selector override を dynamic preview の解決境界へ渡す', async () => {
