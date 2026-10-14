@@ -58,17 +58,21 @@ export function redactProviderOptions(
         ...(providerOptions.deepseekHarness.plugins === undefined
           ? {}
           : {
-              plugins: providerOptions.deepseekHarness.plugins.map((plugin) => ({
-                ...plugin,
-                source: redactExtensionSource(plugin.source),
-                ...(plugin.config === undefined
-                  ? {}
+              plugins: providerOptions.deepseekHarness.plugins.map((plugin) => (
+                typeof plugin === 'string'
+                  ? redactExtensionSource(plugin)
                   : {
-                      config: Object.fromEntries(
-                        Object.keys(plugin.config).map((key) => [key, CONFIGURED_PROVIDER_OPTION_VALUE]),
-                      ),
-                    }),
-              })),
+                      ...plugin,
+                      source: redactExtensionSource(plugin.source),
+                      ...(plugin.config === undefined
+                        ? {}
+                        : {
+                            config: Object.fromEntries(
+                              Object.keys(plugin.config).map((key) => [key, CONFIGURED_PROVIDER_OPTION_VALUE]),
+                            ),
+                          }),
+                    }
+              )),
             }),
       };
   return {

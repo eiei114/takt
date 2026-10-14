@@ -1371,6 +1371,11 @@ provider_options:
     request_timeout_ms: 3600000
     shutdown_timeout_ms: 1000
     plugins:
+      - npm:@example/cordis-plugin@1.2.3
+      - source: npm:another-cordis-plugin@2.0.0
+        id: another-plugin
+        config:
+          enabled: true
       - id: example-plugin
         source: git:https://github.com/example/plugin.git
         ref: v1.2.3
@@ -1380,7 +1385,9 @@ provider_options:
 
 Define `plugins` in global configuration (`~/.takt/config.yaml`) or trusted global runtime profiles, not in project or workflow configuration. A user-controlled `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PLUGINS` JSON array can also supply plugin options. Project-defined plugins are rejected; an empty list may disable plugins. Plugins execute with the runtime's permissions and may access credentials, so load only code you trust. Plugin `config` values are hidden in previews, session logs, and telemetry, without changing the values supplied to the runtime.
 
-DeepSeek Harness plugins can be loaded from Git HTTPS or SSH repositories. Plaintext `http://` and `git://` sources are rejected. Use `git:` before a Git URL when desired; set `ref` to a tag, branch, or commit. Pin a tag or commit to select a Git source revision. This alone does not guarantee reproducible dependency resolution: when the repository has a `package.json`, TAKT installs dependencies with `npm install --package-lock=false`, so resolved dependency versions may vary between runs. Omitting `ref` uses the repository's default revision and emits a warning. Lifecycle scripts are not run. npm package sources are not supported. Private repositories use the existing SSH keys or Git credential helper; SSH sources may use the conventional `git` username, but must not embed passwords, tokens, or secrets. Other credential-bearing URLs are rejected before Git is run. Git and askpass prompts are disabled; default SSH uses batch mode. Configure working credentials and trusted host keys before running TAKT. An existing custom SSH command or executable is preserved.
+DeepSeek Harness plugins can be loaded from npm packages or Git HTTPS/SSH repositories. Use `npm:<package-spec>` as a string or as the `source` in an object; `id` and `config` are optional. TAKT installs npm packages into temporary directories without running lifecycle scripts, resolves the package `exports` or `main` entrypoint, and removes the temporary files when the runtime ends. npm plugins execute with the runtime's permissions and may access credentials. Only use packages whose code you trust, and pin package versions when reproducible resolution is required. Git sources retain their existing behavior: plaintext `http://` and `git://` sources are rejected. Use `git:` before a Git URL when desired; set `ref` to a tag, branch, or commit. Pin a tag or commit to select a Git source revision. This alone does not guarantee reproducible dependency resolution: when the repository has a `package.json`, TAKT installs dependencies with `npm install --package-lock=false`, so resolved dependency versions may vary between runs. Omitting `ref` uses the repository's default revision and emits a warning. Lifecycle scripts are not run. Private repositories use the existing SSH keys or Git credential helper; SSH sources may use the conventional `git` username, but must not embed passwords, tokens, or secrets. Other credential-bearing URLs are rejected before Git is run. Git and askpass prompts are disabled; default SSH uses batch mode. Configure working credentials and trusted host keys before running TAKT. An existing custom SSH command or executable is preserved.
+
+If the official runtime reports that a configured npm plugin did not activate, TAKT stops that provider call and reports an actionable entrypoint/configuration hint without forwarding raw plugin diagnostics.
 
 `base_url` is optional. Project config accepts loopback addresses only; set an external endpoint in global config or `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_BASE_URL`. TAKT's `base_url` setting takes precedence over the provider-native `DEEPSEEK_BASE_URL`.
 

@@ -40,14 +40,84 @@ try {
   process.exit(70);
 }
 
+let npmPluginEntrypoints = [];
+try {
+  npmPluginEntrypoints = JSON.parse(process.env.TAKT_DSH_NPM_PLUGIN_ENTRYPOINTS ?? '[]');
+  if (!Array.isArray(npmPluginEntrypoints)
+    || npmPluginEntrypoints.some((entrypoint) => typeof entrypoint !== 'string' || !entrypoint.startsWith('file://'))) {
+    process.exit(70);
+  }
+} catch {
+  process.exit(70);
+}
+
 const require = createRequire(join(managedPackageDirectory, 'package.json'));
 const runtimePackage = require('@deepseek-ai/dsh/package.json');
 const runtimeBin = require.resolve(`@deepseek-ai/dsh/${runtimePackage.bin.dsh}`);
 const ownerPath = join(ownerDirectory, `${process.pid}.json`);
 let runtime;
 let terminationPromise;
+let runtimeStderrLine = '';
+let remainingInactivePluginDiagnostics = 0;
+let sawStartupFailure = false;
+let insideFailedPluginDetails = false;
+let npmPluginLoadFailureObserved = false;
+let resolveRuntimeStderrClosed;
+let runtimeStderrClosedSettled = false;
+const runtimeStderrClosed = new Promise((resolve) => { resolveRuntimeStderrClosed = resolve; });
+const CORDIS_NPM_PLUGIN_LOAD_FAILURE_MARKER = 'TAKT_DSH_CORDIS_NPM_PLUGIN_LOAD_FAILURE';
+const MAX_RUNTIME_STDERR_LINE_LENGTH = 16_384;
 let resolveOwnerReady;
 const ownerReady = new Promise((resolve) => { resolveOwnerReady = resolve; });
+
+/** Consume only the official optional-plugin warning shape; never forward plugin-owned diagnostic text. */
+function inspectRuntimeStderrLine(line) {
+  const inactiveWarning = /^dsh: warning: (\d+) (?:entry|entries) did not activate$/u.exec(line);
+  if (inactiveWarning !== null) {
+    remainingInactivePluginDiagnostics = Number(inactiveWarning[1]);
+    return;
+  }
+  if (/^dsh: startup failed: \d+ required plugins? did not activate$/u.test(line)) {
+    sawStartupFailure = true;
+    return;
+  }
+  if (sawStartupFailure && /^Failed plugins \(\d+\):$/u.test(line)) {
+    insideFailedPluginDetails = true;
+    return;
+  }
+  if (insideFailedPluginDetails && line.trim().length === 0) {
+    insideFailedPluginDetails = false;
+  }
+  if (npmPluginLoadFailureObserved) return;
+  const failedNpmPlugin = (remainingInactivePluginDiagnostics > 0
+    && npmPluginEntrypoints.some((entrypoint) =>
+      line.includes(`(${entrypoint}): `) && !line.includes('): pending (waiting for ')))
+    || (insideFailedPluginDetails
+      && npmPluginEntrypoints.some((entrypoint) => line.trim() === `Package: ${entrypoint}`));
+  if (remainingInactivePluginDiagnostics > 0) remainingInactivePluginDiagnostics -= 1;
+  if (!failedNpmPlugin) return;
+  npmPluginLoadFailureObserved = true;
+  if (runtime?.pid !== undefined) signalProcessGroup(runtime.pid, 'SIGTERM');
+}
+
+/** Bound diagnostic buffering while recognizing warning and entry lines split across stream chunks. */
+function inspectRuntimeStderr(chunk) {
+  const lines = `${runtimeStderrLine}${chunk.toString('utf8')}`.split(/\r?\n/u);
+  runtimeStderrLine = lines.pop() ?? '';
+  if (runtimeStderrLine.length > MAX_RUNTIME_STDERR_LINE_LENGTH) {
+    runtimeStderrLine = runtimeStderrLine.slice(-MAX_RUNTIME_STDERR_LINE_LENGTH);
+  }
+  for (const line of lines) inspectRuntimeStderrLine(line);
+}
+
+/** Flush the last partial line and let shutdown publish its one fixed safe marker. */
+function settleRuntimeStderr() {
+  if (runtimeStderrClosedSettled) return;
+  runtimeStderrClosedSettled = true;
+  if (runtimeStderrLine.length > 0) inspectRuntimeStderrLine(runtimeStderrLine);
+  runtimeStderrLine = '';
+  resolveRuntimeStderrClosed();
+}
 
 /** Atomically publish the supervised runtime PID and optional failed-cleanup marker. */
 async function writeOwner(cleanupFailure = false) {
@@ -180,13 +250,27 @@ try {
         cwd: process.cwd(),
         env: process.env,
         detached: process.platform !== 'win32',
-        stdio: ['pipe', 'inherit', 'ignore'],
+        stdio: ['pipe', 'inherit', 'pipe'],
       });
+      if (runtime.stderr === null) {
+        settleRuntimeStderr();
+      } else {
+        runtime.stderr.on('data', inspectRuntimeStderr);
+        runtime.stderr.once('end', settleRuntimeStderr);
+        runtime.stderr.once('error', settleRuntimeStderr);
+        runtime.stderr.once('close', settleRuntimeStderr);
+      }
 
       runtime.once('exit', async (code, signal) => {
         await ownerReady;
         const cleanupConfirmed = await terminateRuntime().catch(() => false);
-        process.exitCode = cleanupConfirmed ? (code ?? (signal ? 1 : 0)) : 1;
+        await runtimeStderrClosed;
+        if (npmPluginLoadFailureObserved) {
+          process.stderr.write(`${CORDIS_NPM_PLUGIN_LOAD_FAILURE_MARKER}\n`);
+          process.exitCode = 1;
+        } else {
+          process.exitCode = cleanupConfirmed ? (code ?? (signal ? 1 : 0)) : 1;
+        }
         process.stdin.destroy();
       });
 

@@ -1337,6 +1337,11 @@ provider_options:
     request_timeout_ms: 3600000
     shutdown_timeout_ms: 1000
     plugins:
+      - npm:@example/cordis-plugin@1.2.3
+      - source: npm:another-cordis-plugin@2.0.0
+        id: another-plugin
+        config:
+          enabled: true
       - id: example-plugin
         source: git:https://github.com/example/plugin.git
         ref: v1.2.3
@@ -1346,7 +1351,11 @@ provider_options:
 
 `plugins` は global config（`~/.takt/config.yaml`）または信頼された global runtime profile に設定してください。project/workflow config からの plugin 指定は拒否します。利用者が管理する `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PLUGINS` の JSON 配列でも指定できます。空の配列で plugin を無効化することは許可します。plugin は runtime と同じ権限で実行され、認証情報にもアクセスできるため、信頼するコードだけを読み込んでください。plugin の `config` 値は preview・session log・telemetry では秘匿され、runtime に渡す値は変更しません。
 
-DeepSeek Harness plugin は Git の HTTPS または SSH repository から読み込めます。平文の `http://` と `git://` source は拒否します。必要に応じて Git URL の前に `git:` を付け、`ref` に tag、branch、commit を指定してください。Git source revision の指定には tag または commit の固定を推奨します。ただし、固定 ref だけでは依存関係の解決の再現性は保証されません。repository に `package.json` がある場合、TAKT は `npm install --package-lock=false` で依存関係を導入するため、実行ごとに解決される依存バージョンが変わることがあります。`ref` を省略すると repository の既定 revision を使い、warning を表示します。lifecycle script は実行しません。npm package source は対応していません。private repository は既存の SSH 鍵または Git credential helper で認証してください。SSH source では標準の `git` username を使用できますが、password、token、secret は埋め込まないでください。それ以外の credential を含む URL は Git 実行前に拒否されます。Git と askpass の prompt は無効化し、既定の SSH は batch mode で実行します。TAKT 実行前に認証情報と信頼する host key を設定してください。既存の custom SSH command/executable は保持します。
+DeepSeek Harness plugin は npm package または Git の HTTPS / SSH repository から読み込めます。npm は文字列の `npm:<package-spec>`、または `source` を持つ object で指定できます。object の `id` と `config` は省略可能です。TAKT は npm package を一時 directory に導入し、package の `exports` または `main` から entrypoint を解決します。runtime 終了時に一時ファイルを削除し、lifecycle script は実行しません。npm plugin は runtime と同じ権限で動作し、認証情報にもアクセスできるため、信頼できる package だけを指定してください。再現可能な解決が必要な場合は package version を固定してください。
+
+公式 runtime が設定された npm plugin の未ロードを報告した場合、TAKT はその provider 呼び出しを停止し、raw plugin 診断を転送せずに entrypoint/configuration の確認を促します。
+
+Git source の動作も引き続き利用できます。平文の `http://` と `git://` source は拒否します。必要に応じて Git URL の前に `git:` を付け、`ref` に tag、branch、commit を指定してください。Git source revision の指定には tag または commit の固定を推奨します。ただし、固定 ref だけでは依存関係の解決の再現性は保証されません。repository に `package.json` がある場合、TAKT は `npm install --package-lock=false` で依存関係を導入するため、実行ごとに解決される依存バージョンが変わることがあります。`ref` を省略すると repository の既定 revision を使い、warning を表示します。private repository は既存の SSH 鍵または Git credential helper で認証してください。SSH source では標準の `git` username を使用できますが、password、token、secret は埋め込まないでください。それ以外の credential を含む URL は Git 実行前に拒否されます。Git と askpass の prompt は無効化し、既定の SSH は batch mode で実行します。TAKT 実行前に認証情報と信頼する host key を設定してください。既存の custom SSH command/executable は保持します。
 
 `base_url` は省略できます。project config では loopback アドレスだけを指定でき、外部 endpoint は global config または `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_BASE_URL` で指定します。provider 固有の環境変数 `DEEPSEEK_BASE_URL` より TAKT の `base_url` 設定が優先されます。
 
