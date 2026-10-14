@@ -12,10 +12,12 @@ export interface ResolvedDeepSeekHarnessPlugins extends DeepSeekHarnessPluginRes
   npmPluginEntrypoints: string[];
 }
 
+/** Select npm entries while retaining Git options for the existing Git resolver. */
 function isNpmPlugin(plugin: DeepSeekHarnessPluginOption): boolean {
   return typeof plugin === 'string' || plugin.source.startsWith('npm:');
 }
 
+/** Resolve trusted Git and npm plugins in configuration order and jointly own their cleanup. */
 export async function resolveDeepSeekHarnessPlugins(
   options: readonly DeepSeekHarnessPluginOption[] | undefined,
   signal?: AbortSignal,
@@ -48,6 +50,7 @@ export async function resolveDeepSeekHarnessPlugins(
       plugins,
       npmPluginEntrypoints: npmResolution.npmPluginEntrypoints,
       cleanupPaths: [...gitResolution.cleanupPaths, ...npmResolution.cleanupPaths],
+      /** Dispose both resolver installations without marking failed cleanup as complete. */
       dispose: async (): Promise<void> => {
         if (disposed) return;
         await Promise.all([gitResolution.dispose(), npmResolution.dispose()]);

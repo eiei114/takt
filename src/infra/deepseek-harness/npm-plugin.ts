@@ -2,6 +2,7 @@ import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
 import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type {
@@ -22,6 +23,7 @@ type DeepSeekHarnessNpmPluginFailureStage = 'source' | 'install' | 'entrypoint';
 export class DeepSeekHarnessNpmPluginResolutionError extends Error {
   readonly stage: DeepSeekHarnessNpmPluginFailureStage;
 
+  /** Preserve the failed resolution stage without including package-owned diagnostics. */
   constructor(stage: DeepSeekHarnessNpmPluginFailureStage) {
     super(`DeepSeek Harness npm plugin ${stage} failed`);
     this.name = 'DeepSeekHarnessNpmPluginResolutionError';
@@ -37,12 +39,14 @@ interface DeepSeekHarnessNpmPluginResolution extends DeepSeekHarnessPluginResolu
   npmPluginEntrypoints: string[];
 }
 
+/** Narrow plugin options to npm sources without interpreting Git options. */
 function isNpmPlugin(plugin: DeepSeekHarnessPluginOption): plugin is string | DeepSeekHarnessNpmPluginOption {
   return typeof plugin === 'string'
     ? plugin.startsWith('npm:')
     : plugin.source.startsWith('npm:');
 }
 
+/** Identify Git package specs so npm cannot bypass the Git resolver's trust checks. */
 function isGitPackageSpec(spec: string): boolean {
   if (/^(?:git(?:\+[^:]+)?|ssh):\/\//iu.test(spec)
     || /^(?:github|gitlab|bitbucket):/iu.test(spec)
@@ -57,15 +61,34 @@ function isGitPackageSpec(spec: string): boolean {
   }
 }
 
+/** Reject URL credentials before npm can expose them in its process arguments. */
+function assertNoNpmUrlCredentials(spec: string): void {
+  const urlSpec = /(?:^|@)(https?:\/\/.*)$/iu.exec(spec)?.[1];
+  if (urlSpec === undefined) return;
+  let url: URL;
+  try {
+    url = new URL(urlSpec);
+  } catch {
+    throw new DeepSeekHarnessNpmPluginResolutionError('source');
+  }
+  if (url.username.length > 0 || url.password.length > 0
+    || [...url.searchParams.keys()].some((key) => /(?:token|password|passwd|secret|credential|auth|api[-_]?key)/iu.test(key))) {
+    throw new DeepSeekHarnessNpmPluginResolutionError('source');
+  }
+}
+
+/** Validate an npm source before allocating temporary files or spawning npm. */
 function parseNpmSource(source: string): ParsedNpmSource {
   if (!source.startsWith('npm:')) throw new DeepSeekHarnessNpmPluginResolutionError('source');
   const spec = source.slice('npm:'.length).trim();
   if (spec.length === 0 || spec.startsWith('-') || isGitPackageSpec(spec)) {
     throw new DeepSeekHarnessNpmPluginResolutionError('source');
   }
+  assertNoNpmUrlCredentials(spec);
   return { spec };
 }
 
+/** Anchor local package paths to the caller's working directory rather than the temporary install root. */
 function resolveRelativeNpmSource(source: ParsedNpmSource, baseDirectory: string): ParsedNpmSource {
   if (source.spec.startsWith('file:')) {
     const filePath = source.spec.slice('file:'.length);
@@ -80,6 +103,7 @@ function resolveRelativeNpmSource(source: ParsedNpmSource, baseDirectory: string
   return source;
 }
 
+/** Acquire one package tarball with scripts disabled and validate npm's reported identity. */
 async function packNpmSource(source: ParsedNpmSource, directory: string, signal?: AbortSignal): Promise<{
   filename: string;
   name: string;
@@ -88,7 +112,7 @@ async function packNpmSource(source: ParsedNpmSource, directory: string, signal?
   try {
     ({ stdout: output } = await execFile('npm', [
       'pack', '--json', '--ignore-scripts', '--pack-destination', directory, '--', source.spec,
-    ], { cwd: directory, signal, timeout: 300_000, maxBuffer: 1024 * 1024 }));
+    ], { cwd: directory, signal, timeout: 300_000, maxBuffer: 64 * 1024 * 1024 }));
   } catch {
     signal?.throwIfAborted();
     throw new DeepSeekHarnessNpmPluginResolutionError('source');
@@ -109,10 +133,12 @@ async function packNpmSource(source: ParsedNpmSource, directory: string, signal?
   }
 }
 
+/** Locate an installed package, including scoped names, beneath node_modules. */
 function installedPackageDirectory(root: string, name: string): string {
   return path.join(root, 'node_modules', ...name.split('/'));
 }
 
+/** Select a root export using the runtime's import, node, and default conditions. */
 function selectExportEntry(exportsField: unknown): string | undefined {
   if (typeof exportsField === 'string') return exportsField;
   if (Array.isArray(exportsField)) {
@@ -142,6 +168,17 @@ function selectExportEntry(exportsField: unknown): string | undefined {
   return undefined;
 }
 
+/** Resolve legacy main files and directories using Node's non-executing package resolver. */
+function resolveMainEntry(packageDirectory: string): string | undefined {
+  try {
+    return createRequire(path.join(packageDirectory, 'package.json')).resolve(packageDirectory);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'MODULE_NOT_FOUND') return undefined;
+    throw new DeepSeekHarnessNpmPluginResolutionError('entrypoint');
+  }
+}
+
+/** Resolve an executable package entrypoint while keeping the selected path inside its package. */
 async function resolveEntrypoint(packageDirectory: string): Promise<string> {
   let manifest: { exports?: unknown; main?: unknown };
   try {
@@ -152,7 +189,7 @@ async function resolveEntrypoint(packageDirectory: string): Promise<string> {
 
   const candidates = [
     ...(manifest.exports === undefined ? [] : [selectExportEntry(manifest.exports)]),
-    ...(typeof manifest.main === 'string' ? [manifest.main] : []),
+    ...(typeof manifest.main === 'string' ? [resolveMainEntry(packageDirectory)] : []),
   ];
   for (const candidate of candidates) {
     if (candidate === undefined || candidate.length === 0) continue;
@@ -171,6 +208,7 @@ async function resolveEntrypoint(packageDirectory: string): Promise<string> {
   throw new DeepSeekHarnessNpmPluginResolutionError('entrypoint');
 }
 
+/** Translate a trusted npm option into a Cordis entry without changing its configuration. */
 function toCordisPlugin(
   option: string | DeepSeekHarnessNpmPluginOption,
   entrypoint: string,
@@ -251,6 +289,7 @@ export async function resolveDeepSeekHarnessNpmPlugins(
       plugins,
       npmPluginEntrypoints: plugins.map((plugin) => plugin.name),
       cleanupPaths: directories,
+      /** Remove all temporary installations once; failed cleanup remains retryable. */
       dispose: async (): Promise<void> => {
         if (disposed) return;
         await Promise.all(directories.map((directory) => rm(directory, { recursive: true, force: true })));

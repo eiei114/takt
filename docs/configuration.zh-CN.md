@@ -1039,7 +1039,7 @@ provider_options:
 
 请在 global config（`~/.takt/config.yaml`）或可信的 global runtime profile 中配置 `plugins`，不要在 project/workflow config 中指定。也可以通过用户管理的 `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PLUGINS` JSON 数组配置。project 定义的 plugin 会被拒绝，但允许使用空数组禁用 plugin。plugin 以 runtime 的权限执行，可能访问认证信息，因此只应加载可信代码。plugin 的 `config` 值在 preview、session log 和 telemetry 中会被隐藏，传给 runtime 的值保持不变。
 
-DeepSeek Harness plugin 可以从 npm package 或 Git HTTPS/SSH 仓库加载。npm plugin 可以使用字符串 `npm:<package-spec>`，也可以使用包含 `source` 的对象；对象中的 `id` 和 `config` 均可省略。TAKT 将 npm package 安装到临时目录，不执行 lifecycle script，通过 package 的 `exports` 或 `main` 解析入口，并在 runtime 结束时删除临时文件。npm plugin 以 runtime 的权限执行，可能访问认证信息，因此只应使用代码可信的 package；需要可复现的解析结果时，请固定 package 版本。
+DeepSeek Harness plugin 可以从 npm package 或 Git HTTPS/SSH 仓库加载。npm plugin 可以使用字符串 `npm:<package-spec>`，也可以使用包含 `source` 的对象；对象中的 `id` 和 `config` 均可省略。TAKT 将 npm package 安装到临时目录，不执行 lifecycle script，通过 package 的 `exports` 或 `main` 解析入口，并在 runtime 结束时删除临时文件。npm plugin 以 runtime 的权限执行，可能访问认证信息，因此只应使用代码可信的 package。固定 package 版本可以固定顶层 package tarball，但仅凭这一点并不能保证依赖解析的可复现性。TAKT 使用 `--package-lock=false` 安装依赖，因此除非发布的 package 包含适当的 `npm-shrinkwrap.json`，否则范围指定的间接依赖版本仍可能在不同运行之间变化。包含认证信息或敏感 query parameter 的 URL 会在 npm 启动前被拒绝；请通过受保护的 npm 配置进行认证。
 
 如果官方 runtime 报告配置的 npm plugin 未激活，TAKT 会停止该次 provider 调用，提示检查入口和配置，不会转发 plugin 的原始诊断信息。
 

@@ -173,6 +173,7 @@ const DeepSeekReasoningEffortSchema = z.enum(['off', 'low', 'high', 'max'], {
   error: (issue) => `Invalid DeepSeek reasoning_effort ${JSON.stringify(issue.input)}; expected off, low, high, or max`,
 });
 
+/** Require an explicit npm prefix and a nonempty package spec for string plugin options. */
 function hasNpmPackageSpec(source: string): boolean {
   return source.startsWith('npm:') && source.slice('npm:'.length).trim().length > 0;
 }

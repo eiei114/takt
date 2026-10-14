@@ -1351,7 +1351,7 @@ provider_options:
 
 `plugins` は global config（`~/.takt/config.yaml`）または信頼された global runtime profile に設定してください。project/workflow config からの plugin 指定は拒否します。利用者が管理する `TAKT_PROVIDER_OPTIONS_DEEPSEEK_HARNESS_PLUGINS` の JSON 配列でも指定できます。空の配列で plugin を無効化することは許可します。plugin は runtime と同じ権限で実行され、認証情報にもアクセスできるため、信頼するコードだけを読み込んでください。plugin の `config` 値は preview・session log・telemetry では秘匿され、runtime に渡す値は変更しません。
 
-DeepSeek Harness plugin は npm package または Git の HTTPS / SSH repository から読み込めます。npm は文字列の `npm:<package-spec>`、または `source` を持つ object で指定できます。object の `id` と `config` は省略可能です。TAKT は npm package を一時 directory に導入し、package の `exports` または `main` から entrypoint を解決します。runtime 終了時に一時ファイルを削除し、lifecycle script は実行しません。npm plugin は runtime と同じ権限で動作し、認証情報にもアクセスできるため、信頼できる package だけを指定してください。再現可能な解決が必要な場合は package version を固定してください。
+DeepSeek Harness plugin は npm package または Git の HTTPS / SSH repository から読み込めます。npm は文字列の `npm:<package-spec>`、または `source` を持つ object で指定できます。object の `id` と `config` は省略可能です。TAKT は npm package を一時 directory に導入し、package の `exports` または `main` から entrypoint を解決します。runtime 終了時に一時ファイルを削除し、lifecycle script は実行しません。npm plugin は runtime と同じ権限で動作し、認証情報にもアクセスできるため、信頼できる package だけを指定してください。package version を固定するとトップレベルの package tarball を固定できますが、それだけでは依存関係の解決の再現性は保証されません。TAKT は `--package-lock=false` で導入するため、公開 package に適切な `npm-shrinkwrap.json` が含まれていない場合、範囲指定された間接依存のバージョンは実行ごとに変わることがあります。認証情報や機密の query parameter を含む URL は npm の起動前に拒否します。認証には保護された npm 設定を使用してください。
 
 公式 runtime が設定された npm plugin の未ロードを報告した場合、TAKT はその provider 呼び出しを停止し、raw plugin 診断を転送せずに entrypoint/configuration の確認を促します。
 

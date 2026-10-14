@@ -192,6 +192,7 @@ async function startLocalApi(
   return api;
 }
 
+/** Pack a local fixture without lifecycle scripts for the network-free npm registry. */
 async function packLocalNpmPackage(packageDirectory: string, destinationDirectory: string): Promise<LocalNpmPackage> {
   const manifest = JSON.parse(await readFile(join(packageDirectory, 'package.json'), 'utf8')) as {
     name: string;
@@ -211,6 +212,7 @@ async function packLocalNpmPackage(packageDirectory: string, destinationDirector
   };
 }
 
+/** Serve fixture metadata and tarballs over loopback and register the server for teardown. */
 async function startLocalNpmRegistry(packages: readonly LocalNpmPackage[]): Promise<LocalNpmRegistry> {
   const requests: string[] = [];
   const packageByName = new Map(packages.map((pkg) => [pkg.name, pkg]));
@@ -309,17 +311,23 @@ function unusedProcessGroupPid(): number {
 async function runSeparateParentProcess(
   script: string,
   environment: NodeJS.ProcessEnv,
-): Promise<{ exitCode: number | null; stdout: string; timedOut: boolean }> {
+  timeoutMs = 60_000,
+  keepStdinOpen = false,
+): Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', script], {
     cwd: fileURLToPath(new URL('../..', import.meta.url)),
     env: environment,
     detached: process.platform !== 'win32',
-    stdio: ['ignore', 'pipe', 'ignore'],
+    stdio: ['pipe', 'pipe', 'pipe'],
   });
+  if (!keepStdinOpen) child.stdin.end();
   let stdout = '';
+  let stderr = '';
   let timedOut = false;
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk: string) => { stdout += chunk; });
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk: string) => { stderr += chunk; });
   const timeout = setTimeout(() => {
     timedOut = true;
     if (child.pid !== undefined) {
@@ -329,16 +337,16 @@ async function runSeparateParentProcess(
       }, 1_000);
       forceKill.unref?.();
     }
-  }, 60_000);
+  }, timeoutMs);
   timeout.unref?.();
   return new Promise((resolve, reject) => {
     child.once('error', (error) => {
       clearTimeout(timeout);
       reject(error);
     });
-    child.once('exit', (code) => {
+    child.once('close', (code) => {
       clearTimeout(timeout);
-      resolve({ exitCode: code, stdout, timedOut });
+      resolve({ exitCode: code, stdout, stderr, timedOut });
     });
   });
 }
@@ -760,6 +768,100 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     expect((await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-')))
       .toEqual(pluginDirectoriesBefore);
   }, 30_000);
+
+  it.each([
+    ['dist/index', 'dist/index.js'],
+    ['dist', 'dist/index.js'],
+    ['dist/', 'dist/index.js'],
+    ['missing.js', 'index.js'],
+  ])('resolves the legacy main %s with Node package fallbacks', async (main, entry) => {
+    const packageDirectory = join(temporaryRoot, 'npm-legacy-main-package');
+    await mkdir(dirname(join(packageDirectory, entry)), { recursive: true });
+    await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({
+      name: 'local-legacy-main-plugin', version: '1.0.0', type: 'module', main,
+    }));
+    await writeFile(join(packageDirectory, entry), 'export default function apply() {}');
+    const resolution = await resolveDeepSeekHarnessNpmPlugins([`npm:file:${packageDirectory}`]);
+    try {
+      expect(fileURLToPath(resolution.plugins[0]!.name)).toBe(
+        join(resolution.cleanupPaths[0]!, 'install/node_modules/local-legacy-main-plugin', entry),
+      );
+    } finally {
+      await resolution.dispose();
+    }
+  }, 30_000);
+
+  it('does not apply legacy extension probing to exports targets', async () => {
+    const packageDirectory = join(temporaryRoot, 'npm-exact-exports-package');
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({
+      name: 'local-exact-exports-plugin', version: '1.0.0', exports: './index',
+    }));
+    await writeFile(join(packageDirectory, 'index.js'), 'module.exports = {};');
+    await expect(resolveDeepSeekHarnessNpmPlugins([`npm:file:${packageDirectory}`]))
+      .rejects.toMatchObject({ stage: 'entrypoint' });
+  }, 30_000);
+
+  it.skipIf(process.platform === 'win32')('accepts npm pack metadata larger than one MiB and cleans its installation', async () => {
+    const fakeNpmDirectory = join(temporaryRoot, 'large-pack-npm-bin');
+    await mkdir(fakeNpmDirectory);
+    const fakeNpm = join(fakeNpmDirectory, 'npm');
+    await writeFile(fakeNpm, [
+      '#!/usr/bin/env node',
+      "import { mkdirSync, writeFileSync } from 'node:fs';",
+      "import { join } from 'node:path';",
+      'const args = process.argv.slice(2);',
+      "const name = 'local-large-pack-plugin';",
+      "if (args[0] === 'pack') {",
+      "  const filename = `${name}-1.0.0.tgz`;",
+      "  writeFileSync(join(args[args.indexOf('--pack-destination') + 1], filename), '');",
+      "  process.stdout.write(JSON.stringify([{ filename, name, files: [{ path: 'x'.repeat(2 * 1024 * 1024) }] }]));",
+      '} else {',
+      "  const directory = join(args[args.indexOf('--prefix') + 1], 'node_modules', name);",
+      '  mkdirSync(directory, { recursive: true });',
+      "  writeFileSync(join(directory, 'package.json'), JSON.stringify({ name, main: './index.js' }));",
+      "  writeFileSync(join(directory, 'index.js'), 'module.exports = {};');",
+      '}',
+    ].join('\n'));
+    await chmod(fakeNpm, 0o755);
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${fakeNpmDirectory}${path.delimiter}${previousPath ?? ''}`;
+    try {
+      const resolution = await resolveDeepSeekHarnessNpmPlugins(['npm:local-large-pack-plugin@1.0.0']);
+      const entrypoint = fileURLToPath(resolution.plugins[0]!.name);
+      expect(existsSync(entrypoint)).toBe(true);
+      await resolution.dispose();
+      expect(existsSync(entrypoint)).toBe(false);
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+    }
+  }, 15_000);
+
+  it('rejects credential-bearing npm URLs before allocating resources or starting npm', async () => {
+    const before = (await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-'));
+    const controller = new AbortController();
+    controller.abort();
+    for (const spec of [
+      'https://user:secret@example.com/plugin.tgz',
+      'https://secret@example.com/plugin.tgz',
+      'https://example.com/plugin.tgz?token=secret',
+      'https://example.com/plugin.tgz?%74oken=secret',
+      'https://example.com/plugin.tgz?X-Amz-Security-Token=secret',
+      'https://example.com/plugin.tgz?api_key=secret',
+      'https://example.com/plugin.tgz?auth=secret',
+      'alias@https://example.com/plugin.tgz?password=secret',
+    ]) {
+      for (const option of [`npm:${spec}`, { source: `npm:${spec}` }]) {
+        await expect(resolveDeepSeekHarnessNpmPlugins([option], controller.signal))
+          .rejects.toMatchObject({ stage: 'source', message: 'DeepSeek Harness npm plugin source failed' });
+      }
+    }
+    // A safe URL reaches the abort guard, proving URL sources themselves remain supported.
+    await expect(resolveDeepSeekHarnessNpmPlugins(['npm:https://example.com/plugin.tgz?version=1'], controller.signal))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    expect((await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-'))).toEqual(before);
+  });
 
   it('classifies npm source, install, and entrypoint failures and cleans failed installations', async () => {
     await expect(resolveDeepSeekHarnessNpmPlugins(['npm:']))
@@ -1749,6 +1851,57 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     });
     expect(await readdir(runtimePaths.owners)).toHaveLength(0);
   }, 90_000);
+
+  it.skipIf(!SUPPORTED_RUNTIME).each([false, true])(
+    'exits after a bounded stderr drain when a detached descendant holds the pipe (plugin failure=%s)',
+    async (pluginFailure) => {
+      const paths = getDeepSeekRuntimePaths();
+      const holderPidPath = join(temporaryRoot, 'stderr-holder-pid');
+      const entrypoint = pathToFileURL(join(temporaryRoot, 'failed-plugin.js')).href;
+      const runtimeScript = [
+        "const { spawn } = require('node:child_process');",
+        "const { writeFileSync } = require('node:fs');",
+        "const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: ['ignore', 'ignore', 2] });",
+        `writeFileSync(${JSON.stringify(holderPidPath)}, String(holder.pid));`,
+        'holder.unref();',
+        pluginFailure
+          ? `process.stderr.write(${JSON.stringify(`dsh: warning: 1 entry did not activate\n  failed (${entrypoint}): error: secret diagnostic`)}, () => process.exit(0));`
+          : 'process.exit(0);',
+      ].join('\n');
+      const supervisorUrl = new URL('../infra/deepseek-harness/runtime-supervisor.mjs', import.meta.url).href;
+      const script = [
+        "const childProcess = (await import('node:child_process')).default;",
+        "const { syncBuiltinESMExports } = await import('node:module');",
+        'const originalSpawn = childProcess.spawn;',
+        `childProcess.spawn = (_command, _args, options) => originalSpawn(process.execPath, ['-e', ${JSON.stringify(runtimeScript)}], options);`,
+        'syncBuiltinESMExports();',
+        `await import(${JSON.stringify(supervisorUrl)});`,
+      ].join('\n');
+      try {
+        const result = await runSeparateParentProcess(script, {
+          PATH: process.env.PATH ?? '/usr/bin:/bin',
+          TAKT_DSH_OWNER_DIRECTORY: paths.owners,
+          TAKT_DSH_STATE_DIRECTORY: paths.state,
+          TAKT_DSH_PARENT_PID: String(process.pid),
+          TAKT_DSH_MANAGED_PACKAGE_DIRECTORY: fileURLToPath(new URL('../..', import.meta.url)),
+          TAKT_DSH_NPM_PLUGIN_ENTRYPOINTS: JSON.stringify([entrypoint]),
+        }, 8_000, true);
+        expect(result.timedOut).toBe(false);
+        expect(result.exitCode).toBe(pluginFailure ? 1 : 0);
+        expect(result.stderr).toBe(pluginFailure ? 'TAKT_DSH_CORDIS_NPM_PLUGIN_LOAD_FAILURE\n' : '');
+        expect(await readdir(paths.owners)).toEqual([]);
+        // The escaped descendant is still alive: shutdown must not have depended on its stderr closing.
+        const holderPid = Number(await readFile(holderPidPath, 'utf8'));
+        expect(() => process.kill(holderPid, 0)).not.toThrow();
+      } finally {
+        if (existsSync(holderPidPath)) {
+          const holderPid = Number(await readFile(holderPidPath, 'utf8'));
+          try { process.kill(-holderPid, 'SIGKILL'); } catch { /* Already stopped. */ }
+        }
+      }
+    },
+    15_000,
+  );
 
   it.skipIf(!SUPPORTED_RUNTIME)('does not release the startup lock before an unregistered runtime exits', async () => {
     const paths = getDeepSeekRuntimePaths();

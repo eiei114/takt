@@ -2,6 +2,7 @@
 
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
+import { clearTimeout } from 'node:timers';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
@@ -117,6 +118,21 @@ function settleRuntimeStderr() {
   if (runtimeStderrLine.length > 0) inspectRuntimeStderrLine(runtimeStderrLine);
   runtimeStderrLine = '';
   resolveRuntimeStderrClosed();
+}
+
+/** Drain diagnostics briefly, then close pipes that detached descendants may still hold open. */
+async function drainRuntimeStderr() {
+  let timeout;
+  try {
+    await Promise.race([
+      runtimeStderrClosed,
+      new Promise((resolve) => { timeout = setTimeout(resolve, 1_000); }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+    runtime.stderr?.destroy();
+    settleRuntimeStderr();
+  }
 }
 
 /** Atomically publish the supervised runtime PID and optional failed-cleanup marker. */
@@ -264,7 +280,7 @@ try {
       runtime.once('exit', async (code, signal) => {
         await ownerReady;
         const cleanupConfirmed = await terminateRuntime().catch(() => false);
-        await runtimeStderrClosed;
+        await drainRuntimeStderr();
         if (npmPluginLoadFailureObserved) {
           process.stderr.write(`${CORDIS_NPM_PLUGIN_LOAD_FAILURE_MARKER}\n`);
           process.exitCode = 1;
