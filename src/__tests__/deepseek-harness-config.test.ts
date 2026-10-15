@@ -221,6 +221,17 @@ describe('DeepSeek Harness provider options', () => {
       .toBe('npm:https://[configured]@example.test/plugin.tgz?token=[configured]');
   });
 
+  it.each(['Signature', '%53ignature', 'Key-Pair-Id', 'Expires', 'Policy', 'X-Amz-Signature', 'X-Goog-Signature', 'sig'])(
+    'redacts signed npm URL parameter %s without changing runtime configuration',
+    (key) => {
+      const source = `npm:https://example.test/plugin.tgz?${key}=private-value&version=1`;
+      const options = { deepseekHarness: { plugins: [source, { source }] } };
+      const expected = `npm:https://example.test/plugin.tgz?${key}=[configured]&version=1`;
+      expect(redactProviderOptions(options)?.deepseekHarness?.plugins).toEqual([expected, { source: expected }]);
+      expect(options.deepseekHarness.plugins).toEqual([source, { source }]);
+    },
+  );
+
   it('rejects unknown options and Node timer values above the supported maximum', () => {
     expect(() => StepProviderOptionsObjectSchema.parse({
       deepseek_harness: {

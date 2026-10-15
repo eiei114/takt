@@ -838,6 +838,49 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       .rejects.toMatchObject({ stage: 'entrypoint' });
   }, 30_000);
 
+  it.each([
+    { name: 'a missing export file', exports: './missing.js' },
+    { name: 'a require-only root', exports: { '.': { require: './index.js' } } },
+    { name: 'only subpath exports', exports: { './private': './index.js' } },
+    { name: 'an extensionless export target', exports: './index' },
+  ])('rejects $name without falling back to a valid main', async ({ exports: exportsField }) => {
+    const packageDirectory = join(temporaryRoot, 'npm-exports-no-fallback-package');
+    await mkdir(packageDirectory);
+    await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({
+      name: 'local-exports-no-fallback-plugin', version: '1.0.0',
+      exports: exportsField, main: './index.js',
+    }));
+    await writeFile(join(packageDirectory, 'index.js'), 'module.exports = {};');
+    const before = (await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-'));
+    let resolution: Awaited<ReturnType<typeof resolveDeepSeekHarnessNpmPlugins>> | undefined;
+    try {
+      await expect(resolveDeepSeekHarnessNpmPlugins([`npm:file:${packageDirectory}`]).then((value) => {
+        resolution = value;
+        return value;
+      })).rejects.toMatchObject({ name: 'DeepSeekHarnessNpmPluginResolutionError', stage: 'entrypoint' });
+    } finally {
+      await resolution?.dispose();
+    }
+    expect((await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-'))).toEqual(before);
+  }, 30_000);
+
+  it('uses the exported root rather than a different main entrypoint', async () => {
+    const packageDirectory = join(temporaryRoot, 'npm-exports-precedence-package');
+    await mkdir(packageDirectory);
+    await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({
+      name: 'local-exports-precedence-plugin', version: '1.0.0',
+      exports: './public.js', main: './private.js',
+    }));
+    await writeFile(join(packageDirectory, 'public.js'), 'module.exports = {};');
+    await writeFile(join(packageDirectory, 'private.js'), 'module.exports = {};');
+    const resolution = await resolveDeepSeekHarnessNpmPlugins([`npm:file:${packageDirectory}`]);
+    try {
+      expect(path.basename(fileURLToPath(resolution.plugins[0]!.name))).toBe('public.js');
+    } finally {
+      await resolution.dispose();
+    }
+  }, 30_000);
+
   it.skipIf(process.platform === 'win32')('accepts npm pack metadata larger than one MiB and cleans its installation', async () => {
     const fakeNpmDirectory = join(temporaryRoot, 'large-pack-npm-bin');
     await mkdir(fakeNpmDirectory);
@@ -886,7 +929,17 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       'https://example.com/plugin.tgz?X-Amz-Security-Token=secret',
       'https://example.com/plugin.tgz?api_key=secret',
       'https://example.com/plugin.tgz?auth=secret',
+      'https://example.com/plugin.tgz?Signature=secret',
+      'https://example.com/plugin.tgz?Key-Pair-Id=private-key-id',
+      'https://example.com/plugin.tgz?Expires=2000000000',
+      'https://example.com/plugin.tgz?Signature=secret&Key-Pair-Id=private-key-id&Expires=2000000000',
+      'https://example.com/plugin.tgz?%53ignature=secret',
+      'https://example.com/plugin.tgz?Policy=private-policy',
+      'https://example.com/plugin.tgz?X-Amz-Signature=secret',
+      'https://example.com/plugin.tgz?X-Goog-Signature=secret',
+      'https://example.com/plugin.tgz?sig=secret',
       'alias@https://example.com/plugin.tgz?password=secret',
+      'alias@https://example.com/plugin.tgz?Signature=secret',
     ]) {
       for (const option of [`npm:${spec}`, { source: `npm:${spec}` }]) {
         await expect(resolveDeepSeekHarnessNpmPlugins([option], controller.signal))

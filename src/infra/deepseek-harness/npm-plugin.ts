@@ -71,8 +71,9 @@ function assertNoNpmUrlCredentials(spec: string): void {
   } catch {
     throw new DeepSeekHarnessNpmPluginResolutionError('source');
   }
-  if (url.username.length > 0 || url.password.length > 0
-    || [...url.searchParams.keys()].some((key) => /(?:token|password|passwd|secret|credential|auth|api[-_]?key)/iu.test(key))) {
+  const hasSensitiveQuery = [...url.searchParams.keys()].some((key) =>
+    /(?:token|password|passwd|secret|credential|auth|api[-_]?key|signature|key[-_]?pair[-_]?id|expires|^sig$|^policy$)/iu.test(key));
+  if (url.username.length > 0 || url.password.length > 0 || hasSensitiveQuery) {
     throw new DeepSeekHarnessNpmPluginResolutionError('source');
   }
 }
@@ -196,10 +197,11 @@ async function resolveEntrypoint(packageDirectory: string): Promise<string> {
     throw new DeepSeekHarnessNpmPluginResolutionError('entrypoint');
   }
 
-  const candidates = [
-    ...(manifest.exports === undefined ? [] : [selectExportEntry(manifest.exports)]),
-    ...(typeof manifest.main === 'string' ? [resolveMainEntry(canonicalPackageDirectory)] : []),
-  ];
+  const candidates = manifest.exports !== undefined
+    ? [selectExportEntry(manifest.exports)]
+    : typeof manifest.main === 'string'
+      ? [resolveMainEntry(canonicalPackageDirectory)]
+      : [];
   for (const candidate of candidates) {
     if (candidate === undefined || candidate.length === 0) continue;
     const candidatePath = path.resolve(canonicalPackageDirectory, candidate);

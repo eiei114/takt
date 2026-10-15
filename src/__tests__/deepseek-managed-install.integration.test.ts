@@ -1553,32 +1553,6 @@ steps:
     expect(await getReadyDeepSeekHarnessPackageDirectory()).toBe(first);
   });
 
-  it.skipIf(process.platform !== 'darwin')('keeps native module integrity checks stable through a filesystem root alias', async () => {
-    // Private paths permit the system's /tmp root alias, not arbitrary configuration symlinks.
-    const aliasedRoot = await mkdtemp('/tmp/takt-deepseek-install-alias-');
-    const realConfigDirectory = join(realpathSync(aliasedRoot), 'config');
-    const aliasedConfigDirectory = join(aliasedRoot, 'config');
-    const npmLog = join(temporaryRoot, 'alias-install.log');
-    vi.stubEnv('TAKT_CONFIG_DIR', aliasedConfigDirectory);
-    vi.stubEnv('TAKT_TEST_NPM_LOG', npmLog);
-    try {
-      expect(realConfigDirectory).not.toBe(aliasedConfigDirectory);
-      await installDeepSeekHarness({ npmPath: fakeNpmPath });
-      const aliasedDirectory = await getReadyDeepSeekHarnessPackageDirectory();
-      const marker = JSON.parse(await readFile(join(aliasedDirectory, '.ready.json'), 'utf8')) as { ptyNativePath: string };
-      expect(marker.ptyNativePath).toBe(join('node_modules', 'node-pty', 'prebuilds', `${process.platform}-${process.arch}`, 'pty.node'));
-
-      vi.stubEnv('TAKT_CONFIG_DIR', realConfigDirectory);
-      const canonicalDirectory = await getReadyDeepSeekHarnessPackageDirectory();
-      expect(realpathSync(aliasedDirectory)).toBe(realpathSync(canonicalDirectory));
-      await installDeepSeekHarness({ npmPath: fakeNpmPath });
-      expect((await readFile(npmLog, 'utf8')).trim().split('\n')).toHaveLength(1);
-      expect((await loadManagedDeepSeekHarnessModules()).directory).toBe(canonicalDirectory);
-    } finally {
-      await rm(aliasedRoot, { recursive: true, force: true });
-    }
-  });
-
   it('replaces a ready generation through the CLI --force option', async () => {
     await installDeepSeekHarness({ npmPath: fakeNpmPath });
     const previous = await getReadyDeepSeekHarnessPackageDirectory();

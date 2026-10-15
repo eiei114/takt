@@ -155,11 +155,9 @@ interface NodePtyHashes {
   helperSha256?: string;
 }
 
-/** Hash native artifacts relative to the real install root so aliases and staging renames stay stable. */
 async function readNodePtyHashes(directory: string): Promise<NodePtyHashes> {
   try {
-    const canonicalDirectory = await realpath(directory);
-    const require = createRequire(join(canonicalDirectory, 'package.json'));
+    const require = createRequire(join(directory, 'package.json'));
     const entryPath = require.resolve('node-pty');
     const utilsPath = require.resolve('node-pty/lib/utils.js');
     require('node-pty');
@@ -176,7 +174,7 @@ async function readNodePtyHashes(directory: string): Promise<NodePtyHashes> {
     }
     return {
       entrySha256: sha256(await readFile(entryPath)),
-      nativePath: relative(canonicalDirectory, await realpath(nativePath)),
+      nativePath: relative(directory, nativePath),
       nativeSha256: sha256(await readFile(nativePath)),
       helperSha256: helperPath === undefined ? undefined : sha256(await readFile(helperPath)),
     };

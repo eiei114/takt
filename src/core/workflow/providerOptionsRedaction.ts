@@ -21,7 +21,7 @@ function redactExtensionSource(source: string): string {
       } catch {
         // Keep the raw key when percent-encoding is malformed.
       }
-      return /api[_-]?key|token|password|passwd|auth|secret|credential/iu.test(key)
+      return /api[_-]?key|token|password|passwd|auth|secret|credential|signature|key[-_]?pair[-_]?id|expires|^sig$|^policy$/iu.test(key)
         ? `${delimiter}${rawKey}=${CONFIGURED_PROVIDER_OPTION_VALUE}`
         : parameter;
     },
