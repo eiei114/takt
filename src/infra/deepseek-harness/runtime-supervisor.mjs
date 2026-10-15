@@ -2,9 +2,12 @@
 
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
+import { Buffer } from 'node:buffer';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { clearTimeout } from 'node:timers';
 import { mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { fileURLToPath, URL } from 'node:url';
 import {
   cleanupDeepSeekRuntimeResources,
   assertDeepSeekRuntimeCreationAllowedLocked,
@@ -58,65 +61,50 @@ const runtimeBin = require.resolve(`@deepseek-ai/dsh/${runtimePackage.bin.dsh}`)
 const ownerPath = join(ownerDirectory, `${process.pid}.json`);
 let runtime;
 let terminationPromise;
-let runtimeStderrLine = '';
-let remainingInactivePluginDiagnostics = 0;
-let sawStartupFailure = false;
-let insideFailedPluginDetails = false;
 let npmPluginLoadFailureObserved = false;
+let runtimeDiagnosticLine = '';
 let resolveRuntimeStderrClosed;
 let runtimeStderrClosedSettled = false;
 const runtimeStderrClosed = new Promise((resolve) => { resolveRuntimeStderrClosed = resolve; });
 const CORDIS_NPM_PLUGIN_LOAD_FAILURE_MARKER = 'TAKT_DSH_CORDIS_NPM_PLUGIN_LOAD_FAILURE';
-const MAX_RUNTIME_STDERR_LINE_LENGTH = 16_384;
+const MAX_RUNTIME_DIAGNOSTIC_LINE_LENGTH = 16_384;
+const runtimeDiagnosticToken = randomBytes(32);
+const runtimeDiagnosticObserver = fileURLToPath(new URL('./runtime-diagnostic-observer.mjs', import.meta.url));
+const runtimeBootModule = require.resolve('@deepseek-ai/dsh-app-boot');
 let resolveOwnerReady;
 const ownerReady = new Promise((resolve) => { resolveOwnerReady = resolve; });
 
-/** Consume only the official optional-plugin warning shape; never forward plugin-owned diagnostic text. */
-function inspectRuntimeStderrLine(line) {
-  const inactiveWarning = /^dsh: warning: (\d+) (?:entry|entries) did not activate$/u.exec(line);
-  if (inactiveWarning !== null) {
-    remainingInactivePluginDiagnostics = Number(inactiveWarning[1]);
+/** Bind diagnostic events to this invocation so child plugins cannot impersonate the observer. */
+function inspectRuntimeDiagnosticLine(line) {
+  let diagnostic;
+  try {
+    diagnostic = JSON.parse(line);
+  } catch {
     return;
   }
-  if (/^dsh: startup failed: \d+ required plugins? did not activate$/u.test(line)) {
-    sawStartupFailure = true;
-    return;
-  }
-  if (sawStartupFailure && /^Failed plugins \(\d+\):$/u.test(line)) {
-    insideFailedPluginDetails = true;
-    return;
-  }
-  if (insideFailedPluginDetails && line.trim().length === 0) {
-    insideFailedPluginDetails = false;
-  }
-  if (npmPluginLoadFailureObserved) return;
-  const failedNpmPlugin = (remainingInactivePluginDiagnostics > 0
-    && npmPluginEntrypoints.some((entrypoint) =>
-      line.includes(`(${entrypoint}): `) && !line.includes('): pending (waiting for ')))
-    || (insideFailedPluginDetails
-      && npmPluginEntrypoints.some((entrypoint) => line.trim() === `Package: ${entrypoint}`));
-  if (remainingInactivePluginDiagnostics > 0) remainingInactivePluginDiagnostics -= 1;
-  if (!failedNpmPlugin) return;
+  if (typeof diagnostic?.entrypoint !== 'string' || !npmPluginEntrypoints.includes(diagnostic.entrypoint)) return;
+  if (typeof diagnostic.token !== 'string' || diagnostic.token.length !== runtimeDiagnosticToken.length * 2) return;
+  const receivedToken = Buffer.from(diagnostic.token, 'hex');
+  if (receivedToken.length !== runtimeDiagnosticToken.length
+    || !timingSafeEqual(receivedToken, runtimeDiagnosticToken)) return;
   npmPluginLoadFailureObserved = true;
   if (runtime?.pid !== undefined) signalProcessGroup(runtime.pid, 'SIGTERM');
 }
 
-/** Bound diagnostic buffering while recognizing warning and entry lines split across stream chunks. */
-function inspectRuntimeStderr(chunk) {
-  const lines = `${runtimeStderrLine}${chunk.toString('utf8')}`.split(/\r?\n/u);
-  runtimeStderrLine = lines.pop() ?? '';
-  if (runtimeStderrLine.length > MAX_RUNTIME_STDERR_LINE_LENGTH) {
-    runtimeStderrLine = runtimeStderrLine.slice(-MAX_RUNTIME_STDERR_LINE_LENGTH);
+/** Consume private observer events while bounding the pending line. */
+function inspectRuntimeDiagnostic(chunk) {
+  const lines = `${runtimeDiagnosticLine}${chunk.toString('utf8')}`.split(/\r?\n/u);
+  runtimeDiagnosticLine = lines.pop() ?? '';
+  if (runtimeDiagnosticLine.length > MAX_RUNTIME_DIAGNOSTIC_LINE_LENGTH) {
+    runtimeDiagnosticLine = runtimeDiagnosticLine.slice(-MAX_RUNTIME_DIAGNOSTIC_LINE_LENGTH);
   }
-  for (const line of lines) inspectRuntimeStderrLine(line);
+  for (const line of lines) inspectRuntimeDiagnosticLine(line);
 }
 
-/** Flush the last partial line and let shutdown publish its one fixed safe marker. */
+/** Let shutdown publish its one fixed safe marker after observer events settle. */
 function settleRuntimeStderr() {
   if (runtimeStderrClosedSettled) return;
   runtimeStderrClosedSettled = true;
-  if (runtimeStderrLine.length > 0) inspectRuntimeStderrLine(runtimeStderrLine);
-  runtimeStderrLine = '';
   resolveRuntimeStderrClosed();
 }
 
@@ -262,20 +250,29 @@ try {
   await withDeepSeekRuntimeStateFileLock(stateDirectory, async (lock) => {
     await assertDeepSeekRuntimeCreationAllowedLocked(stateDirectory, ownerDirectory, parentPid, lock);
     try {
-      runtime = spawn(process.execPath, [runtimeBin, ...process.argv.slice(2)], {
+      runtime = spawn(process.execPath, ['--import', runtimeDiagnosticObserver, runtimeBin, ...process.argv.slice(2)], {
         cwd: process.cwd(),
-        env: process.env,
+        env: {
+          ...process.env,
+          TAKT_DSH_RUNTIME_BOOT_MODULE: runtimeBootModule,
+          TAKT_DSH_NPM_PLUGIN_ENTRYPOINTS: JSON.stringify(npmPluginEntrypoints),
+        },
         detached: process.platform !== 'win32',
-        stdio: ['pipe', 'inherit', 'pipe'],
+        stdio: ['pipe', 'inherit', 'pipe', 'pipe', 'pipe'],
       });
+      const observerTokenPipe = runtime.stdio[4];
+      if (observerTokenPipe === null || observerTokenPipe === undefined) {
+        throw new Error('Failed to create the runtime observer token pipe');
+      }
       if (runtime.stderr === null) {
         settleRuntimeStderr();
       } else {
-        runtime.stderr.on('data', inspectRuntimeStderr);
         runtime.stderr.once('end', settleRuntimeStderr);
         runtime.stderr.once('error', settleRuntimeStderr);
         runtime.stderr.once('close', settleRuntimeStderr);
+        runtime.stderr.resume();
       }
+      runtime.stdio[3]?.on('data', inspectRuntimeDiagnostic);
 
       runtime.once('exit', async (code, signal) => {
         await ownerReady;
@@ -291,7 +288,14 @@ try {
       });
 
       await new Promise((resolve, reject) => {
-        runtime.once('spawn', resolve);
+        observerTokenPipe.once('error', reject);
+        runtime.once('spawn', () => {
+          try {
+            observerTokenPipe.end(runtimeDiagnosticToken.toString('hex'), resolve);
+          } catch (error) {
+            reject(error);
+          }
+        });
         runtime.once('error', reject);
       });
       await writeOwner();

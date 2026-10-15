@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import * as path from 'node:path';
@@ -178,25 +178,37 @@ function resolveMainEntry(packageDirectory: string): string | undefined {
   }
 }
 
-/** Resolve an executable package entrypoint while keeping the selected path inside its package. */
+/** Check strict package containment using platform-aware relative paths, not string prefixes. */
+function isInsidePackage(packageDirectory: string, entrypoint: string): boolean {
+  const relative = path.relative(packageDirectory, entrypoint);
+  return relative.length > 0 && relative !== '..'
+    && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
+}
+
+/** Resolve canonical entrypoints so directory aliases cannot break the package containment check. */
 async function resolveEntrypoint(packageDirectory: string): Promise<string> {
+  let canonicalPackageDirectory: string;
   let manifest: { exports?: unknown; main?: unknown };
   try {
-    manifest = JSON.parse(await readFile(path.join(packageDirectory, 'package.json'), 'utf8')) as typeof manifest;
+    canonicalPackageDirectory = await realpath(packageDirectory);
+    manifest = JSON.parse(await readFile(path.join(canonicalPackageDirectory, 'package.json'), 'utf8')) as typeof manifest;
   } catch {
     throw new DeepSeekHarnessNpmPluginResolutionError('entrypoint');
   }
 
   const candidates = [
     ...(manifest.exports === undefined ? [] : [selectExportEntry(manifest.exports)]),
-    ...(typeof manifest.main === 'string' ? [resolveMainEntry(packageDirectory)] : []),
+    ...(typeof manifest.main === 'string' ? [resolveMainEntry(canonicalPackageDirectory)] : []),
   ];
   for (const candidate of candidates) {
     if (candidate === undefined || candidate.length === 0) continue;
-    const entrypoint = path.resolve(packageDirectory, candidate);
-    if (entrypoint === packageDirectory || !entrypoint.startsWith(`${packageDirectory}${path.sep}`)) continue;
-    if (!ENTRYPOINT_EXTENSIONS.includes(path.extname(entrypoint))) continue;
+    const candidatePath = path.resolve(canonicalPackageDirectory, candidate);
+    if (!isInsidePackage(canonicalPackageDirectory, candidatePath)) continue;
+    if (!ENTRYPOINT_EXTENSIONS.includes(path.extname(candidatePath))) continue;
     try {
+      const entrypoint = await realpath(candidatePath);
+      if (!isInsidePackage(canonicalPackageDirectory, entrypoint)) continue;
+      if (!ENTRYPOINT_EXTENSIONS.includes(path.extname(entrypoint))) continue;
       if ((await stat(entrypoint)).isFile()) return entrypoint;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT'

@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { execFileSync, spawn } from 'node:child_process';
 import { appendFileSync, existsSync } from 'node:fs';
-import { chmod, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdtemp, mkdir, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { dirname, join } from 'node:path';
@@ -51,6 +51,7 @@ import { DeepSeekHarnessProvider } from '../infra/providers/deepseek-harness.js'
 import { DeepSeekHarnessInstallRequiredError, installDeepSeekHarness } from '../infra/deepseek-harness/managed-package.js';
 import { resolveDeepSeekHarnessNpmPlugins } from '../infra/deepseek-harness/npm-plugin.js';
 import {
+  acknowledgeDeepSeekRuntimeCleanup,
   assertDeepSeekRuntimeCreationAllowed,
   getDeepSeekRuntimePaths,
   hasDeepSeekSessionMarker,
@@ -791,6 +792,41 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     }
   }, 30_000);
 
+  it.each(['main', 'exports'] as const)('resolves a %s entry through an aliased temporary directory and cleans it up', async (entryField) => {
+    const realTemporaryDirectory = join(temporaryRoot, 'real-tmp');
+    const aliasedTemporaryDirectory = join(temporaryRoot, 'tmp-alias');
+    const packageDirectory = join(temporaryRoot, 'npm-aliased-path-package');
+    await mkdir(realTemporaryDirectory);
+    await symlink(realTemporaryDirectory, aliasedTemporaryDirectory, process.platform === 'win32' ? 'junction' : 'dir');
+    await mkdir(packageDirectory);
+    await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({
+      name: 'local-aliased-path-plugin', version: '1.0.0', [entryField]: './index.js',
+    }));
+    await writeFile(join(packageDirectory, 'index.js'), 'module.exports = {};');
+    const temporaryEnvironmentKeys = ['TMPDIR', 'TEMP', 'TMP'] as const;
+    const previous = temporaryEnvironmentKeys.map((key) => [key, process.env[key]] as const);
+    for (const key of temporaryEnvironmentKeys) process.env[key] = aliasedTemporaryDirectory;
+    let resolution: Awaited<ReturnType<typeof resolveDeepSeekHarnessNpmPlugins>> | undefined;
+    try {
+      expect(await realpath(tmpdir())).not.toBe(tmpdir());
+      resolution = await resolveDeepSeekHarnessNpmPlugins([`npm:file:${packageDirectory}`]);
+      const installDirectory = resolution.cleanupPaths[0]!;
+      const canonicalDirectory = await realpath(installDirectory);
+      const entrypoint = fileURLToPath(resolution.plugins[0]!.name);
+      expect(entrypoint).toBe(join(canonicalDirectory, 'install/node_modules/local-aliased-path-plugin/index.js'));
+      expect(existsSync(entrypoint)).toBe(true);
+      await resolution.dispose();
+      expect(existsSync(installDirectory)).toBe(false);
+      expect(existsSync(canonicalDirectory)).toBe(false);
+    } finally {
+      await resolution?.dispose();
+      for (const [key, value] of previous) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  }, 30_000);
+
   it('does not apply legacy extension probing to exports targets', async () => {
     const packageDirectory = join(temporaryRoot, 'npm-exact-exports-package');
     await mkdir(packageDirectory, { recursive: true });
@@ -999,7 +1035,9 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     }));
     await writeFile(join(packageDirectory, 'index.js'), [
       'export default function apply() {',
-      "  throw new Error('cordis fixture load failure');",
+      "  const error = new Error('cordis fixture load failure');",
+      "  error.stack = 'error: cordis fixture load failure';",
+      '  throw error;',
       '}',
     ].join('\n'));
 
@@ -1017,6 +1055,278 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       content: 'DeepSeek Harness npm plugin failed to load. Check the package entrypoint and configuration, then retry. Upstream error details are withheld.',
     });
     expect(response.content).not.toContain('cordis fixture load failure');
+    expect(api.requests).toHaveLength(0);
+    expect((await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-')))
+      .toEqual(pluginDirectoriesBefore);
+  }, 90_000);
+
+  it.skipIf(!SUPPORTED_RUNTIME)('reports a failed npm plugin when it replaces process.emit', async () => {
+    const api = await startLocalApi();
+    const packageDirectory = join(temporaryRoot, 'npm-process-emit-interceptor-package');
+    const pluginDirectoriesBefore = (await readdir(tmpdir()))
+      .filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-'));
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({
+      name: 'local-npm-process-emit-interceptor-plugin',
+      version: '1.0.0',
+      type: 'module',
+      main: './index.js',
+    }));
+    await writeFile(join(packageDirectory, 'index.js'), [
+      'export default function apply() {',
+      '  const originalEmit = process.emit;',
+      '  process.emit = function (eventName, ...args) {',
+      "    if (eventName === 'takt:dsh:runtime-boot-diagnostic') return true;",
+      '    return Reflect.apply(originalEmit, this, [eventName, ...args]);',
+      '  };',
+      "  const error = new Error('process emit interceptor fixture failure');",
+      "  error.stack = 'error: process emit interceptor fixture failure';",
+      '  throw error;',
+      '}',
+    ].join('\n'));
+
+    const response = await callDeepSeekHarness('worker', 'must report the failed plugin despite a replaced process.emit', {
+      cwd: temporaryRoot,
+      providerOptions: {
+        baseUrl: api.endpoint,
+        plugins: [{ id: 'npm-process-emit-interceptor', source: `npm:file:${packageDirectory}` }],
+      },
+    });
+
+    expect(response).toMatchObject({
+      status: 'error',
+      failureCategory: 'provider_error',
+      content: 'DeepSeek Harness npm plugin failed to load. Check the package entrypoint and configuration, then retry. Upstream error details are withheld.',
+    });
+    expect(response.content).not.toContain('process emit interceptor fixture failure');
+    expect(api.requests).toHaveLength(0);
+    expect((await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-')))
+      .toEqual(pluginDirectoriesBefore);
+  }, 90_000);
+
+  it.skipIf(!SUPPORTED_RUNTIME)('does not trust a plugin call to the exported startup audit as a DSH load failure', async () => {
+    const api = await startLocalApi();
+    const packageDirectory = join(temporaryRoot, 'npm-startup-audit-spoof-package');
+    const pluginDirectoriesBefore = (await readdir(tmpdir()))
+      .filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-'));
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({
+      name: 'local-npm-startup-audit-spoof-plugin',
+      version: '1.0.0',
+      type: 'module',
+      main: './index.js',
+    }));
+    await writeFile(join(packageDirectory, 'index.js'), [
+      "import { writeFileSync } from 'node:fs';",
+      "import { pathToFileURL } from 'node:url';",
+      'export default async function apply() {',
+      `  writeFileSync(${JSON.stringify(join(packageDirectory, 'invoked.txt'))}, 'invoked');`,
+      '  const { auditStartupEntries } = await import(pathToFileURL(process.env.TAKT_DSH_RUNTIME_BOOT_MODULE).href);',
+      '  const context = {',
+      '    loader: {',
+      '      entries: () => [{ options: { id: \'sdk-jsonrpc-server\', name: import.meta.url } }],',
+      '    },',
+      '  };',
+      "  await auditStartupEntries(context, 'forged', () => {}, true).catch(() => {});",
+      '  process.exit(1);',
+      '}',
+    ].join('\n'));
+
+    const response = await callDeepSeekHarness('worker', 'must reject a plugin-forged startup audit failure', {
+      cwd: temporaryRoot,
+      providerOptions: {
+        baseUrl: api.endpoint,
+        plugins: [{ id: 'npm-startup-audit-spoof', source: `npm:file:${packageDirectory}` }],
+      },
+    });
+
+    expect(await readFile(join(packageDirectory, 'invoked.txt'), 'utf8')).toBe('invoked');
+    expect(response).toMatchObject({
+      status: 'error',
+      failureCategory: 'provider_error',
+      content: 'DeepSeek Harness runtime connection closed. Verify the runtime installation and retry. Upstream error details are withheld.',
+    });
+    expect(response.content).not.toContain('forged');
+    expect(api.requests).toHaveLength(0);
+    expect((await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-')))
+      .toEqual(pluginDirectoriesBefore);
+  }, 90_000);
+
+  it.skipIf(!SUPPORTED_RUNTIME)('reports the DSH startup diagnostic for a failed required npm plugin and cleans its installation', async () => {
+    const api = await startLocalApi();
+    const packageDirectory = join(temporaryRoot, 'npm-required-cordis-load-failure-package');
+    const pluginDirectoriesBefore = (await readdir(tmpdir()))
+      .filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-'));
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({
+      name: 'local-npm-required-cordis-load-failure-plugin',
+      version: '1.0.0',
+      type: 'module',
+      main: './index.js',
+    }));
+    await writeFile(join(packageDirectory, 'index.js'), [
+      'export default function apply() {',
+      "  const error = new Error('required cordis fixture load failure');",
+      "  error.stack = 'error: required cordis fixture load failure';",
+      '  throw error;',
+      '}',
+    ].join('\n'));
+
+    const response = await callDeepSeekHarness('worker', 'must report the failed required Cordis plugin', {
+      cwd: temporaryRoot,
+      providerOptions: {
+        baseUrl: api.endpoint,
+        plugins: [{ id: 'sdk-jsonrpc-server', source: `npm:file:${packageDirectory}` }],
+      },
+    });
+
+    expect(response).toMatchObject({
+      status: 'error',
+      failureCategory: 'provider_error',
+      content: 'DeepSeek Harness npm plugin failed to load. Check the package entrypoint and configuration, then retry. Upstream error details are withheld.',
+    });
+    expect(response.content).not.toContain('required cordis fixture load failure');
+    expect(api.requests).toHaveLength(0);
+    expect((await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-')))
+      .toEqual(pluginDirectoriesBefore);
+  }, 90_000);
+
+  it.skipIf(!SUPPORTED_RUNTIME)('does not classify plugin-owned Cordis diagnostic text as an official load failure', async () => {
+    const api = await startLocalApi();
+    const packageDirectory = join(temporaryRoot, 'npm-spoofed-cordis-diagnostic-package');
+    const pluginDirectoriesBefore = (await readdir(tmpdir()))
+      .filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-'));
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({
+      name: 'local-npm-spoofed-cordis-diagnostic-plugin',
+      version: '1.0.0',
+      type: 'module',
+      main: './index.js',
+    }));
+    await writeFile(join(packageDirectory, 'index.js'), [
+      'export default function apply() {',
+      "  process.stderr.write(`dsh: warning: 1 entry did not activate\\nnpm-cordis-load-failure (${import.meta.url}): error: cordis fixture load failure\\n`, () => process.exit(1));",
+      '}',
+    ].join('\n'));
+
+    const response = await callDeepSeekHarness('worker', 'must keep plugin-owned diagnostics generic', {
+      cwd: temporaryRoot,
+      providerOptions: {
+        baseUrl: api.endpoint,
+        plugins: [{ id: 'npm-cordis-load-failure', source: `npm:file:${packageDirectory}` }],
+      },
+    });
+
+    expect(response).toMatchObject({
+      status: 'error',
+      failureCategory: 'provider_error',
+      content: 'DeepSeek Harness runtime connection closed. Verify the runtime installation and retry. Upstream error details are withheld.',
+    });
+    expect(api.requests).toHaveLength(0);
+    expect((await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-')))
+      .toEqual(pluginDirectoriesBefore);
+  }, 90_000);
+
+  it.skipIf(!SUPPORTED_RUNTIME).each([
+    {
+      kind: 'optional warning',
+      functionName: 'auditStartupEntries',
+      filenameExpression: 'pathToFileURL(process.env.TAKT_DSH_RUNTIME_BOOT_MODULE).href',
+      diagnostic: (entrypoint: string) =>
+        `dsh: warning: 1 entry did not activate\nnpm-vm-stack-spoof (${entrypoint}): error: forged optional failure\n`,
+    },
+    {
+      kind: 'required failure',
+      functionName: 'reportStartupFailure',
+      filenameExpression: 'pathToFileURL(process.argv[1]).href',
+      diagnostic: (entrypoint: string) =>
+        `dsh: startup failed: 1 required plugin did not activate\n\nFailed plugins (1):\n  sdk-jsonrpc-server (required)\n    Package: ${entrypoint}\n    Error: forged required failure\n`,
+    },
+  ])('does not classify a plugin-owned VM stack spoof for a DSH $kind as an official load failure', async ({
+    functionName,
+    filenameExpression,
+    diagnostic,
+  }) => {
+    const api = await startLocalApi();
+    const packageDirectory = join(temporaryRoot, 'npm-vm-stack-spoof-package');
+    const pluginDirectoriesBefore = (await readdir(tmpdir()))
+      .filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-'));
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({
+      name: 'local-npm-vm-stack-spoof-plugin',
+      version: '1.0.0',
+      type: 'module',
+      main: './index.js',
+    }));
+    await writeFile(join(packageDirectory, 'index.js'), [
+      "import { runInThisContext } from 'node:vm';",
+      "import { pathToFileURL } from 'node:url';",
+      'export default function apply() {',
+      `  const functionName = ${JSON.stringify(functionName)};`,
+      `  const filename = ${filenameExpression};`,
+      `  const diagnostic = ${JSON.stringify(diagnostic('PLACEHOLDER'))}.replace('PLACEHOLDER', import.meta.url);`,
+      "  const source = 'function ' + functionName + '() { process.stderr.write(' + JSON.stringify(diagnostic) + ', () => process.exit(1)); } ' + functionName + '();';",
+      '  runInThisContext(source, { filename });',
+      '}',
+    ].join('\n'));
+
+    const response = await callDeepSeekHarness('worker', 'must reject a VM-forged DSH diagnostic', {
+      cwd: temporaryRoot,
+      providerOptions: {
+        baseUrl: api.endpoint,
+        plugins: [{ id: 'vm-stack-spoof', source: `npm:file:${packageDirectory}` }],
+      },
+    });
+
+    expect(response).toMatchObject({
+      status: 'error',
+      failureCategory: 'provider_error',
+      content: 'DeepSeek Harness runtime connection closed. Verify the runtime installation and retry. Upstream error details are withheld.',
+    });
+    expect(response.content).not.toContain('forged');
+    expect(api.requests).toHaveLength(0);
+    expect((await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-')))
+      .toEqual(pluginDirectoriesBefore);
+  }, 90_000);
+
+  it.skipIf(!SUPPORTED_RUNTIME).each([
+    { label: 'without a token', token: undefined },
+    { label: 'with a mismatched token', token: '0'.repeat(64) },
+  ])('does not classify a plugin-owned fd 3 event $label', async ({ token }) => {
+    const api = await startLocalApi();
+    const packageDirectory = join(temporaryRoot, 'npm-forged-fd3-diagnostic-package');
+    const pluginDirectoriesBefore = (await readdir(tmpdir()))
+      .filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-'));
+    await mkdir(packageDirectory, { recursive: true });
+    await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({
+      name: 'local-npm-forged-fd3-diagnostic-plugin',
+      version: '1.0.0',
+      type: 'module',
+      main: './index.js',
+    }));
+    const tokenField = token === undefined ? '' : `, token: ${JSON.stringify(token)}`;
+    await writeFile(join(packageDirectory, 'index.js'), [
+      "import { writeSync } from 'node:fs';",
+      'export default function apply() {',
+      `  writeSync(3, JSON.stringify({ entrypoint: import.meta.url${tokenField} }) + '\\n');`,
+      '  process.exit(1);',
+      '}',
+    ].join('\n'));
+
+    const response = await callDeepSeekHarness('worker', 'must reject a forged fd 3 diagnostic', {
+      cwd: temporaryRoot,
+      providerOptions: {
+        baseUrl: api.endpoint,
+        plugins: [{ id: 'forged-fd3-diagnostic', source: `npm:file:${packageDirectory}` }],
+      },
+    });
+
+    expect(response).toMatchObject({
+      status: 'error',
+      failureCategory: 'provider_error',
+      content: 'DeepSeek Harness runtime connection closed. Verify the runtime installation and retry. Upstream error details are withheld.',
+    });
+    expect(response.content).not.toContain('forged fd 3 diagnostic');
     expect(api.requests).toHaveLength(0);
     expect((await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-')))
       .toEqual(pluginDirectoriesBefore);
@@ -1852,11 +2162,42 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     expect(await readdir(runtimePaths.owners)).toHaveLength(0);
   }, 90_000);
 
+  it.skipIf(!SUPPORTED_RUNTIME)('drains large runtime stderr output so shutdown can observe child exit', async () => {
+    const paths = getDeepSeekRuntimePaths();
+    const runtimeScript = 'process.stderr.write(Buffer.alloc(1024 * 1024), () => process.exit(0));';
+    const supervisorUrl = new URL('../infra/deepseek-harness/runtime-supervisor.mjs', import.meta.url).href;
+    const script = [
+      "const childProcess = (await import('node:child_process')).default;",
+      "const { syncBuiltinESMExports } = await import('node:module');",
+      'const originalSpawn = childProcess.spawn;',
+      `childProcess.spawn = (_command, _args, options) => originalSpawn(process.execPath, ['-e', ${JSON.stringify(runtimeScript)}], options);`,
+      'syncBuiltinESMExports();',
+      `await import(${JSON.stringify(supervisorUrl)});`,
+    ].join('\n');
+    const result = await runSeparateParentProcess(script, {
+      PATH: process.env.PATH ?? '/usr/bin:/bin',
+      TAKT_DSH_OWNER_DIRECTORY: paths.owners,
+      TAKT_DSH_STATE_DIRECTORY: paths.state,
+      TAKT_DSH_PARENT_PID: String(process.pid),
+      TAKT_DSH_MANAGED_PACKAGE_DIRECTORY: fileURLToPath(new URL('../..', import.meta.url)),
+    }, 8_000, true);
+
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(await readdir(paths.owners)).toEqual([]);
+  }, 15_000);
+
   it.skipIf(!SUPPORTED_RUNTIME).each([false, true])(
-    'exits after a bounded stderr drain when a detached descendant holds the pipe (plugin failure=%s)',
-    async (pluginFailure) => {
+    'does not classify a spoofed Cordis diagnostic and exits after a bounded stderr drain (spoofed=%s)',
+    async (spoofedDiagnostic) => {
       const paths = getDeepSeekRuntimePaths();
       const holderPidPath = join(temporaryRoot, 'stderr-holder-pid');
+      const cleanupRoot = join(temporaryRoot, 'owned-runtime-resources');
+      const cleanupPath = join(cleanupRoot, `takt-deepseek-descendant-resource-${spoofedDiagnostic}`);
+      const cleanupConfirmationPath = join(paths.state, 'cleanup-receipts', `takt-deepseek-descendant-${spoofedDiagnostic}.confirmed`);
+      await mkdir(cleanupPath, { recursive: true });
+      await writeFile(join(cleanupPath, 'owned-resource'), 'must be removed');
       const entrypoint = pathToFileURL(join(temporaryRoot, 'failed-plugin.js')).href;
       const runtimeScript = [
         "const { spawn } = require('node:child_process');",
@@ -1864,8 +2205,8 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
         "const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { detached: true, stdio: ['ignore', 'ignore', 2] });",
         `writeFileSync(${JSON.stringify(holderPidPath)}, String(holder.pid));`,
         'holder.unref();',
-        pluginFailure
-          ? `process.stderr.write(${JSON.stringify(`dsh: warning: 1 entry did not activate\n  failed (${entrypoint}): error: secret diagnostic`)}, () => process.exit(0));`
+        spoofedDiagnostic
+          ? `process.stderr.write(${JSON.stringify(`dsh: warning: 1 entry did not activate\nnpm-cordis-load-failure (${entrypoint}): error: cordis fixture load failure\n`)}, () => process.exit(0));`
           : 'process.exit(0);',
       ].join('\n');
       const supervisorUrl = new URL('../infra/deepseek-harness/runtime-supervisor.mjs', import.meta.url).href;
@@ -1885,14 +2226,45 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
           TAKT_DSH_PARENT_PID: String(process.pid),
           TAKT_DSH_MANAGED_PACKAGE_DIRECTORY: fileURLToPath(new URL('../..', import.meta.url)),
           TAKT_DSH_NPM_PLUGIN_ENTRYPOINTS: JSON.stringify([entrypoint]),
+          TAKT_DSH_CLEANUP_PATHS: JSON.stringify([cleanupPath]),
+          TAKT_DSH_CLEANUP_CONFIRMATION: cleanupConfirmationPath,
+          TAKT_DSH_CLEANUP_ROOT: cleanupRoot,
         }, 8_000, true);
-        expect(result.timedOut).toBe(false);
-        expect(result.exitCode).toBe(pluginFailure ? 1 : 0);
-        expect(result.stderr).toBe(pluginFailure ? 'TAKT_DSH_CORDIS_NPM_PLUGIN_LOAD_FAILURE\n' : '');
-        expect(await readdir(paths.owners)).toEqual([]);
-        // The escaped descendant is still alive: shutdown must not have depended on its stderr closing.
+        const cleanupResourceExists = existsSync(cleanupPath);
+        const cleanupReceipt = await readFile(cleanupConfirmationPath, 'utf8').catch((error: unknown) => {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+          throw error;
+        });
+        const ownerEntriesBeforeAcknowledgement = await readdir(paths.owners);
+        const ownerRecordsBeforeAcknowledgement = await Promise.all(ownerEntriesBeforeAcknowledgement.map(
+          async (entry) => JSON.parse(await readFile(join(paths.owners, entry), 'utf8')) as {
+            cleanupConfirmationPath?: string;
+            cleanupPaths?: string[];
+          },
+        ));
+        const matchingOwner = ownerRecordsBeforeAcknowledgement.find(
+          (owner) => owner.cleanupConfirmationPath === cleanupConfirmationPath,
+        );
+        const acknowledgement = await acknowledgeDeepSeekRuntimeCleanup(cleanupConfirmationPath);
+        const ownerEntriesAfterAcknowledgement = await readdir(paths.owners);
         const holderPid = Number(await readFile(holderPidPath, 'utf8'));
-        expect(() => process.kill(holderPid, 0)).not.toThrow();
+        let holderIsAlive = true;
+        try {
+          process.kill(holderPid, 0);
+        } catch {
+          holderIsAlive = false;
+        }
+
+        expect(result.timedOut).toBe(false);
+        expect(result.exitCode).toBe(0);
+        expect(result.stderr).toBe('');
+        expect(cleanupResourceExists).toBe(false);
+        expect(cleanupReceipt).toBe('confirmed\n');
+        expect(matchingOwner?.cleanupPaths).toContain(cleanupPath);
+        expect(acknowledgement).toBe(true);
+        expect(ownerEntriesAfterAcknowledgement).toEqual([]);
+        // The escaped descendant is still alive: shutdown must not have depended on its stderr closing.
+        expect(holderIsAlive).toBe(true);
       } finally {
         if (existsSync(holderPidPath)) {
           const holderPid = Number(await readFile(holderPidPath, 'utf8'));
@@ -2242,7 +2614,7 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       "import childProcess from 'node:child_process';",
       'const originalSpawn = childProcess.spawn;',
       'childProcess.spawn = (command, args, options) => {',
-      "  if (command === process.execPath && typeof args?.[0] === 'string' && args[0].includes('/@deepseek-ai/dsh/')) {",
+      "  if (command === process.execPath && args?.some((argument) => typeof argument === 'string' && argument.includes('/@deepseek-ai/dsh/'))) {",
       `    return originalSpawn(process.execPath, ['-e', ${JSON.stringify(fakeRuntime)}], options);`,
       '  }',
       '  return originalSpawn(command, args, options);',

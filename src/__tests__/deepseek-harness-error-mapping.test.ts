@@ -352,7 +352,9 @@ describe('DeepSeek Harness SDK error mapping', () => {
     ],
     [
       'transport closure errors',
-      new TransportClosedError(`runtime closed; stderr ${RAW_FAILURE_SENTINEL}`),
+      new TransportClosedError(
+        `runtime closed; dsh: startup failed: 1 required plugins did not activate; stderr ${RAW_FAILURE_SENTINEL}`,
+      ),
       AGENT_FAILURE_CATEGORIES.PROVIDER_ERROR,
       'DeepSeek Harness runtime connection closed. Verify the runtime installation and retry. Upstream error details are withheld.',
     ],
