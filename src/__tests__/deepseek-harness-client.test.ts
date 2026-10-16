@@ -2229,6 +2229,50 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     expect(await readdir(runtimePaths.owners)).toHaveLength(0);
   }, 90_000);
 
+  it.skipIf(!SUPPORTED_RUNTIME).each(['hoisted', 'nested', 'nested-with-hoisted-decoy'] as const)(
+    'resolves the diagnostic boot dependency from the runtime with %s packages',
+    async (layout) => {
+      const managedDirectory = join(temporaryRoot, 'managed-runtime');
+      const runtimeDirectory = join(managedDirectory, 'node_modules/@deepseek-ai/dsh');
+      await mkdir(join(runtimeDirectory, 'lib'), { recursive: true });
+      await writeFile(join(managedDirectory, 'package.json'), '{}');
+      await writeFile(join(runtimeDirectory, 'package.json'), JSON.stringify({
+        name: '@deepseek-ai/dsh', type: 'module', bin: { dsh: 'lib/bin.js' },
+      }));
+      await writeFile(join(runtimeDirectory, 'lib/bin.js'), 'process.stdout.write(process.env.TAKT_DSH_RUNTIME_BOOT_MODULE);');
+      const bootDirectories = [join(
+        layout === 'hoisted' ? managedDirectory : runtimeDirectory,
+        'node_modules/@deepseek-ai/dsh-app-boot',
+      )];
+      if (layout === 'nested-with-hoisted-decoy') {
+        bootDirectories.push(join(managedDirectory, 'node_modules/@deepseek-ai/dsh-app-boot'));
+      }
+      for (const directory of bootDirectories) {
+        await mkdir(directory, { recursive: true });
+        await writeFile(join(directory, 'package.json'), JSON.stringify({
+          name: '@deepseek-ai/dsh-app-boot', type: 'module', exports: './index.js',
+        }));
+        await writeFile(join(directory, 'index.js'), 'export {};');
+      }
+      const paths = getDeepSeekRuntimePaths();
+      const supervisorUrl = new URL('../infra/deepseek-harness/runtime-supervisor.mjs', import.meta.url).href;
+      const result = await runSeparateParentProcess(`await import(${JSON.stringify(supervisorUrl)});`, {
+        PATH: process.env.PATH ?? '/usr/bin:/bin',
+        TAKT_DSH_OWNER_DIRECTORY: paths.owners,
+        TAKT_DSH_STATE_DIRECTORY: paths.state,
+        TAKT_DSH_PARENT_PID: String(process.pid),
+        TAKT_DSH_MANAGED_PACKAGE_DIRECTORY: managedDirectory,
+      }, 10_000, true);
+
+      expect(result.timedOut).toBe(false);
+      expect(result.stderr).toBe('');
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe(await realpath(join(bootDirectories[0]!, 'index.js')));
+      expect(await readdir(paths.owners)).toEqual([]);
+    },
+    15_000,
+  );
+
   it.skipIf(!SUPPORTED_RUNTIME)('drains large runtime stderr output so shutdown can observe child exit', async () => {
     const paths = getDeepSeekRuntimePaths();
     const runtimeScript = 'process.stderr.write(Buffer.alloc(1024 * 1024), () => process.exit(0));';

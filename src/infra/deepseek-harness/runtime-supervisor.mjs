@@ -70,7 +70,7 @@ const CORDIS_NPM_PLUGIN_LOAD_FAILURE_MARKER = 'TAKT_DSH_CORDIS_NPM_PLUGIN_LOAD_F
 const MAX_RUNTIME_DIAGNOSTIC_LINE_LENGTH = 16_384;
 const runtimeDiagnosticToken = randomBytes(32);
 const runtimeDiagnosticObserver = fileURLToPath(new URL('./runtime-diagnostic-observer.mjs', import.meta.url));
-const runtimeBootModule = require.resolve('@deepseek-ai/dsh-app-boot');
+const runtimeBootModule = createRequire(runtimeBin).resolve('@deepseek-ai/dsh-app-boot');
 let resolveOwnerReady;
 const ownerReady = new Promise((resolve) => { resolveOwnerReady = resolve; });
 
