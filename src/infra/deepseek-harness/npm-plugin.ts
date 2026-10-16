@@ -139,26 +139,31 @@ function installedPackageDirectory(root: string, name: string): string {
   return path.join(root, 'node_modules', ...name.split('/'));
 }
 
-/** Select a root export using the runtime's import, node, and default conditions. */
-function selectExportEntry(exportsField: unknown): string | undefined {
-  if (typeof exportsField === 'string') return exportsField;
+/** Select a root export using import/node/default, preserving explicit null blocks. */
+function selectExportEntry(exportsField: unknown): string | null | undefined {
+  if (typeof exportsField === 'string' || exportsField === null) return exportsField;
   if (Array.isArray(exportsField)) {
+    let fallback: null | undefined = exportsField.length === 0 ? null : undefined;
     for (const entry of exportsField) {
       const resolved = selectExportEntry(entry);
+      if (resolved === null) {
+        fallback = null;
+        continue;
+      }
       if (resolved !== undefined) return resolved;
     }
-    return undefined;
+    return fallback;
   }
-  if (typeof exportsField !== 'object' || exportsField === null) return undefined;
+  if (typeof exportsField !== 'object') return undefined;
 
   const record = exportsField as Record<string, unknown>;
   const rootExport = Object.keys(record).some((key) => key.startsWith('.'))
     ? record['.']
     : exportsField;
-  if (rootExport === undefined) return undefined;
+  if (rootExport === undefined || rootExport === null) return rootExport;
   if (typeof rootExport === 'string') return rootExport;
   if (Array.isArray(rootExport)) return selectExportEntry(rootExport);
-  if (typeof rootExport !== 'object' || rootExport === null) return undefined;
+  if (typeof rootExport !== 'object') return undefined;
 
   const conditions = rootExport as Record<string, unknown>;
   for (const [condition, value] of Object.entries(conditions)) {
@@ -203,7 +208,7 @@ async function resolveEntrypoint(packageDirectory: string): Promise<string> {
       ? [resolveMainEntry(canonicalPackageDirectory)]
       : [];
   for (const candidate of candidates) {
-    if (candidate === undefined || candidate.length === 0) continue;
+    if (typeof candidate !== 'string' || candidate.length === 0) continue;
     const candidatePath = path.resolve(canonicalPackageDirectory, candidate);
     if (!isInsidePackage(canonicalPackageDirectory, candidatePath)) continue;
     if (!ENTRYPOINT_EXTENSIONS.includes(path.extname(candidatePath))) continue;

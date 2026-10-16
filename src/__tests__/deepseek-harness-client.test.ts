@@ -843,6 +843,14 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     { name: 'a require-only root', exports: { '.': { require: './index.js' } } },
     { name: 'only subpath exports', exports: { './private': './index.js' } },
     { name: 'an extensionless export target', exports: './index' },
+    { name: 'a null import before default', exports: { import: null, default: './index.js' } },
+    { name: 'a null node before import', exports: { node: null, import: './index.js' } },
+    { name: 'a null default before import', exports: { default: null, import: './index.js' } },
+    { name: 'a nested null import', exports: { node: { import: null, default: './index.js' }, default: './index.js' } },
+    { name: 'a null import in an explicit root', exports: { '.': { import: null, default: './index.js' } } },
+    { name: 'a null root', exports: { '.': null } },
+    { name: 'an import array containing only null', exports: { import: [null], default: './index.js' } },
+    { name: 'an empty import array', exports: { import: [], default: './index.js' } },
   ])('rejects $name without falling back to a valid main', async ({ exports: exportsField }) => {
     const packageDirectory = join(temporaryRoot, 'npm-exports-no-fallback-package');
     await mkdir(packageDirectory);
@@ -864,12 +872,18 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     expect((await readdir(tmpdir())).filter((entry) => entry.startsWith('takt-deepseek-npm-plugin-'))).toEqual(before);
   }, 30_000);
 
-  it('uses the exported root rather than a different main entrypoint', async () => {
+  it.each([
+    { name: 'the exported root', exports: './public.js' },
+    { name: 'default after an unmatched null condition', exports: { require: null, default: './public.js' } },
+    { name: 'default after unmatched nested conditions', exports: { import: { browser: null }, default: './public.js' } },
+    { name: 'an array fallback after null', exports: { import: [null, './public.js'], default: './private.js' } },
+    { name: 'default after an array of unmatched conditions', exports: { import: [{ browser: null }], default: './public.js' } },
+  ])('uses $name rather than a different main entrypoint', async ({ exports: exportsField }) => {
     const packageDirectory = join(temporaryRoot, 'npm-exports-precedence-package');
     await mkdir(packageDirectory);
     await writeFile(join(packageDirectory, 'package.json'), JSON.stringify({
       name: 'local-exports-precedence-plugin', version: '1.0.0',
-      exports: './public.js', main: './private.js',
+      exports: exportsField, main: './private.js',
     }));
     await writeFile(join(packageDirectory, 'public.js'), 'module.exports = {};');
     await writeFile(join(packageDirectory, 'private.js'), 'module.exports = {};');
