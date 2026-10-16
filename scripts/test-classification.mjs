@@ -269,6 +269,7 @@ export const fileSystemIntegrationTestFiles = Object.freeze([
   'src/__tests__/loopAnalysisWorker.test.ts',
   'src/__tests__/lstatIfExists.test.ts',
   'src/__tests__/managed-provider-retry-preflight.test.ts',
+  'src/__tests__/managed-sdk-version-alignment.test.ts',
   'src/__tests__/mcp-entrypoint.test.ts',
   'src/__tests__/mock-scenario.test.ts',
   'src/__tests__/monitorJsonMetricExporter.test.ts',
@@ -360,6 +361,7 @@ export const publicContractIntegrationTestFiles = Object.freeze([
 // remain bounded and quick enough for the normal post-implementation IT gate.
 export const lightContractIntegrationTestFiles = Object.freeze([
   'src/__tests__/analytics-workflowExecution.test.ts',
+  'src/__tests__/cancellable-prompt-pipe.test.ts',
   'src/__tests__/sigint-interrupt.test.ts',
 ]);
 
@@ -375,17 +377,22 @@ export const lightNamedIntegrationTestFiles = Object.freeze([
   'src/__tests__/it-cli-dynamic-import-error.test.ts',
   'src/__tests__/it-cli-entrypoint-lazy-loading.test.ts',
   'src/__tests__/it-cli-entrypoint-required-option-errors.test.ts',
+  'src/__tests__/it-declared-report-inputs.test.ts',
   'src/__tests__/it-handoff-progress.test.ts',
   'src/__tests__/it-interactive-esc-menu-routes.test.ts',
   'src/__tests__/it-interactive-routes.test.ts',
+  'src/__tests__/it-issue-dispatch-notification.test.ts',
   'src/__tests__/it-list-esc-menu-routes.test.ts',
   'src/__tests__/it-manager-conversation-plan.test.ts',
   'src/__tests__/it-manager-question-display.test.ts',
   'src/__tests__/it-manager-tui.test.ts',
   'src/__tests__/it-opencode-task-state-mcp.test.ts',
   'src/__tests__/it-phase3-persona-prompts.test.ts',
+  'src/__tests__/it-pipe-reader.test.ts',
   'src/__tests__/it-project-execution-entrypoints.test.ts',
+  'src/__tests__/it-report-generation-index.test.ts',
   'src/__tests__/it-report-input-contracts.test.ts',
+  'src/__tests__/it-resume-declared-report-reference-snapshot.test.ts',
   'src/__tests__/it-run-session-instruct.test.ts',
   'src/__tests__/it-system-enqueue-effect-duplicate.test.ts',
   'src/__tests__/it-tui-esc-menu-routes.test.ts',

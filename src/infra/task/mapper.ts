@@ -74,6 +74,7 @@ function buildTaskFileData(task: TaskRecord, content: string): TaskFileData {
     merge_caccia_required: task.merge_caccia_required,
     merge_pushed_head_sha: task.merge_pushed_head_sha,
     merge_push_base_head_sha: task.merge_push_base_head_sha,
+    merge_skip_caccia_if_no_activity: task.merge_skip_caccia_if_no_activity,
     merge_caccia_approved_head_sha: task.merge_caccia_approved_head_sha,
     merge_caccia_skipped_head_sha: task.merge_caccia_skipped_head_sha,
   });
@@ -211,6 +212,7 @@ export function toTaskState(tasksFile: string, task: TaskRecord): TaskState {
     branch: task.branch,
     worktree: task.worktree,
     worktreePath: task.worktree_path,
+    ...(task.merge_task === undefined ? {} : { mergeTask: task.merge_task }),
     workflow: task.workflow,
     prUrl: task.pr_url,
     failure: task.failure,

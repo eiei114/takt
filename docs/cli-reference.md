@@ -81,9 +81,9 @@ Approximate sizes are 250 MB for Claude SDK, 340 MB for Codex, 60 MB for OpenCod
 
 `takt install deepseek-harness` installs the required official SDK. It needs access to the npm registry. If the provider still malfunctions after installation, run `takt install deepseek-harness --force`. See the [configuration guide](./configuration.md#deepseek-harness-deepseek-harness) for credentials and `provider: deepseek-harness`.
 
-## Manager (experimental)
+## Manager (in preparation)
 
-`takt manager` opens a goal conversation TUI in an interactive terminal. manager is experimental: behavior, settings, and saved data formats may change without notice. It automatically queues and runs tasks, which incurs provider API costs. These notices appear above the input box on every startup and in `takt manager --help`, in the configured language (Japanese or English).
+Manager is in preparation and currently unavailable. `takt manager` is not registered, and `takt-mcp` exposes no goal tools in its default, `all`, or `read-only` tool sets.
 
 ## Web UI execution boundary
 
@@ -127,6 +127,8 @@ In the TUI conversation history, submitted user messages are initially printed w
 
 `/go` creates instructions for the latest task topic; earlier topics are included only when you explicitly combine them into the same task.
 
+When an Issue is loaded, each `/go` judges whether the latest task belongs to that current Issue. A related instruction shows `Issue: #N` immediately after the task heading in the preview, before the existing action menu. Execute, Save as Task, and Create Issue use N only when that line matches the current Issue. Unrelated tasks follow the flow without a loaded Issue. Choose Continue editing to correct the binding; no extra confirmation is added. After `/issue` replaces the context, the next instruction is judged again without inheriting earlier bindings.
+
 ### Interactive Mode Variants
 
 | Mode | Description |
@@ -155,6 +157,8 @@ Use `/issue <number>` or `/issue <number> <number> ...` in an ordinary CLI/TUI `
 Use `/requeue` and `/retry` in CLI/TUI `assistant` and `grill-me` conversations. `/requeue` confirms and resubmits a failed or exceeded task. `/retry` revises a failed task's instructions before resubmitting it. If the task or start position is ambiguous, TAKT stops and tells you. Both commands return the confirmed task to `pending` without running it immediately. To change the restart position for an exceeded task, add guidance to `/requeue`. In the Web UI, use the action on the task instead.
 
 Selections are temporary and are not persisted. Workflow, mode, provider, and model changes create a new AI session on the next ordinary message or `/go`; the prior transcript is included once as reference context. An effort-only change applies to the next call in the current session. Changing provider clears temporary model and effort overrides. If multiple settings commands are run before the next input, only the most recently selected value for each setting is applied. These conversation overrides do not affect workflow execution.
+
+The results of saving, creating an Issue, or executing after /go, and of /tell, /retry, and /requeue, are recorded in the conversation with the same facts as the screen notice. Subsequent messages and /go can refer to the saved task name, Issue number, cancellation, and failure reason. Saving or Issue creation failures return to the same conversation after displaying the reason. Cancelling the save settings also returns to the conversation without reopening the selector. If saving fails after an Issue was created, the notice distinguishes the existing Issue from the unsaved task. Notices for /issue and conversation settings changes are excluded from these operation records.
 
 ### Formal Specification Verification
 
@@ -688,7 +692,7 @@ takt merge 123 --workflow merge-review
 takt merge --author alice --label ready --include-forks --concurrency 4
 ```
 
-By default, draft PRs and forks are excluded. Use `--include-draft` and `--include-forks` to include them. Any CLI selection condition replaces all configured selection conditions. Bulk runs execute two PR workflows at a time by default; `merge.concurrency` changes this limit and `--concurrency` overrides it for one invocation. An explicit PR number processes only that PR. A failure for one PR does not stop the others. When `caccia.enabled` is true, a workflow's PR push waits for CodeRabbit and Caccia before CI and merge decisions use the latest head. If the initial review cannot be confirmed within the wait limit, linked Caccia is recorded as skipped and the merge workflow continues after checking the PR identity and pushed head. A rate-limit notice with a retry time at or beyond the deadline skips linked Caccia immediately. With an earlier retry time, Caccia requests one review when that time arrives. A review still incomplete at the deadline after a rate-limit notice also skips linked Caccia. A Caccia-pushed head is checked before the merge workflow continues. A pushed-commit review timeout without a rate-limit notice still stops the merge. The command exits with code 1 if any processed PR remains unmerged.
+By default, draft PRs and forks are excluded. Use `--include-draft` and `--include-forks` to include them. Any CLI selection condition replaces all configured selection conditions. Bulk runs execute two PR workflows at a time by default; `merge.concurrency` changes this limit and `--concurrency` overrides it for one invocation. An explicit PR number processes only that PR. A failure for one PR does not stop the others. When `caccia.enabled` is true, a workflow's PR push waits for CodeRabbit and Caccia before CI and merge decisions use the latest head. Only confirmed absence of CodeRabbit activity before and after the workflow push allows the linked Caccia wait to be skipped while normal CI and merge checks continue. CodeRabbit activity in reviews, threads, comments, commit statuses, or check runs, and unknown activity results prevent this skip. If the initial review cannot be confirmed within the wait limit, linked Caccia is recorded as skipped and the merge stops. A rate-limit notice with a retry time at or beyond the wait deadline skips linked Caccia immediately and lets normal CI and merge checks continue. If the retry time is earlier, Caccia requests one review when that time arrives. If a rate-limit notice is observed during the initial or a Caccia-pushed-commit review wait and review remains incomplete by the deadline, linked Caccia is recorded as skipped and normal CI and merge checks continue. The same applies when CodeRabbit explicitly skips a review. A Caccia-pushed-commit review timeout without a rate-limit notice also stops the merge. Before continuing, TAKT checks the latest head and PR identity and repeats the fork threat check. Saved skipped results are rechecked on resumption before deciding whether to continue. The command exits with code 1 if any processed PR remains unmerged.
 
 Workflow selection uses the CLI override, then `merge.workflow`, then `merge-review-fix-simple`. The default gathers context, runs one read-only reviewer with dynamic facets, then adjudicates findings and handles fixes, verification, and follow-up review in separate steps. Like `merge-review-fix`, it synchronizes, resolves conflicts when needed, pushes changes, waits for CI on the pushed head, blocks a CHANGES_REQUESTED review, and merges. Use `--workflow merge-review-fix` for parallel review.
 

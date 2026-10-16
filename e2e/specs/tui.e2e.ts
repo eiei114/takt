@@ -50,7 +50,7 @@ const PROMPT_PLACEHOLDERS = [PLACEHOLDER, PLACEHOLDER_JA] as const;
 const SPINNER_FRAMES = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏';
 const ESC = '\x1b';
 const INTERRUPTED = 'Response interrupted.';
-const RUN_FINISHED_NOTICE = 'The workflow run finished. Describe the next task, or /cancel to leave.';
+const RUN_FINISHED_NOTICE = 'Workflow execution finished successfully.';
 const WORKFLOW_MAKER_WAIT_EN = 'Please wait until the workflow completes…';
 const WORKFLOW_MAKER_WAIT_JA = 'ワークフロー完了までお待ちください…';
 
@@ -1310,7 +1310,15 @@ steps:
     await tui.waitForOutput('TUI-ASSISTANT-REPLY-OK');
 
     await submitLine(tui, '/go', 'TUI-ASSISTANT-REPLY-OK');
-    await chooseHighlighted(tui, ACTION_PROMPT);
+    await waitForSelector(tui, ACTION_PROMPT);
+    const actionScreen = (await tui.visibleScreen()).join('\n');
+    expect(selectableRows(actionScreen.slice(actionScreen.lastIndexOf(ACTION_PROMPT))))
+      .toEqual(['Save as Task', 'Create Issue', 'Execute here now', 'Continue editing', 'Cancel']);
+    tui.write(ARROW_DOWN.repeat(2));
+    await tui.waitForOutput('❯ Execute here now');
+    tui.write(ENTER);
+    await tui.waitForOutput('[y/N]:');
+    tui.write('y\r');
     await tui.waitForOutput('TUI-WORKFLOW-STEP-DONE', 180_000);
 
     // The run is over and the conversation resumes with the operation notice.
@@ -1320,6 +1328,7 @@ steps:
     // The earlier turn stays in the scrollback exactly once.
     const transcript = (await tui.visibleTranscript()).join('\n');
     expect((transcript.match(/create noop\.txt/g) ?? []).length).toBe(1);
+    expect(transcript).toContain(RUN_FINISHED_NOTICE);
 
     // Only leaving ends the process.
     await submitLine(tui, '/cancel');
@@ -1340,9 +1349,8 @@ steps:
     const duringSelector = await tui.visibleScreen();
     expect(duringSelector.join('\n')).not.toContain('╰');
 
-    // Rows: Execute now, Save as Task, Continue editing, Create Issue, Cancel.
-    tui.write(ARROW_DOWN);
-    tui.write(ARROW_DOWN);
+    // Rows: Save as Task, Create Issue, Execute here now, Continue editing, Cancel.
+    tui.write(ARROW_DOWN.repeat(3));
     await tui.waitForOutput('❯ Continue editing');
     tui.write(ENTER);
     await tui.waitForOutput('Okay, continue describing your task.');
@@ -1404,8 +1412,7 @@ steps:
     await submitLine(tui, '/go', archive.at(-1));
     await waitForSelector(tui, ACTION_PROMPT);
     await tui.resize(64, 50);
-    tui.write(ARROW_DOWN);
-    tui.write(ARROW_DOWN);
+    tui.write(ARROW_DOWN.repeat(3));
     await tui.waitForOutput('❯ Continue editing');
     tui.write(ENTER);
     await tui.waitForOutput('Okay, continue describing your task.');
@@ -1815,8 +1822,13 @@ steps:
     expect(rendered).toContain('TAIL');
     expect(rendered).toContain('↑ 3');
     tui.write('\x01');
-    await tui.waitForScreen('the full draft following its first row', (current) => compactScreen(current.split('\n')).includes(`${'wide'.repeat(120)}TAIL`));
-    const expanded = await tui.visibleScreen();
+    const expanded = (await tui.waitForScreen('the full draft in one completed input box', (current) => {
+      const lines = current.split('\n');
+      return compactScreen(lines).includes(`${'wide'.repeat(120)}TAIL`)
+        && lines.filter((line) => line.startsWith('╭')).length === 1
+        && lines.filter((line) => line.startsWith('│')).length === 4
+        && lines.filter((line) => line.startsWith('╰')).length === 1;
+    })).split('\n');
     const boxRows = expanded.filter((line) => line.startsWith('│'));
     expect(boxRows.length, expanded.join('\n')).toBe(4);
     for (const row of boxRows) {

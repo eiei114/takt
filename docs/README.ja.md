@@ -69,6 +69,9 @@ TAKT はこれらを役割、工程、判定、フィードバックループか
 ```bash
 npm install -g takt
 
+# 既定の provider(claude-sdk)の SDK をインストールします
+takt install claude-sdk
+
 # AI と会話し、タスクを説明し、/go の後に「タスクにつむ」を選びます
 takt
 
@@ -79,7 +82,7 @@ takt run
 takt list
 ```
 
-初回実行時は `~/.takt/config.yaml` で provider を設定するか、[設定](#設定) にある API キー用の環境変数を使います。SDK 経由 provider の `claude-sdk`、`codex`、`pi`、`deepseek-harness` は Node.js で動きます。DeepSeek Harness を使う前に `takt install deepseek-harness` を実行してください。CLI 経由 provider には対応する外部 CLI が必要です。
+初回実行時は `~/.takt/config.yaml` で provider を設定するか、[設定](#設定) にある API キー用の環境変数を使います。SDK 経由 provider の `claude-sdk`、`codex`、`opencode`、`pi`、`deepseek-harness` は Node.js で動きます。使う前に一度 `takt install <provider>` を実行してください。CLI 経由 provider には対応する外部 CLI が必要です。
 
 ## CodeRabbit レビューループ
 
@@ -115,7 +118,7 @@ TAKT の実行には Node.js `>=22.22.0` が必要です。
 
 従来の Claude Code CLI を使う場合は provider に `claude-headless` を指定します。権限プロファイルは選択した provider 名へ移してください。既定の provider は `claude-sdk` に変わったため、旧 `provider_profiles.claude` の権限設定が適用されない場合があります。旧 `claude` 名の session は新しく開始されます。移行の詳細は[権限の解決順序](./configuration.ja.md#パーミッション解決の優先順位)を参照してください。
 
-次のプロバイダーを使う場合は CLI 不要です（SDK 経由、Node.js のみで動作）:
+次のプロバイダーを使う場合は CLI 不要です（SDK 経由、Node.js のみで動作）。SDK は TAKT に同梱していないため、使う前に一度 `takt install <provider>` を実行し、TAKT を更新したら `takt update` を実行してください。端末では、SDK が無いとインストールするかを確認します。CI など対話できない実行では、事前にインストールしてください。詳しくは[管理SDKの導入と更新](./cli-reference.ja.md#管理sdkの導入と更新)を参照してください。
 
 - `claude-sdk` — `@anthropic-ai/claude-agent-sdk`
 - `codex` — `@openai/codex-sdk`
@@ -125,7 +128,7 @@ TAKT の実行には Node.js `>=22.22.0` が必要です。
 
 次のプロバイダーを使う場合は外部 CLI のインストールが必要です:
 
-- `opencode` — [OpenCode](https://opencode.ai/) CLI。既定は v2、v1 は明示選択（[移行設定](./configuration.ja.md#opencode-v1v2-の選択)）。
+- `opencode` — [OpenCode](https://opencode.ai/) CLI。SDK 用に `takt install opencode` も必要です。既定は v2、v1 は明示選択（[移行設定](./configuration.ja.md#opencode-v1v2-の選択)）。
 - `claude-headless` — [Claude Code](https://claude.ai/code)
 - `claude-terminal` — [Claude Code](https://claude.ai/code) を対話型ターミナルセッションで駆動（[`tmux`](https://github.com/tmux/tmux) も必要）
 - `copilot` — [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
@@ -146,6 +149,7 @@ TAKT の実行には Node.js `>=22.22.0` が必要です。
 
 ```bash
 npm install -g takt
+takt install claude-sdk   # codex、opencode、pi、deepseek-harness も同様
 ```
 
 Nix flakes を使う場合:
@@ -180,13 +184,15 @@ Select workflow:
   ...
 
 どうしますか？
-    実行する
-    GitHub Issueを建てる
-  > タスクにつむ          # ← 通常フロー
+  > タスクにつむ          # ← 通常フロー・初期選択
+    Issueを建てる
+    その場で実行する
     会話を続ける
 ```
 
 「タスクにつむ」を選ぶと `.takt/tasks/` にタスクが保存されます。`takt run` で実行すると、隔離されたワークツリー上でワークフロー（計画 → 実装 → レビュー → 修正ループ）が走り、終わったら PR を作成するか聞いてきます。
+
+「Issueを建てる」を選ぶと、作成前に「タスクにつみますか？ [Y/n]」と確認されます。Y または Enter で Issue を作成し、既存のタスク保存と worktree 設定へ進みます。n では Issue だけを作成します。Esc では何も作らず同じメニューへ戻ります。`--pr` のセッションには Issue の項目は表示されません。
 
 通常の assistant 会話では `/issue 123` または `/issue 12 34` で参照する Issue を置き換え、同じ会話を続けられます。次の発言と `/go` には取得した Issue の内容が使われます。
 
@@ -202,7 +208,7 @@ takt add '#12'
 takt run
 ```
 
-> **「実行する」を選んだ場合:** ワークツリーは作られず、カレントディレクトリで直接作業が行われます。手早く試したいときに便利ですが、変更がそのままワーキングツリーに入る点に注意してください。
+> **「その場で実行する」を選んだ場合:** ワークフローが終わるまでこの TUI は使えなくなることと、通常はタスクにつんで `takt run` で実行することを案内します。確認の既定値は N（`[y/N]`）です。y でのみ既存の実行処理へ進み、ワークツリーを作らずカレントディレクトリで作業します。N・Enter・Esc では実行せず、選択位置を保持してメニューへ戻ります。メニューで Esc を押すと会話入力へ戻ります。
 
 ### 結果を管理する
 
@@ -284,9 +290,11 @@ workflow ファイルの正式ディレクトリ名は `workflows/` です。
 | `takt run` | 積まれたタスクをまとめて実行します |
 | `takt watch` | タスクキューを監視し、pending タスクを自動実行します（常駐プロセス） |
 | `takt ui` | 実験的な Viewer 中心の Web UI を `http://127.0.0.1:20525` で起動します |
-| `takt manager` | 実験的なゴール相談 TUI を起動します。動作・設定・保存するデータの形式は予告なく変わることがあります。自動でタスクを投入・実行するため、provider の API の費用がかかります |
 | `takt list` | タスクブランチを管理します（マージ、リトライ、リキュー、強制失敗、追加指示、削除） |
 | `takt #N` | GitHub Issue を初期入力としてタスク化します |
+| `takt merge` | workflow で PR のレビュー・修正・マージを行います |
+| `takt install <provider>` | SDK 経由 provider の SDK をインストールします |
+| `takt update` | インストール済みの provider SDK を TAKT が固定した版に更新します |
 | `takt eject` | ビルトインの workflow/facet をコピーしてカスタマイズできます |
 | `takt workflow init` | カスタム workflow のひな形を作成します |
 | `takt workflow doctor` | カスタム workflow の定義を静的検証します |
@@ -321,7 +329,7 @@ run metadata、session、trace、report などの run artifact は `.takt/runs/<
 
 ステップごとにプロバイダやモデルを選びたい場合は自動ルーティングを設定できます。選択結果を確認するには `takt telemetry enable` でローカル記録を有効にしてください。詳しい設定は[設定ガイド](./configuration.ja.md)を参照してください。
 
-provider の認証情報を直接使う場合、Claude SDK、Codex、Pi に外部 CLI のインストールは不要です。DeepSeek Harness は `takt install deepseek-harness`、OpenCode は外部 CLI が必要です。
+provider の認証情報を直接使う場合、Claude SDK、Codex、Pi に外部 CLI のインストールは不要です。SDK 経由 provider には `takt install <provider>` が必要で、OpenCode は外部 CLI も必要です。
 
 ```bash
 export TAKT_ANTHROPIC_API_KEY=sk-ant-...   # Anthropic (Claude)

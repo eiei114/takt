@@ -6,7 +6,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it, vi } from 'vitest';
 import { stringify as stringifyYaml } from 'yaml';
-import { createTaktMcpServer } from '../app/mcp/server.js';
+import { createTaktMcpServer, TAKT_MCP_MANAGER_TOOL_NAMES } from '../app/mcp/server.js';
 import type { SessionContext } from '../features/interactive/aiCaller.js';
 import { createConversationSession } from '../features/interactive/conversationSession.js';
 import { getTaktRun, listTaktTasks } from '../features/mcp/operations.js';
@@ -257,9 +257,7 @@ describe('MCP package entrypoint', () => {
         'takt_list_tasks',
         'takt_get_run',
         'takt_tell_run',
-        'takt_create_goal',
-        'takt_list_goals',
-        'takt_get_goal',
+        'takt_list_workflows',
       ]));
       const enqueueTool = tools.tools.find((tool) => tool.name === 'takt_enqueue_task');
       expect(enqueueTool).toEqual(expect.objectContaining({
@@ -333,9 +331,7 @@ describe('MCP package entrypoint', () => {
       const tools = await client.listTools();
 
       expect(tools.tools.map((tool) => tool.name).sort()).toEqual([
-        'takt_get_goal',
         'takt_get_run',
-        'takt_list_goals',
         'takt_list_tasks',
       ]);
       const enqueueResult = await client.callTool({
@@ -356,7 +352,7 @@ describe('MCP package entrypoint', () => {
     }
   });
 
-  it.each(['all', 'read-only'] as const)('describes goal and task project paths separately in the %s tool set', async (toolSet) => {
+  it.each(['all', 'read-only', 'manager'] as const)('describes goal and task project paths separately in the %s tool set', async (toolSet) => {
     const server = createTaktMcpServer({}, { toolSet });
     const client = new Client({ name: 'takt-mcp-path-description-client', version: '1.0.0' });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -366,7 +362,7 @@ describe('MCP package entrypoint', () => {
 
       const { tools } = await client.listTools();
 
-      for (const name of ['takt_list_goals', 'takt_get_goal']) {
+      for (const name of toolSet === 'manager' ? ['takt_list_goals', 'takt_get_goal'] : []) {
         const tool = tools.find((candidate) => candidate.name === name);
         const cwdSchema = tool?.inputSchema.properties?.cwd as { description?: unknown } | undefined;
         expectDescriptionMatches(cwdSchema?.description, `${name}: プロジェクトの絶対パスを説明する`,
@@ -385,6 +381,28 @@ describe('MCP package entrypoint', () => {
           /absolute\s+path\s+to\s+the\s+TAKT\s+project/i);
         expectDescriptionMatches(cwdSchema?.description, `${name}: タスク保存先の読み書きを説明する`,
           /\.takt\/tasks\.yaml\s+is\s+read\s+or\s+written/i);
+      }
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it.each([undefined, 'all', 'read-only', 'manager'] as const)('exposes the expected tools for tool set %s', async (toolSet) => {
+    const server = createTaktMcpServer({}, { toolSet });
+    const client = new Client({ name: 'takt-mcp-tool-set-client', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const names = (await client.listTools()).tools.map(({ name }) => name).sort();
+      if (toolSet === 'manager') {
+        expect(names).toEqual([...TAKT_MCP_MANAGER_TOOL_NAMES].sort());
+      } else {
+        expect(names.filter((name) => name.startsWith('takt_') && name.includes('goal'))).toEqual([]);
+        expect(names).toEqual(toolSet === 'read-only'
+          ? ['takt_get_run', 'takt_list_tasks']
+          : ['takt_enqueue_task', 'takt_get_run', 'takt_list_tasks', 'takt_list_workflows', 'takt_tell_run']);
       }
     } finally {
       await client.close();
@@ -1014,6 +1032,55 @@ describe('MCP package entrypoint', () => {
     }
   });
 
+  it('sends an MCP tell to a merge run using project-side metadata', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'takt-mcp-tell-merge-'));
+    const cloneCwd = join(cwd, '.takt', 'worktrees', 'merge');
+    const runSlug = 'mcp-merge-run';
+    mkdirSync(cloneCwd, { recursive: true });
+    const { interventionPath } = writeRunFixture(cwd, runSlug, 'review');
+    writeFileSync(join(cwd, '.takt', 'tasks.yaml'), stringifyYaml({
+      tasks: [{
+        name: 'merge-pr-1805', status: 'running', summary: 'Merge PR #1805',
+        content_file: '/definitely-not-readable/merge-task.md',
+        source: 'pr_review', pr_number: 1805, merge_task: true,
+        base_branch: 'main', merge_method: 'squash',
+        merge_head_repository_url: 'https://example.com/owner/takt.git',
+        merge_head_repository_push_urls: ['https://example.com/owner/takt.git'],
+        merge_initial_head_sha: 'a'.repeat(40), merge_threat_check_max_diff_bytes: 100_000,
+        merge_caccia_required: false, merge_clone_prepared: true,
+        workflow: 'default', worktree: true, worktree_path: cloneCwd, auto_pr: false,
+        branch: 'feature/tell-merge', run_slug: runSlug,
+        created_at: '2026-09-09T00:00:00.000Z', started_at: '2026-09-09T00:00:00.000Z', completed_at: null,
+      }],
+    }), 'utf8');
+    const server = createTaktMcpServer({}, { allowedProjectRoot: cwd });
+    const client = new Client({ name: 'takt-mcp-tell-merge-client', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+
+      const written = await client.callTool({
+        name: 'takt_tell_run',
+        arguments: { cwd, runSlug, content: 'Keep the agreed merge scope.' },
+      });
+
+      expect(written.isError, firstTextContent(written.content)).toBeUndefined();
+      expect(JSON.parse(firstTextContent(written.content))).toMatchObject({
+        runSlug, instructionId: 1,
+        target: { name: 'merge-pr-1805', runSlug, currentStep: 'review' },
+      });
+      expect(JSON.parse(readFileSync(interventionPath, 'utf8'))).toMatchObject({
+        type: 'issued', instructionId: 1, content: 'Keep the agreed merge scope.',
+      });
+      expect(existsSync(join(cloneCwd, '.takt', 'runs', runSlug, 'interventions.jsonl'))).toBe(false);
+    } finally {
+      await client.close();
+      await server.close();
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('writes only to a running clone and rejects terminal, missing, and non-clone targets', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'takt-mcp-tell-'));
     const cloneCwd = join(cwd, '.takt', 'worktrees', 'active');
@@ -1205,11 +1272,17 @@ describe('MCP package entrypoint', () => {
         issueNumber: 938,
       }));
       expect(saveTaskFile).toHaveBeenCalledTimes(3);
+      expect(saveTaskFile).toHaveBeenNthCalledWith(1, cwd, 'Normal', {
+        workflow: 'default', worktree: true, autoPr: false,
+      }, undefined, expect.any(AbortSignal));
       expect(saveTaskFile).toHaveBeenNthCalledWith(2, cwd, 'Existing', {
         workflow: 'default',
         worktree: true,
         autoPr: false,
         issue: 937,
+      }, undefined, expect.any(AbortSignal));
+      expect(saveTaskFile).toHaveBeenNthCalledWith(3, cwd, 'Created', {
+        workflow: 'default', worktree: true, autoPr: false, issue: 938,
       }, undefined, expect.any(AbortSignal));
       expect(createIssueFromTaskResult).toHaveBeenCalledWith('Created', expect.objectContaining({
         explicitTitle: 'Explicit title',

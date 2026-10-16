@@ -125,7 +125,7 @@ GitHub Actions の CI（`ci.yml`）が実行する E2E は `test:e2e:mock` の�
     - モード選択に Assistant / Grill Me / Persona が表示され、Cancel 行を選ぶと Ink を起動せず exit 0 になることを確認する。
     - `--workflow` を省略して起動し、従来のカテゴリ付きワークフローセレクタでカテゴリ → ワークフローと選べること、セレクタ上の Ctrl+C は従来どおり exit 130 になることを確認する。
     - `TAKT_MOCK_SCENARIO=e2e/fixtures/scenarios/tui-conversation.json` でメッセージ送信 → 応答表示、ストリーミング中はマーカー `●` が出ず確定後に1回だけ出ること、`/cancel` で exit 0 を確認する。
-    - `TAKT_MOCK_SCENARIO=e2e/fixtures/scenarios/tui-go-handoff.json` で `/go` → アクション選択（Execute now）→ ワークフロー実行のあと、TUI が同じセッションで再開し、実行終了の固定通知が transcript に出ること、過去の会話が二重表示されないこと、`/cancel` で初めて exit 0 になることを確認する。
+    - `TAKT_MOCK_SCENARIO=e2e/fixtures/scenarios/tui-go-handoff.json` で `/go` 後の選択肢が「Save as Task」「Create Issue」「Execute here now」「Continue editing」「Cancel」の順に表示されることを確認する。「Execute here now」を選んで既定 No の確認に Yes と答え、ワークフロー実行後に TUI が同じセッションで再開すること、実行終了の固定通知が transcript に出ること、過去の会話が二重表示されないこと、`/cancel` で初めて exit 0 になることを確認する。
     - 同シナリオで `/go` の後にアクション選択で「Continue editing」を選び、Ink がいったん閉じて（画面に入力ボックスの枠が残らない）選択後に再マウントされること、過去の会話がスクロールバックに二重表示されないことを確認する。
     - `TAKT_MOCK_SCENARIO=e2e/fixtures/scenarios/tui-abort.json`（`wait_for_abort`）で送信中の Ctrl+C により応答を待たず exit 0 になることを確認する。
     - `TAKT_MOCK_SCENARIO=e2e/fixtures/scenarios/tui-slow-stream.json`（`text_chunks` で遅延ストリーミング）で、visible transcript の確定会話より上にスピナー行・プロンプト残骸が 0 行であること、`●` マーカー行と入力欄（上枠・入力行・下枠）が各1つで、状態・ヒント・モデルがその下にあることを確認する。
@@ -135,7 +135,7 @@ GitHub Actions の CI（`ci.yml`）が実行する E2E は `test:e2e:mock` の�
     - 日本語の複数行下書きで端末を高さ 1／2／3／6 行へ縮め、実 PTY の物理カーソルが現在の入力行・挿入列と一致し、未送信文字が重複しないことを確認する。折り畳み・再拡大後も元の複数行を送信できることを確認する。macOS IME の未確定文字・候補窓の GUI 確認を代替するテストではない。
     - 会話1往復後、visible screen で上枠・入力行・下枠・状態・ヒント・モデルが順に配置されることを確認する。
     - Shift+Enter（`ESC[13;2u`）と Option+Enter（`ESC[13;3u`）が改行になり送信されないこと、前方の行数が `↑ N` で表示され、↑ で折り畳み行へ戻ってから送信しても全行が維持されることを確認する。
-    - 端末幅を超える長文を入力し、末尾がカーソル行に残り、前方の表示行が折り畳まれることを確認する。Home で先頭へ戻ると全体が折り返して表示され、どの入力行も端末幅を超えないことを確認する。
+    - 端末幅を超える長文を入力し、末尾がカーソル行に残り、前方の表示行が折り畳まれることを確認する。Home で先頭へ戻った後は上下の枠と入力枠4行が一組だけ描画された画面を待ち、全体の折り返しと各入力行の幅を確認する。
     - `TAKT_MOCK_SCENARIO=e2e/fixtures/scenarios/tui-queue.json`（遅延ストリーミング + 2件目の応答）で、応答中に入力できること・Enter がキューへ積まれヒントが出ること・応答完了後にキューが自動送信されることを確認する。
     - 同シナリオで、キュー投入後の ↑ がキュー項目をドラフトへ戻して編集できることを確認する。
     - 同シナリオで、ストリーミング中に次の行をキューへ積んでから Esc を押すと、応答が中断され「Response interrupted.」が出たうえでキューが即送信され、その応答が完了して入力欄へ戻ることを現在画面で確認する。次の通常送信には中断した発言を送信順に引用して前置する。キューと手入力は同じ規則で扱い、ユーザー行と履歴には各原文を一度だけ残す。コマンドの後も未送達を保持し、終了時は追加送信しない（中断してもキューは破棄されない仕様）。

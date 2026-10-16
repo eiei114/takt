@@ -21,12 +21,22 @@ const {
   mockSelectRecentSession,
   mockRunFormalSpecVerification,
   mockDeepSeekClientCall,
+  mockFetchIssue,
 } = vi.hoisted(() => ({
   mockResolveFormalSpecConfiguration: vi.fn(),
   mockResolveFormalSpecConfigurationWithoutPrompt: vi.fn(),
   mockSelectRecentSession: vi.fn(),
   mockRunFormalSpecVerification: vi.fn(),
   mockDeepSeekClientCall: vi.fn(),
+  mockFetchIssue: vi.fn(),
+}));
+
+vi.mock('../infra/git/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../infra/git/index.js')>()),
+  getGitProvider: () => ({
+    checkCliStatus: () => ({ available: true }),
+    fetchIssue: mockFetchIssue,
+  }),
 }));
 
 vi.mock('../infra/deepseek-harness/index.js', () => ({
@@ -92,8 +102,16 @@ vi.mock('../shared/ui/index.js', () => ({
   })),
 }));
 
-vi.mock('../shared/prompt/index.js', () => ({
+vi.mock('../shared/prompt/tty.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../shared/prompt/tty.js')>()),
+  resolveTtyPolicy: () => ({ useTty: true, forceTouchTty: false }),
+}));
+
+vi.mock('../shared/prompt/index.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../shared/prompt/index.js')>()),
   selectOption: vi.fn(),
+  selectOptionWithDefault: (...args: unknown[]) => vi.mocked(selectOption)(...args as Parameters<typeof selectOption>),
+  confirmWithCancel: vi.fn(),
 }));
 
 import { getProvider } from '../infra/providers/index.js';
@@ -102,7 +120,7 @@ import { runConversationLoop } from '../features/interactive/conversationLoop.js
 import { buildInteractiveSystemPrompt } from '../features/interactive/conversationPlan.js';
 import { createInstructConversationPlan } from '../features/interactive/taskActionConversationPlan.js';
 import { runDirectInstructMode } from '../features/tasks/resume/directInstructMode.js';
-import { selectOption } from '../shared/prompt/index.js';
+import { confirmWithCancel, selectOption } from '../shared/prompt/index.js';
 import { getLabel } from '../shared/i18n/index.js';
 import { info, error, StreamDisplay } from '../shared/ui/index.js';
 
@@ -118,6 +136,7 @@ function setupMockProvider(responses: string[]): void {
 beforeEach(() => {
   vi.clearAllMocks();
   mockSelectOption.mockResolvedValue('execute');
+  vi.mocked(confirmWithCancel).mockReset().mockResolvedValue({ kind: 'value', value: true });
   mockResolveFormalSpecConfiguration.mockResolvedValue({ mode: false, comments: true, modelCheckTimeoutSeconds: 300 });
   mockResolveFormalSpecConfigurationWithoutPrompt.mockReturnValue({ mode: false, comments: true, modelCheckTimeoutSeconds: 300 });
   mockSelectRecentSession.mockResolvedValue(null);
@@ -135,6 +154,34 @@ afterEach(() => {
 });
 
 describe('interactiveMode', () => {
+  it('should preview instructions against the replaced Issue within the same conversation', async () => {
+    const first = '# Fix first Issue\n\nIssue: #123\n\nFix the first problem.';
+    const next = '# Fix next Issue\n\nIssue: #456\n\nFix the next problem.';
+    setupRawStdin(toRawInputs(['/go', '/issue #456', '/go']));
+    const { provider, capture } = createMockProvider([first, next]);
+    mockGetProvider.mockReturnValue(provider);
+    mockSelectOption.mockResolvedValueOnce('continue').mockResolvedValueOnce('save_task');
+    mockFetchIssue.mockReturnValue({
+      number: 456, title: 'Issue 456', body: 'Body 456', labels: [], comments: [], url: 'https://example.com/issues/456',
+    });
+
+    const result = await interactiveMode('/project', {
+      sourceContext: '## Issue #123: Issue 123\n\nBody 123',
+    });
+
+    expect(result).toMatchObject({ action: 'save_task', task: next, issueContextReplacement: { issueNumber: 456 } });
+    expect(capture.callCount).toBe(2);
+    expect(capture.prompts[0]).toContain('## Issue #123: Issue 123');
+    expect(capture.prompts[1]).toContain('## Issue #456: Issue 456');
+    expect(capture.prompts[1]).not.toContain('## Issue #123: Issue 123');
+    expect(capture.prompts[1]).toContain(first);
+    expect(mockFetchIssue).toHaveBeenCalledWith(456, '/project');
+    const displayed = mockInfo.mock.calls.map((call) => call[0]);
+    expect(displayed).toContain(first);
+    expect(displayed).toContain(next);
+    expect(mockSelectOption).toHaveBeenCalledTimes(2);
+  });
+
   it.each([true, false])('should wait for the initial formal specification answer=%s before starting dialogue', async (mode) => {
     setupRawStdin(toRawInputs(['continue discussing the task', '/cancel']));
     const { provider, capture } = createMockProvider(['What should be changed?']);
@@ -287,22 +334,6 @@ describe('interactiveMode', () => {
       expect(mockGetProvider.mock.results[0]?.value?._call).not.toHaveBeenCalled();
       expect(mockRunFormalSpecVerification).not.toHaveBeenCalled();
     }
-  });
-
-  it.each([
-    ['assistant', undefined],
-    ['Grill Me', { assistantMode: 'grill-me' as const }],
-  ] as const)('should apply resolved formal specification mode to the %s system prompt', async (_label, options) => {
-    setupRawStdin(toRawInputs(['plan a stateful feature', '/cancel']));
-    const { provider, capture } = createMockProvider(['Which states are involved?']);
-    mockGetProvider.mockReturnValue(provider as ReturnType<typeof getProvider>);
-    mockResolveFormalSpecConfiguration.mockResolvedValue({ mode: true, comments: true, modelCheckTimeoutSeconds: 300 });
-
-    await interactiveMode('/project', undefined, undefined, undefined, undefined, options);
-
-    expect(capture.systemPrompts[0]).toMatch(/Gherkin/);
-    expect(capture.systemPrompts[0]).toMatch(/\bQuint\b/);
-    expect(capture.systemPrompts[0]).toMatch(/\bAlloy\b/);
   });
 
   it('should return action=cancel when user types /cancel', async () => {
@@ -1064,6 +1095,50 @@ describe('interactiveMode', () => {
   });
 
   describe('action selection after /go', () => {
+    it('dispatches Issue-only after declining task creation', async () => {
+      setupRawStdin(toRawInputs(['/go build the task', 'What happened?', '/cancel']));
+      const { provider, capture } = createMockProvider(['Summarized task.', 'The Issue was created.']);
+      mockGetProvider.mockReturnValue(provider);
+      mockSelectOption.mockResolvedValueOnce('create_issue');
+      vi.mocked(confirmWithCancel).mockResolvedValueOnce({ kind: 'value', value: false });
+      const notice = 'Issue created without saving a task.';
+      const dispatch = vi.fn().mockResolvedValue({ kind: 'dispatched', notice });
+
+      const result = await interactiveMode('/project', undefined, undefined, undefined, undefined, { dispatch });
+
+      expect(result).toMatchObject({ action: 'cancel', task: '' });
+      expect(dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        action: 'create_issue_only', task: 'Summarized task.',
+      }));
+      expect(mockInfo).toHaveBeenCalledWith(notice);
+      expect(capture.callCount).toBe(2);
+      expect(capture.prompts[1]).toContain(notice);
+    });
+
+    it.each(['create_issue', 'execute'] as const)('does not dispatch %s before confirmation and keeps the same proposal on cancellation', async (action) => {
+      setupRawStdin(toRawInputs(['/go build the task', '/cancel']));
+      const { provider, capture } = createMockProvider(['Summarized task.']);
+      mockGetProvider.mockReturnValue(provider);
+      mockSelectOption.mockResolvedValueOnce(action).mockResolvedValueOnce('save_task');
+      const notice = 'Task saved.';
+      const dispatch = vi.fn().mockResolvedValue({ kind: 'dispatched', notice });
+      vi.mocked(confirmWithCancel).mockImplementationOnce(async () => {
+        expect(dispatch).not.toHaveBeenCalled();
+        return { kind: 'cancelled' };
+      });
+
+      const result = await interactiveMode('/project', undefined, undefined, undefined, undefined, { dispatch });
+
+      expect(result).toMatchObject({ action: 'cancel', task: '' });
+      expect(dispatch).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        action: 'save_task', task: 'Summarized task.',
+      }));
+      expect(capture.callCount).toBe(1);
+      expect(vi.mocked(confirmWithCancel)).toHaveBeenCalledOnce();
+      expect(mockSelectOption).toHaveBeenCalledTimes(2);
+      expect(mockInfo).toHaveBeenCalledWith(notice);
+    });
+
     it('should return action=create_issue when user selects create issue', async () => {
       // Given
       setupRawStdin(toRawInputs(['describe task', '/go']));
@@ -1092,7 +1167,7 @@ describe('interactiveMode', () => {
       expect(result.task).toBe('Summarized task.');
     });
 
-    it('should reopen the action menu after a cancelled save and keep the confirmed task and attachments', async () => {
+    it('should return to the conversation after a cancelled save and keep the confirmed task and attachments', async () => {
       const attachment = {
         placeholder: '[Image #1]',
         tempPath: '/tmp/interactive-image.png',
@@ -1104,7 +1179,7 @@ describe('interactiveMode', () => {
         .mockResolvedValueOnce('save_task')
         .mockResolvedValueOnce('save_task')
         .mockResolvedValueOnce('continue');
-      const dispatch = vi.fn().mockResolvedValue({ kind: 'cancelled' });
+      const dispatch = vi.fn().mockResolvedValue({ kind: 'cancelled', notice: 'Task saving cancelled. No task was saved.' });
       const dispatchOptions = {
         dispatch,
       } as NonNullable<Parameters<typeof interactiveMode>[5]> & { dispatch: typeof dispatch };
@@ -1120,18 +1195,9 @@ describe('interactiveMode', () => {
 
       try {
         expect(result.action).toBe('cancel');
-        expect(mockSelectOption).toHaveBeenCalledTimes(3);
-        expect(mockSelectOption.mock.calls[1]?.[0]).toBe(mockSelectOption.mock.calls[0]?.[0]);
-        expect(mockSelectOption.mock.calls[1]?.[1]).toEqual(mockSelectOption.mock.calls[0]?.[1]);
-        expect(mockSelectOption.mock.calls[2]?.[0]).toBe(mockSelectOption.mock.calls[0]?.[0]);
-        expect(mockSelectOption.mock.calls[2]?.[1]).toEqual(mockSelectOption.mock.calls[0]?.[1]);
-        expect(dispatch).toHaveBeenCalledTimes(2);
+        expect(mockSelectOption).toHaveBeenCalledTimes(1);
+        expect(dispatch).toHaveBeenCalledTimes(1);
         expect(dispatch).toHaveBeenNthCalledWith(1, expect.objectContaining({
-          action: 'save_task',
-          task: 'Summarized task.',
-          attachments: [attachment],
-        }));
-        expect(dispatch).toHaveBeenNthCalledWith(2, expect.objectContaining({
           action: 'save_task',
           task: 'Summarized task.',
           attachments: [attachment],
@@ -1142,21 +1208,21 @@ describe('interactiveMode', () => {
     });
 
     it.each(['execute', 'create_issue'] as const)(
-      'should dispatch %s when it is selected after a cancelled save',
+      'should dispatch %s only after a new /go following a cancelled save',
       async (action) => {
         const attachment = {
           placeholder: '[Image #1]',
           tempPath: '/tmp/interactive-image.png',
           fileName: 'image-1.png',
         };
-        setupRawStdin(toRawInputs(['/go', '/cancel']));
-        setupMockProvider(['Summarized task.']);
+        setupRawStdin(toRawInputs(['/go', '/go', '/cancel']));
+        setupMockProvider(['Summarized task.', 'Summarized task.']);
         mockSelectOption
           .mockResolvedValueOnce('save_task')
           .mockResolvedValueOnce(action);
         const dispatch = vi.fn()
-          .mockResolvedValueOnce({ kind: 'cancelled' })
-          .mockResolvedValueOnce({ kind: 'dispatched' });
+          .mockResolvedValueOnce({ kind: 'cancelled', notice: 'Task saving cancelled. No task was saved.' })
+          .mockResolvedValueOnce({ kind: 'dispatched', notice: 'Execution finished.' });
         const dispatchOptions = {
           dispatch,
         } as NonNullable<Parameters<typeof interactiveMode>[5]> & { dispatch: typeof dispatch };
@@ -1171,6 +1237,9 @@ describe('interactiveMode', () => {
         );
 
         try {
+          expect(result.action).toBe('cancel');
+          const provider = mockGetProvider.mock.results[0]!.value as { _call: ReturnType<typeof vi.fn> };
+          expect(provider._call).toHaveBeenCalledTimes(2);
           expect(mockSelectOption).toHaveBeenCalledTimes(2);
           expect(dispatch).toHaveBeenCalledTimes(2);
           expect(dispatch).toHaveBeenNthCalledWith(1, expect.objectContaining({

@@ -69,7 +69,10 @@ From a Git repository with at least one commit:
 ```bash
 npm install -g takt
 
-# Talk to AI, describe a task, use /go, then choose "Queue as task"
+# Install the SDK for the default provider (claude-sdk)
+takt install claude-sdk
+
+# Talk to AI, describe a task, use /go, then choose "Save as Task"
 takt
 
 # Execute queued tasks in isolated worktrees
@@ -79,7 +82,7 @@ takt run
 takt list
 ```
 
-If this is your first run, configure a provider in `~/.takt/config.yaml` or use the API key environment variables listed in [Configuration](#configuration). SDK-based providers such as `claude-sdk`, `codex`, `pi`, and `deepseek-harness` run with Node.js. Run `takt install deepseek-harness` before using DeepSeek Harness. CLI-based providers require their external CLIs.
+If this is your first run, configure a provider in `~/.takt/config.yaml` or use the API key environment variables listed in [Configuration](#configuration). SDK-based providers (`claude-sdk`, `codex`, `opencode`, `pi`, and `deepseek-harness`) run with Node.js; run `takt install <provider>` once before using one. CLI-based providers require their external CLIs.
 
 ## CodeRabbit Review Loop
 
@@ -115,7 +118,7 @@ The default provider is `claude-sdk` (Claude Agent SDK). `claude` is an alias fo
 
 To continue using the Claude Code CLI, select `claude-headless` in your provider configuration or pass `--provider claude-headless`. Move any provider permission profile to the selected provider name; the default is now `claude-sdk`, so an old `provider_profiles.claude` setting may no longer apply. Existing sessions labeled `claude` start fresh. See [permission resolution](./docs/configuration.md#permission-resolution-priority) for the migration details.
 
-These providers run via SDK (no CLI required, Node.js only):
+These providers run via SDK (no CLI required, Node.js only). The SDK is not bundled with TAKT; run `takt install <provider>` once before use, and `takt update` after upgrading TAKT. In a terminal, TAKT offers to install a missing SDK; in CI and other non-interactive runs, install it beforehand. See [Managed SDK installation and updates](./docs/cli-reference.md#managed-sdk-installation-and-updates).
 
 - `claude-sdk` — `@anthropic-ai/claude-agent-sdk`
 - `codex` — `@openai/codex-sdk`
@@ -125,7 +128,7 @@ The `deepseek-harness` provider uses the official TypeScript SDK and its runtime
 
 These providers require an external CLI:
 
-- `opencode` — [OpenCode](https://opencode.ai/) CLI. v2 is the default; select v1 explicitly ([migration settings](./docs/configuration.md#opencode-v1v2-selection)).
+- `opencode` — [OpenCode](https://opencode.ai/) CLI, plus `takt install opencode` for its SDK. v2 is the default; select v1 explicitly ([migration settings](./docs/configuration.md#opencode-v1v2-selection)).
 - `claude-headless` — [Claude Code](https://claude.ai/code)
 - `claude-terminal` — [Claude Code](https://claude.ai/code) driven in an interactive terminal session (also requires [`tmux`](https://github.com/tmux/tmux))
 - `copilot` — [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli)
@@ -146,6 +149,7 @@ Optional:
 
 ```bash
 npm install -g takt
+takt install claude-sdk   # or codex, opencode, pi, deepseek-harness
 ```
 
 With Nix flakes:
@@ -178,13 +182,15 @@ Proposed task:
   ...
 
 What would you like to do?
-    Execute now
-    Create GitHub Issue
-  ❯ Queue as task          # ← normal flow
-    Continue conversation
+  ❯ Save as Task           # ← normal flow and initial selection
+    Create Issue
+    Execute here now
+    Continue editing
 ```
 
-Choosing "Queue as task" saves the task to `.takt/tasks/`. Run `takt run` to execute — TAKT creates an isolated worktree, runs the workflow (plan → implement → review → fix loop), and offers to create a PR when done.
+Choosing "Save as Task" saves the task to `.takt/tasks/`. Run `takt run` to execute — TAKT creates an isolated worktree, runs the workflow (plan → implement → review → fix loop), and offers to create a PR when done.
+
+"Create Issue" asks "Save as a task too? [Y/n]" before creating anything. Y or Enter creates the Issue and continues through the existing task-saving and worktree settings flow. n creates only the Issue. Esc returns to the same menu without creating an Issue or task. The Issue option is hidden in `--pr` sessions.
 
 In an ordinary assistant conversation, use `/issue 123` or `/issue 12 34` to replace the current Issue context and continue the same conversation. The next message and `/go` use the fetched Issue content.
 
@@ -200,7 +206,7 @@ takt add '#12'
 takt run
 ```
 
-> **"Execute now"** runs the workflow directly in your current directory without worktree isolation. Useful for quick experiments, but note that changes go straight into your working tree.
+> **"Execute here now"** first explains that this TUI will be unavailable until the workflow finishes and that the normal flow is to save the task and use `takt run`. The confirmation defaults to No (`[y/N]`): only y starts the existing execution flow in the current directory without worktree isolation. N, Enter, or Esc returns to the menu with the selection preserved. Esc in the menu returns to conversation input.
 
 ### Manage results
 
@@ -282,9 +288,11 @@ See the [Builtin Catalog](./docs/builtin-catalog.md) for all workflows and perso
 | `takt run` | Execute all pending tasks |
 | `takt watch` | Monitor the task queue and auto-execute pending tasks (resident process) |
 | `takt ui` | Open the experimental Viewer-first Web UI on `http://127.0.0.1:20525` |
-| `takt manager` | Open the experimental goal conversation TUI. Behavior, settings, and saved data formats may change without notice. Automatically queues and runs tasks, incurring provider API costs |
 | `takt list` | Manage task branches (merge, retry, requeue, force-fail, instruct, delete) |
 | `takt #N` | Use a GitHub Issue as the initial input for a task |
+| `takt merge` | Review, fix, and merge pull requests with a workflow |
+| `takt install <provider>` | Install the SDK for an SDK-based provider |
+| `takt update` | Update installed provider SDKs to the versions pinned by TAKT |
 | `takt eject` | Copy builtin workflows/facets for customization |
 | `takt workflow init` | Create a new workflow scaffold |
 | `takt workflow doctor` | Validate workflow definitions |
@@ -327,7 +335,7 @@ state and reports.
 
 To select providers or models for individual steps, configure auto routing. Run `takt telemetry enable` to record routing decisions locally. See the [Configuration Guide](./docs/configuration.md) for details.
 
-Or use provider credentials directly (DeepSeek Harness requires `takt install deepseek-harness`; OpenCode also requires its CLI):
+Or use provider credentials directly (SDK-based providers require `takt install <provider>`; OpenCode also requires its CLI):
 
 ```bash
 export TAKT_ANTHROPIC_API_KEY=sk-ant-...   # Anthropic (Claude)
