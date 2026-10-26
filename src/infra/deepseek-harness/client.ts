@@ -1437,12 +1437,23 @@ async function getOrCreateProcess(
   assertSupportedDeepSeekHarnessPlatform();
   const providerOptions = options.providerOptions;
   const configuration = resolveDeepSeekConfiguration(options, providerOptions);
-  const binding = await resolveDeepSeekCredentialBinding({
+  const sourceBinding = await resolveDeepSeekCredentialBinding({
     childProcessEnv: options.childProcessEnv,
     ambientEnv: getAmbientEnvironment(),
     userHome: os.homedir(),
     providerOptions,
   });
+  const preferLaunchEnvironmentCredential = (options.childProcessEnv?.[sourceBinding.ref]?.length ?? 0) > 0;
+  // The same selected value can come from ambient env or an explicit per-call
+  // override. rc.2 gives those modes different store precedence, so they must
+  // never share a live session even when the source binding is otherwise equal.
+  const binding: DeepSeekCredentialBinding = {
+    ...sourceBinding,
+    fingerprint: createHash('sha256').update(JSON.stringify({
+      sourceFingerprint: sourceBinding.fingerprint,
+      preferLaunchEnvironmentCredential,
+    })).digest('hex'),
+  };
   credentialFailureContext.sourceHomeOrigin = binding.home.origin;
   credentialFailureContext.reference = binding.ref;
   const runtimePaths = getDeepSeekRuntimePaths();
@@ -1494,7 +1505,7 @@ async function getOrCreateProcess(
       configuration.systemPrompt,
       pluginResolution.plugins,
       {
-        preferLaunchEnvironmentCredential: (options.childProcessEnv?.[binding.ref]?.length ?? 0) > 0,
+        preferLaunchEnvironmentCredential,
       },
     );
     processRecord = new DeepSeekHarnessProcess(

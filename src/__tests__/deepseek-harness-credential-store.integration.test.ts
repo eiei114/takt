@@ -602,6 +602,34 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     expect(endpoint.requests.at(-1)?.apiKey).not.toContain(STORE_KEY);
   });
 
+  it.each([false, true])('refuses a credential source mode switch in a live session (explicit first=%s)', async (explicitFirst) => {
+    vi.stubEnv('DEEPSEEK_API_KEY', ENV_KEY);
+    const storeBefore = await readFile(storePath);
+    const environmentFor = (explicit: boolean): Readonly<Record<string, string>> => (
+      explicit ? { DEEPSEEK_API_KEY: ENV_KEY } : {}
+    );
+    const first = await runTurn({ childProcessEnv: environmentFor(explicitFirst) });
+    expect(first.status).toBe('done');
+    expect(endpoint.requests.at(-1)?.apiKey).toContain(explicitFirst ? ENV_KEY : STORE_KEY);
+    expect(endpoint.requests).toHaveLength(1);
+
+    const changed = await runTurn({
+      sessionId: first.sessionId!,
+      childProcessEnv: environmentFor(!explicitFirst),
+    });
+    expect(changed.status).toBe('error');
+    expect(changed.content).toContain('changed during this session: start a new run or session');
+    expect(endpoint.requests).toHaveLength(1);
+    expect(changed.content).not.toContain(ENV_KEY);
+    expect(changed.content).not.toContain(STORE_KEY);
+
+    const fresh = await runTurn({ childProcessEnv: environmentFor(!explicitFirst) });
+    expect(fresh.status).toBe('done');
+    expect(endpoint.requests).toHaveLength(2);
+    expect(endpoint.requests.at(-1)?.apiKey).toContain(explicitFirst ? STORE_KEY : ENV_KEY);
+    expect(await readFile(storePath)).toEqual(storeBefore);
+  });
+
   it('does not substitute a different reference for the selected reference', async () => {
     await writeSettings(endpoint.baseUrl, 'CUSTOM_DSH_KEY');
     const response = await runTurn({ childProcessEnv: { DEEPSEEK_API_KEY: ENV_KEY } });
