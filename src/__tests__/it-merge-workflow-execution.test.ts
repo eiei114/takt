@@ -60,6 +60,7 @@ interface Scenario {
   commentFails?: boolean;
   recoveredMergeable?: string;
   headChangesDuringInvestigation?: boolean;
+  ciSucceedsDuringInvestigation?: boolean;
   headChangesDuringRunValidation?: boolean;
   recoveryPushFails?: boolean;
   ciName?: { field: 'check' | 'job' | 'unavailable'; value: string };
@@ -117,6 +118,7 @@ describe('Builtin PR merge workflow execution', () => {
     const workflow = loadWorkflowByIdentifier(join(process.cwd(), 'builtins', language, 'workflows', `${name}.yaml`), project);
     if (!workflow) throw new Error(`Missing builtin workflow: ${name}`);
     let ciFinished = scenario.ciRunning !== true || name !== 'merge-review';
+    let ciRecovered = false;
     let headSha = 'a'.repeat(40);
     let conflictsResolved = false;
     let pushes = 0;
@@ -153,6 +155,7 @@ describe('Builtin PR merge workflow execution', () => {
         if (options?.executionPhase === 1) {
           calls.push(`agent:${step}`);
           if (step === 'investigate_ci' && scenario.headChangesDuringInvestigation) remoteHeadOverride = 'f'.repeat(40);
+          if (step === 'investigate_ci' && scenario.ciSucceedsDuringInvestigation) ciRecovered = true;
           recoveryPrompts.push({ step: step!, prompt,
             requiredPermissionMode: options.permissionResolution?.requiredPermissionMode, cwd: options.cwd });
         }
@@ -223,7 +226,7 @@ describe('Builtin PR merge workflow execution', () => {
       observedStatuses.push({ headSha: remoteHeadSha, finished: ciFinished, mergeable });
       return { exists: true, number: prNumber, headSha: remoteHeadSha, branch: 'feature/pr', baseBranch: 'main',
         ci: { finished: ciFinished,
-          passed: ciFinished && scenario.ciPassed !== false && (scenario.ciFailures === undefined
+          passed: ciFinished && scenario.ciPassed !== false && (ciRecovered || scenario.ciFailures === undefined
             || (reruns > 0 ? rerunConclusion === 'success' : pushes > scenario.ciFailures.length)) },
         mergeable: pushes > 1 && scenario.recoveredMergeable ? scenario.recoveredMergeable : mergeable, mergeStateStatus: 'CLEAN',
         reviewDecision: scenario.reviewDecision ?? 'APPROVED', merged: false };
@@ -299,7 +302,8 @@ describe('Builtin PR merge workflow execution', () => {
           log: complete ? `round-${pushes}.test.ts > adds\nexpected ${pushes} to equal 3` : '' }] }],
         unavailable: complete ? [] : [{ name: scenario.ciName?.field === 'unavailable' ? scenario.ciName.value : `unit-round-${pushes}`, reason: 'HTTP 403: cannot read logs' }] };
     });
-    const rerunPrCi = vi.fn(new GitHubProvider().rerunPrCi);
+    const githubProvider = new GitHubProvider();
+    const rerunPrCi = vi.fn(githubProvider.rerunPrCi.bind(githubProvider));
     const recoveryServices = createDefaultSystemStepServices({ cwd: cloneCwd, projectCwd: project, task: 'Review PR',
       prExecutionContext: { prNumber, headBranch: 'feature/pr', baseBranch: 'main', headSha: 'a'.repeat(40),
         headRepositoryUrl: '/remote', headRepositoryPushUrls: ['/remote'] },
@@ -309,7 +313,7 @@ describe('Builtin PR merge workflow execution', () => {
           comments.push(body);
           return scenario.commentFails ? { success: false, error: 'comment denied' } : { success: true };
         }), closePr: vi.fn(), mergePr: vi.fn(), ...{ fetchPrCiFailure, rerunPrCi },
-        fetchPrStatus: new GitHubProvider().fetchPrStatus,
+        fetchPrStatus: githubProvider.fetchPrStatus.bind(githubProvider),
       },
     });
     const engine = new WorkflowEngine(workflow, cloneCwd, `Review PR ${prNumber}`, {
@@ -918,6 +922,17 @@ describe('Builtin PR merge workflow execution', () => {
       expect(reports(h.reportDirectory).some((report) => report.includes(summary))).toBe(true);
       expect(h.comments[0]).toContain(summary);
       expect(h.rerunPrCi).not.toHaveBeenCalled();
+    });
+
+    it('調査中に同じHEADのCIが成功したら古い証拠不足で停止せず通常のマージ判定へ戻る', async () => {
+      const h = await runRecovery({ ciFailures: [{ verdict: 'insufficient_evidence',
+        summary: 'Cancelled run has no failed job logs' }], ciSucceedsDuringInvestigation: true });
+      expect(h.state.status).toBe('completed');
+      expect(h.calls.filter((call) => call === 'fetch_ci_failure')).toHaveLength(1);
+      expect(h.calls.filter((call) => call === 'agent:investigate_ci')).toHaveLength(1);
+      expect(h.calls.filter((call) => call === 'commit_and_push')).toHaveLength(1);
+      expect(h.rerunPrCi).not.toHaveBeenCalled();
+      expect(h.calls.filter((call) => call === 'merge_pr')).toHaveLength(1);
     });
 
     it('根本修正のレビューがREJECTならその変更をpushせずマージしない', async () => {
