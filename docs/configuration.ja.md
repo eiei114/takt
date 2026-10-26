@@ -463,9 +463,22 @@ TAKT_ALLOY_CONCURRENCY=1 TAKT_ALLOY_HEAP=2g TAKT_ALLOY_STACK=128m takt
 
 設定キー上書きとは別に、`TAKT_NOTIFY_WEBHOOK` には Slack Incoming Webhook URL を設定できます。設定すると、pipeline 完了時と `takt run` のタスクバッチ完了時（run summary）に Slack へ通知が送信されます。manager の有効なゴール通知にも同じ Webhook を使用します。
 
-## manager の通知設定
+## manager の秘密ファイル設定
 
-manager は準備中で、現在は利用できません。以下は内部実装のために残している設定です。
+グローバル `~/.takt/config.yaml` またはプロジェクト `.takt/config.yaml` の `manager.sensitive_paths` で、担当リポジトリ内でも判断役へ渡すファイルとディレクトリを追加できます。
+
+```yaml
+manager:
+  sensitive_paths:
+    - private
+    - config/credentials.json
+```
+
+既定は `.env`、`.env.*`、`id_rsa`、`id_dsa`、`id_ecdsa`、`id_ed25519`、`*.key`、`*.pem`、`*.crt`、`*.cer`、`*.p12`、`*.pfx` です。両設定の一覧を既定に追加し、省略や空配列でも既定を削除できません。単独の名前は任意の深さで適用し、ディレクトリ成分を含む相対パスは各担当リポジトリを基準にします。絶対パスと `~/` も指定できます。ディレクトリ指定は配下を含みます。名前には先頭または末尾の単一の `*` を使えます。許可ルールを定義する設定ではありません。
+
+Claude の `Read`、`Glob`、`Grep` は、パスとシンボリックリンクを解決した対象が担当内の読み取り可能な通常対象だけの場合に判断役を通りません。検索候補は秘密の本文を読まず、パスとメタデータで確認します。検索指定は `*`、`**`、`?` の単純な形式に対応し、除外、波括弧展開、文字クラス、エスケープや範囲を確定できない指定は判断役へ渡します。隠しパス、走査するディレクトリやリンクは保守的に確認するため、絞り込んだ検索でも審査する場合があります。Codex の組み込み道具は引き続き審査します。
+
+## manager の通知設定
 
 プロジェクト `.takt/config.yaml` とグローバル `~/.takt/config.yaml` の
 `manager.notifications` で、ゴール通知の種類ごとに有効・無効を指定できます。
@@ -476,7 +489,7 @@ manager は準備中で、現在は利用できません。以下は内部実装
 | `awaiting_merge` | 人の取り込み待ち | `true` |
 | `completed` | ゴールの完成 | `true` |
 | `progress` | 作業単位の取り込み | `true` |
-| `blocked` | manager が通知ツールで伝える行き詰まり | `true` |
+| `blocked` | manager が通知ツールで伝える行き詰まり、manager のイベント処理・TUI の会話の失敗 | `true` |
 | `custom` | manager が通知ツールで伝える任意の出来事 | `true` |
 
 ```yaml
@@ -495,13 +508,9 @@ manager:
 プロジェクトの `question: true` で上書きでき、プロジェクトでそのキーを省略すると
 グローバルの値を使います。他の種類の指定には影響しません。
 
-`false` は該当種類の通知の保存と Slack 送信を無効にします。
-質問の保存・回答・依存する作業の投入判定、作業単位の取り込み、ゴールの状態更新は維持します。
-通知を無効にしても回答待ちの質問は TUI に表示されます。
-`TAKT_NOTIFY_WEBHOOK` が未設定なら Slack には送らず、有効な保存通知は
-次の TUI 起動時・発言時に表示します。Slack 送信に失敗しても manager の処理は止めず、
-診断を保存して TUI に表示します。通常の run・pipeline の既存通知には
-`manager.notifications` を適用しません。
+`false` は、その種類の通知の保存、TUI での通知表示、Slack 送信を無効にします。質問への回答、成果の取り込み、ゴールの状態更新は続き、回答待ちの質問も表示されます。
+
+`TAKT_NOTIFY_WEBHOOK` を指定すると Slack に送信します。有効な保存通知は、TUI を開いている間も更新して表示します。manager のイベント処理や TUI の会話が失敗すると `blocked` を通知し、同じ失敗でも通知します。失敗状態のファイルは作りません。Slack の送信失敗はログに出し、manager の作業は続けます。通常の run・pipeline の通知はこの設定の対象外です。
 
 ## API キー設定
 
@@ -818,6 +827,8 @@ provider:
         profile: router
       review-completion-judge:
         profile: router
+      manager-permission-judge:
+        profile: router
 
   auto_routing:
     strategy: balanced
@@ -971,7 +982,7 @@ defaults
   < steps
 ```
 
-内部 agent（`selector`、`assistant`、`loop-judge`、`review-completion-judge`）は別のラダーで解決します。`selector` は動的な作業選択、`assistant` は対話セッション、`loop-judge` は loop monitor の判定、`review-completion-judge` は opt-in した reviewer に再確認が必要かの判定を担当します。seat はすべて任意で、未指定なら通常の既定解決を使います。
+内部 agent（`selector`、`assistant`、`loop-judge`、`review-completion-judge`、`manager-permission-judge`）は別のラダーで解決します。`selector` は動的な作業選択、`assistant` は対話セッション、`loop-judge` は loop monitor の判定、`review-completion-judge` は opt-in した reviewer に再確認が必要かの判定を担当します。`manager-permission-judge` は、provider が claude（claude-sdk）または codex の manager 会話で、道具の実行前審査を担当します。判断役の provider と model は `runtime.yaml` の `provider.targets.internal_agents.manager-permission-judge` で指定し、`profile` または `ladder` を使います。`pool` は指定できません。seat はすべて任意で、未指定なら通常の既定解決を使います。ただし、`manager-permission-judge` は未指定なら manager と同じ provider・model・provider options を使います。
 
 ```text
 defaults
@@ -1070,7 +1081,7 @@ mcp:
 | `mcp.targets.personas` | `{ <persona>: { servers?, exclude? } }` | persona 単位の追加/除外。 |
 | `mcp.targets.tags` | `{ <tag>: { servers?, exclude? } }` | tag 単位の追加/除外。 |
 | `mcp.targets.steps` | `{ <leaf-workflow>/<step>: { servers?, exclude? } }` | step 単位の追加/除外。制御ノード（`workflow_call` など）は解決対象外です。 |
-| `mcp.targets.internal_agents` | `{ selector: { exclude? } }` | 両内部 agent（`selector` と `assistant`）へ適用する除外。`selector.exclude` のみ受け付けます。 |
+| `mcp.targets.internal_agents` | `{ selector: { exclude? } }` | 内部 agent（`selector`、`assistant`、`manager`）へ適用する除外。`selector.exclude` のみ受け付けます。manager は `mcp.targets.personas.manager` にも一致し、自身の TAKT MCP は常に追加されます。 |
 
 server エントリ:
 

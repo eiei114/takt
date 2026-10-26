@@ -21,7 +21,7 @@ import { selectPullRequest, type PrSelectionResult } from './selection.js';
 import { toLocalBranchRef, toPullRequestBaseRef } from '../../shared/utils/gitBranchValidation.js';
 import { createLogger, getErrorMessage } from '../../shared/utils/index.js';
 import { runWorkflowExecution } from '../tasks/execute/workflowExecutionApi.js';
-import type { ExecuteTaskOptions } from '../tasks/execute/types.js';
+import type { WorkflowExecutionOptions } from '../tasks/execute/types.js';
 import { TaskRunner, resolveCloneBaseDir } from '../../infra/task/index.js';
 import { createTaskClonePath } from '../../infra/task/clone-path.js';
 import type { TaskInfo } from '../../infra/task/index.js';
@@ -29,13 +29,15 @@ import { assertReusableWorktreePath } from '../tasks/execute/reusedWorktree.js';
 import { generateExecutionReportDir } from '../../core/workflow/run/run-slug.js';
 import { buildRunPaths } from '../../core/workflow/run/run-paths.js';
 import { resolveTaskSpecForExecution } from '../tasks/execute/taskSpecContext.js';
+import { GoalAbortMonitor } from '../tasks/execute/goalAbortMonitor.js';
+import { TaskStoppedError } from '../../infra/task/taskStop.js';
 
 const log = createLogger('merge');
 
 export { resolveMergeSettings } from './settings.js';
 
-type MergeDisplayOptions = Pick<ExecuteTaskOptions,
-  'outputMode' | 'taskPrefix' | 'taskColorIndex' | 'taskDisplayLabel'>;
+type MergeDisplayOptions = Pick<WorkflowExecutionOptions,
+  'outputMode' | 'taskPrefix' | 'taskColorIndex' | 'taskDisplayLabel' | 'eventSink'>;
 
 interface MergeOptions {
   readonly projectCwd: string;
@@ -111,15 +113,25 @@ export async function executePersistedPrMergeTask(
   const runningTask = runner.updateRunningTaskExecution(task.name, {
     runSlug, worktreePath: task.worktreePath, branch: data.branch,
   });
+  const controller = new AbortController();
+  const signal = runningTask.executionId === undefined ? abortSignal
+    : abortSignal === undefined ? controller.signal : AbortSignal.any([abortSignal, controller.signal]);
+  const monitor = runningTask.executionId === undefined ? undefined
+    : new GoalAbortMonitor(projectCwd, data.goal_id, controller, {
+      taskName: task.name, executionId: runningTask.executionId,
+    });
   try {
+    signal?.throwIfAborted();
     const settings = resolveMergeSettings(resolveConfigValue(projectCwd, 'merge'));
     const result = await runPrMergeWorkflow({
       projectCwd, prNumber: data.pr_number, workflow: data.workflow,
       ...(task.prUrl === undefined ? {} : { pullRequest: parseGitHubPullRequestTarget(task.prUrl) }),
       settings: { ...settings, method: data.merge_method,
         threatCheckMaxDiffBytes: data.merge_threat_check_max_diff_bytes ?? settings.threatCheckMaxDiffBytes },
-      abortSignal, display,
+      abortSignal: signal, display,
     }, runningTask, runner, runSlug);
+    monitor?.check();
+    signal?.throwIfAborted();
     if (!result.merged) {
       runner.failTask({ task: runningTask, success: false,
         response: `PR #${data.pr_number} remains unmerged; inspect ${task.name} with takt list`,
@@ -140,14 +152,31 @@ export async function executePersistedPrMergeTask(
       });
     }
     return { merged: true };
-  } catch (error) {
+  } catch (caught) {
+    const error = caught instanceof TaskStoppedError ? caught
+      : controller.signal.aborted ? controller.signal.reason : caught;
     const current = runner.listAllTaskItems().find((item) => item.name === task.name);
     if (current?.kind === 'running') {
-      runner.failTask({ task: runningTask, success: false, response: getErrorMessage(error),
-        executionLog: [], startedAt, completedAt: new Date().toISOString(),
-        branch: data.branch, worktreePath: task.worktreePath });
+      const saveFailure = (failure: unknown): void => {
+        const reason = getErrorMessage(failure);
+        runner.failTask({ task: runningTask, success: false, response: reason,
+          executionLog: [], startedAt, completedAt: new Date().toISOString(),
+          branch: data.branch, worktreePath: task.worktreePath,
+          ...(failure instanceof TaskStoppedError ? { completion: {
+            success: false, interrupted: true, workflowResult: 'aborted', failureReason: reason,
+          } } : {}) });
+      };
+      try {
+        saveFailure(error);
+      } catch (terminalError) {
+        if (!(terminalError instanceof TaskStoppedError)) throw terminalError;
+        saveFailure(terminalError);
+        throw terminalError;
+      }
     }
     throw error;
+  } finally {
+    monitor?.stop();
   }
 }
 
@@ -271,6 +300,11 @@ async function runPrMergeWorkflow(
   );
   const result = await runWorkflowExecution({
     ...request.display,
+    eventSink: (event) => {
+      if (event.type === 'progress' && event.level === 'warn') {
+        return request.display?.eventSink?.(event);
+      }
+    },
     cwd, projectCwd: request.projectCwd,
     workflowIdentifier: isWorkflowPath(request.workflow)
       ? request.workflow.startsWith('~')
