@@ -1493,6 +1493,9 @@ async function getOrCreateProcess(
       binding,
       configuration.systemPrompt,
       pluginResolution.plugins,
+      {
+        preferLaunchEnvironmentCredential: (options.childProcessEnv?.[binding.ref]?.length ?? 0) > 0,
+      },
     );
     processRecord = new DeepSeekHarnessProcess(
       configuration,
@@ -1843,10 +1846,13 @@ export async function callDeepSeekHarness(
         await pruneIdleProcesses(currentProcess);
         return createSuccessResponse(agentType, result, state, turnOptions, currentProcess.knownSecrets);
       } catch (error) {
+        const isTimeout = error instanceof DeepSeekHarnessTimeoutError
+          || (error instanceof Error && error.name === 'TimeoutError');
         try {
           await currentProcess.close();
         } catch (cleanupError) {
           removeProcess(currentProcess);
+          if (isTimeout) throw error;
           throw cleanupError;
         }
         removeProcess(currentProcess);
@@ -1868,7 +1874,9 @@ export async function callDeepSeekHarness(
       try {
         await processRecord.close();
       } catch (cleanupError) {
-        reportedError = cleanupError;
+        const isTimeout = error instanceof DeepSeekHarnessTimeoutError
+          || (error instanceof Error && error.name === 'TimeoutError');
+        if (!isTimeout) reportedError = cleanupError;
       }
       removeProcess(processRecord);
     }

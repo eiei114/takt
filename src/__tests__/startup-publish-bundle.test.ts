@@ -22,8 +22,8 @@ function createFixture() {
   };
 }
 
-const SDK_VERSION = '0.2.1-alpha.2';
-const CORDIS_VERSION = '4.0.5-alpha.1';
+const SDK_VERSION = '0.2.1-rc.2';
+const CORDIS_VERSION = '4.0.5';
 const STALE_VERSION = '0.0.0-stale';
 const sdkDependencies = {
   '@deepseek-ai/cordis': CORDIS_VERSION,
@@ -50,12 +50,15 @@ function createDeepSeekFixture(): {
   ]));
   const managedDependencies = {
     ...sdkDependencies,
+    '@deepseek-ai/cordis-plugin-group': '1.0.5',
+    '@deepseek-ai/dsh-sandbox': SDK_VERSION,
     '@deepseek-ai/libreoffice-kit': '0.1.5',
   };
   const managedLockPackages = Object.fromEntries(Object.entries(managedDependencies).map(([name, version]) => [
     `node_modules/${name}`,
     { version },
   ]));
+  managedLockPackages['node_modules/@deepseek-ai/cordis-plugin-loader'] = { version: '1.0.6' };
 
   return {
     root: {
@@ -82,9 +85,24 @@ function createDeepSeekFixture(): {
         'node_modules/@deepseek-ai/dsh-sdk-client': {
           version: SDK_VERSION,
           peerDependencies: {
-            '@deepseek-ai/cordis': '~4.0.5-alpha.1',
+            '@deepseek-ai/cordis': '~4.0.5',
             '@deepseek-ai/dsh-llm': SDK_VERSION,
             '@deepseek-ai/dsh-sdk-protocol': SDK_VERSION,
+            '@deepseek-ai/dsh-session': SDK_VERSION,
+          },
+        },
+        'node_modules/@deepseek-ai/cordis-plugin-group': {
+          version: '1.0.5',
+          peerDependencies: {
+            '@deepseek-ai/cordis': '~4.0.5',
+            '@deepseek-ai/cordis-plugin-loader': '~1.0.6',
+          },
+        },
+        'node_modules/@deepseek-ai/dsh-sandbox': {
+          version: SDK_VERSION,
+          peerDependencies: {
+            '@deepseek-ai/cordis': '~4.0.5',
+            '@deepseek-ai/dsh-llm': SDK_VERSION,
             '@deepseek-ai/dsh-session': SDK_VERSION,
           },
         },
@@ -176,6 +194,73 @@ describe('managed DeepSeek npm dependency graph', () => {
       fixture.lock,
       fixture.constants,
     )).not.toThrow();
+  });
+
+  it('rejects a Cordis SDK peer pin outside the declared peer range', () => {
+    const fixture = createDeepSeekFixture();
+    const staleVersion = '4.0.5-alpha.1';
+    fixture.root.devDependencies['@deepseek-ai/cordis'] = staleVersion;
+    fixture.rootLock.packages['']!.devDependencies!['@deepseek-ai/cordis'] = staleVersion;
+    fixture.rootLock.packages['node_modules/@deepseek-ai/cordis']!.version = staleVersion;
+    fixture.managed.dependencies['@deepseek-ai/cordis'] = staleVersion;
+    fixture.lock.packages['']!.dependencies!['@deepseek-ai/cordis'] = staleVersion;
+    fixture.lock.packages['node_modules/@deepseek-ai/cordis']!.version = staleVersion;
+
+    expect(() => verifyDeepSeekManagedLock(
+      fixture.root,
+      fixture.rootLock,
+      fixture.managed,
+      fixture.lock,
+      fixture.constants,
+    )).toThrow();
+  });
+
+  it('rejects a managed DSH direct pin outside RC2', () => {
+    const fixture = createDeepSeekFixture();
+    fixture.managed.dependencies['@deepseek-ai/dsh-sandbox'] = '0.2.1-alpha.2';
+    fixture.lock.packages['']!.dependencies!['@deepseek-ai/dsh-sandbox'] = '0.2.1-alpha.2';
+    fixture.lock.packages['node_modules/@deepseek-ai/dsh-sandbox']!.version = '0.2.1-alpha.2';
+
+    expect(() => verifyDeepSeekManagedLock(
+      fixture.root,
+      fixture.rootLock,
+      fixture.managed,
+      fixture.lock,
+      fixture.constants,
+    )).toThrow('@deepseek-ai/dsh-sandbox must be pinned to 0.2.1-rc.2');
+  });
+
+  it('rejects a managed dependency lock with a peer outside the declared range', () => {
+    const fixture = createDeepSeekFixture();
+    fixture.lock.packages['node_modules/@deepseek-ai/cordis-plugin-loader']!.version = '1.0.5';
+
+    expect(() => verifyDeepSeekManagedLock(
+      fixture.root,
+      fixture.rootLock,
+      fixture.managed,
+      fixture.lock,
+      fixture.constants,
+    )).toThrow('@deepseek-ai/cordis-plugin-group peer @deepseek-ai/cordis-plugin-loader@~1.0.6');
+  });
+
+  it.each([
+    ['manifest override', (fixture: ReturnType<typeof createDeepSeekFixture>) => {
+      fixture.managed.overrides!.fflate = '0.8.2';
+    }],
+    ['managed lock resolution', (fixture: ReturnType<typeof createDeepSeekFixture>) => {
+      fixture.lock.packages['node_modules/fflate']!.version = '0.8.2';
+    }],
+  ])('rejects an incorrect fflate 0.8.3 %s', (_description, makeInvalid) => {
+    const fixture = createDeepSeekFixture();
+    makeInvalid(fixture);
+
+    expect(() => verifyDeepSeekManagedLock(
+      fixture.root,
+      fixture.rootLock,
+      fixture.managed,
+      fixture.lock,
+      fixture.constants,
+    )).toThrow('fflate 0.8.3');
   });
 
   it.each([

@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { satisfies } from 'semver';
 
-const sdkVersion = '0.2.1-alpha.2';
+const sdkVersion = '0.2.1-rc.2';
 const managedBase = 'managed/deepseek-harness/';
 
 /**
@@ -28,7 +28,7 @@ export function verifyDeepSeekManagedLock(root, rootLock, managed, lock, constan
     }
   }
   for (const [name, version] of Object.entries({
-    '@deepseek-ai/cordis': '4.0.5-alpha.1',
+    '@deepseek-ai/cordis': '4.0.5',
     '@deepseek-ai/dsh-llm': sdkVersion,
     '@deepseek-ai/dsh-scope': sdkVersion,
     '@deepseek-ai/dsh-session': sdkVersion,
@@ -40,6 +40,15 @@ export function verifyDeepSeekManagedLock(root, rootLock, managed, lock, constan
       || rootLock.packages?.[`node_modules/${name}`]?.version !== version
       || managed.dependencies[name] !== version) {
       throw new Error(`${name} must be pinned in the root and managed SDK dependency graphs`);
+    }
+  }
+  if (managed.dependencies['@deepseek-ai/cordis'] !== '4.0.5'
+    || managed.dependencies['@deepseek-ai/cordis-plugin-group'] !== '1.0.5') {
+    throw new Error('The managed npm project must pin Cordis and cordis-plugin-group within the RC2 peer ranges');
+  }
+  for (const [name, version] of Object.entries(managed.dependencies)) {
+    if ((name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-')) && version !== sdkVersion) {
+      throw new Error(`${name} must be pinned to ${sdkVersion} in the managed npm project`);
     }
   }
   if (!constants.includes(`DEEPSEEK_HARNESS_SDK_VERSION = '${sdkVersion}'`)
@@ -61,9 +70,19 @@ export function verifyDeepSeekManagedLock(root, rootLock, managed, lock, constan
   }
   const peers = lock.packages['node_modules/@deepseek-ai/dsh-sdk-client']?.peerDependencies;
   for (const [name, version] of Object.entries(peers ?? {})) {
-    const pinned = name === '@deepseek-ai/cordis' ? '4.0.5-alpha.1' : version;
+    const pinned = name === '@deepseek-ai/cordis' ? '4.0.5' : version;
     if (managed.dependencies[name] !== pinned) {
       throw new Error(`${name} SDK peer must be explicitly pinned in the managed npm project`);
+    }
+  }
+  for (const name of Object.keys(managed.dependencies)) {
+    const entry = lock.packages?.[`node_modules/${name}`];
+    for (const [peerName, peerRange] of Object.entries(entry?.peerDependencies ?? {})) {
+      const peerEntry = lock.packages?.[`node_modules/${peerName}`];
+      const optional = entry?.peerDependenciesMeta?.[peerName]?.optional === true;
+      if ((!peerEntry || typeof peerEntry.version !== 'string' || !satisfies(peerEntry.version, peerRange)) && !optional) {
+        throw new Error(`${name} peer ${peerName}@${peerRange} must resolve in the managed npm lock`);
+      }
     }
   }
 }

@@ -59,6 +59,30 @@ describe('DeepSeek Harness credential patch', () => {
     }
   });
 
+  it('uses an empty private credential store when an explicit launch environment credential takes precedence', async () => {
+    const credentialsPath = path.join(root, 'source-home', '.credentials.yaml');
+    const patch = await createDeepSeekCredentialPatch(
+      createBinding(credentialsPath, 'CUSTOM_KEY'),
+      undefined,
+      [],
+      { preferLaunchEnvironmentCredential: true },
+    );
+    try {
+      const document = await readPatchDocument(patch.path) as Array<Record<string, unknown>>;
+      const runtimeCredentialsPath = (document[0]?.config as { path?: string } | undefined)?.path;
+      expect(runtimeCredentialsPath).not.toBe(credentialsPath);
+      expect(runtimeCredentialsPath).toBe(path.join(path.dirname(patch.path), 'environment-credentials.yaml'));
+      expect(await readFile(runtimeCredentialsPath!, 'utf8')).toBe('version: 1\nrefs: {}\nrecords: {}\n');
+      expect(statSync(runtimeCredentialsPath!).mode & 0o777).toBe(0o600);
+      expect(await readPatchDocument(patch.path)).toContainEqual({
+        id: 'llm-deepseek',
+        config: { apiKeyEnv: 'CUSTOM_KEY' },
+      });
+    } finally {
+      await patch.dispose();
+    }
+  });
+
   it('passes a complete literal system prompt through the public Cordis patch API', async () => {
     const credentialsPath = path.join(root, 'source-home', '.credentials.yaml');
     const systemPrompt = 'Use {{unknown_template}} literally.\nKeep these braces: {{ and }}.';

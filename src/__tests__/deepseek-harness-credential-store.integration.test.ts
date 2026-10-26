@@ -356,9 +356,10 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
 
     const response = await runTurn();
 
+    const sourceStoreCredentialMatched = endpoint.requests[0]?.apiKey?.includes(STORE_KEY) === true;
+    expect(sourceStoreCredentialMatched).toBe(true);
     expect(response.status).toBe('done');
     expect(endpoint.requests).toHaveLength(1);
-    expect(endpoint.requests[0]?.apiKey).toContain(STORE_KEY);
     expect(response.content).not.toContain(STORE_KEY);
     expect(await readFile(storePath)).toEqual(storeBefore);
     expect((await stat(storePath)).mode & 0o777).toBe(modeBefore);

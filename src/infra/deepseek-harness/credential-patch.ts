@@ -21,6 +21,11 @@ export interface DeepSeekCredentialPatch {
   disposeSync: () => void;
 }
 
+export interface DeepSeekCredentialPatchOptions {
+  /** Let an explicitly supplied per-call environment value win over stored credentials. */
+  preferLaunchEnvironmentCredential?: boolean;
+}
+
 /**
  * Build the process-owned patch that hands the official runtime the credential store
  * path and the reference name. The patch never contains a credential value.
@@ -31,6 +36,7 @@ export async function createDeepSeekCredentialPatch(
   binding: DeepSeekCredentialBinding,
   systemPrompt?: string,
   plugins: readonly ResolvedDeepSeekHarnessPlugin[] = [],
+  options: DeepSeekCredentialPatchOptions = {},
 ): Promise<DeepSeekCredentialPatch> {
   let patchDirectoryPath: string;
   try {
@@ -40,11 +46,21 @@ export async function createDeepSeekCredentialPatch(
   }
   try {
     const patchPath = path.join(patchDirectoryPath, PATCH_FILE_NAME);
+    const credentialsPath = options.preferLaunchEnvironmentCredential === true
+      ? path.join(patchDirectoryPath, 'environment-credentials.yaml')
+      : binding.home.credentialsPath;
+    if (options.preferLaunchEnvironmentCredential === true) {
+      writeNewPrivateFileWithMode(
+        credentialsPath,
+        'version: 1\nrefs: {}\nrecords: {}\n',
+        PATCH_FILE_MODE,
+      );
+    }
     const document = [
       // Keep the official coding tools. As with other local coding providers,
       // this composition requires a trusted workspace; a credential reference
       // is not an OS-level read-isolation boundary for model-callable tools.
-      { id: 'credentials', config: { path: binding.home.credentialsPath } },
+      { id: 'credentials', config: { path: credentialsPath } },
       { id: 'llm-deepseek', config: { apiKeyEnv: binding.ref } },
       { id: 'session-persistence-jsonl', disabled: true },
       { id: 'session-log-deepseek', config: { enabled: false } },
