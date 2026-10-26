@@ -29,7 +29,7 @@ import { createConversationSession } from '../features/interactive/conversationS
 import { OptionsBuilder } from '../core/workflow/engine/OptionsBuilder.js';
 import { runAgent } from '../agents/runner.js';
 import { loadPersonaSessions, resolvePersonaSessionId, updatePersonaSession } from '../infra/config/project/sessionStore.js';
-import { hasDeepSeekSessionMarker } from '../infra/deepseek-harness/runtime-state.js';
+import { getDeepSeekRuntimePaths, hasDeepSeekSessionMarker } from '../infra/deepseek-harness/runtime-state.js';
 import type { WorkflowStep } from '../core/models/types.js';
 import {
   callDeepSeekHarness,
@@ -348,6 +348,11 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     ].join('\n'), 'utf8');
   }
 
+  function expectNoManagedCredentialCopy(): void {
+    const managedHome = getDeepSeekRuntimePaths().dshHome;
+    expect(existsSync(path.join(managedHome, '.credentials.yaml'))).toBe(false);
+  }
+
   /** Call the provider with fixture defaults and optional session/environment overrides without contacting a real service. */
   async function runTurn(options: {
     prompt?: string;
@@ -430,6 +435,16 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     }]);
   });
 
+  it.each([false, true])('detects a managed credential copy with redirected config=%s', async (redirected) => {
+    const configDir = path.join(root, redirected ? 'redirected-config' : 'config');
+    vi.stubEnv('TAKT_CONFIG_DIR', configDir);
+    const destination = path.join(configDir, 'deepseek-harness', 'dsh-home');
+    await mkdir(destination, { recursive: true });
+    expectNoManagedCredentialCopy();
+    await writeFile(path.join(destination, '.credentials.yaml'), 'synthetic copied credential fixture');
+    expect(() => expectNoManagedCredentialCopy()).toThrow();
+  });
+
   it('executes standard tools and streaming across multiple turns in the same live session without copying credentials', async () => {
     const managedConfigDir = process.env.TAKT_DSH_REAL_MANAGED_CONFIG_DIR;
     if (managedConfigDir !== undefined) {
@@ -475,7 +490,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     expect(await readFile(path.join(workspace, 'shell.txt'), 'utf8')).toBe('shell-ok');
     expect(JSON.stringify(response)).not.toContain(STORE_KEY);
     expect(await readFile(storePath)).toEqual(storeBefore);
-    expect(existsSync(path.join(dshHome, '.credentials.yaml'))).toBe(false);
+    expectNoManagedCredentialCopy();
 
     const liveId = session.getSessionId();
     plan.strategy.permissionMode = 'readonly';
@@ -500,7 +515,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
     expect(events.filter((event) => event.type === 'tool_use')).toHaveLength(5);
     expect(events.filter((event) => event.type === 'tool_result')).toHaveLength(5);
     expect(await readFile(storePath)).toEqual(storeBefore);
-    expect(existsSync(path.join(dshHome, '.credentials.yaml'))).toBe(false);
+    expectNoManagedCredentialCopy();
   });
 
   it('refuses all report routes through the real agent dispatcher without starting the SDK or contacting the endpoint', async () => {

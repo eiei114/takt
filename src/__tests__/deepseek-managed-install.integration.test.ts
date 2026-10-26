@@ -406,6 +406,9 @@ const managedTargets = [
 ] as const;
 
 const PI_TEST_INSTALL_TIMEOUT_MS = 120_000;
+// Keep the child install bounded at 120s; allow another minute for the real
+// SDK import, compatibility assertions, and disposal in this Pi-only test.
+const PI_TEST_COMPATIBILITY_TIMEOUT_MS = PI_TEST_INSTALL_TIMEOUT_MS + 60_000;
 
 async function runSuccessfulManagedInstall(provider: (typeof managedTargets)[number]['provider'], platform?: 'win32') {
   const timeoutMs = provider === 'pi' ? PI_TEST_INSTALL_TIMEOUT_MS : 15_000;
@@ -562,7 +565,9 @@ if (Object.keys(sdk).length === 0) process.exit(2);`], { cwd: directory, stdio: 
     expect(code).toBe(0);
   });
 
-  it('preserves Pi compatibility through the installed managed SDK and loader', async () => {
+  it('preserves Pi compatibility through the installed managed SDK and loader', { timeout: PI_TEST_COMPATIBILITY_TIMEOUT_MS }, async ({ task }) => {
+    // Inspect the registered Vitest deadline, not just the intended constant.
+    expect(task.timeout).toBeGreaterThan(PI_TEST_INSTALL_TIMEOUT_MS + 30_000);
     const installed = await runSuccessfulManagedInstall('pi');
     expect(installed.code, installed.output).toBe(0);
     const directory = installedGeneration('@earendil-works/pi-coding-agent');
