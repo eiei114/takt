@@ -1005,7 +1005,10 @@ class DeepSeekHarnessProcess {
   private closed = false;
   private runtimeStartAttempted = false;
   private resourceDisposal: Promise<void> | undefined;
-  private cleanupReconciliation: Promise<boolean | undefined | null> | undefined;
+  private cleanupReconciliation: {
+    allowMissingOwnerAfterSdkClose: boolean;
+    promise: Promise<boolean | undefined | null>;
+  } | undefined;
   private cleanupReceiptListener: (() => void) | undefined;
   activeTurns = 1;
   lastUsed = ++runtimeUseSequence;
@@ -1200,7 +1203,15 @@ class DeepSeekHarnessProcess {
       this.releasePendingCleanupOwnership();
       return true;
     }
-    if (this.cleanupReconciliation !== undefined) return this.cleanupReconciliation;
+    const pending = this.cleanupReconciliation;
+    if (pending !== undefined) {
+      const confirmation = await pending.promise;
+      if (pending.allowMissingOwnerAfterSdkClose === allowMissingOwnerAfterSdkClose || this.closed) {
+        return confirmation;
+      }
+      // Different policies still serialize receipt consumption, then confirm under their own policy.
+      return this.reconcileRuntimeExit(allowMissingOwnerAfterSdkClose);
+    }
     const reconciliation = (async (): Promise<boolean | undefined | null> => {
       const confirmation = await this.confirmRuntimeExit(allowMissingOwnerAfterSdkClose);
       if (confirmation !== true) return confirmation;
@@ -1209,11 +1220,11 @@ class DeepSeekHarnessProcess {
       this.releasePendingCleanupOwnership();
       return true;
     })();
-    this.cleanupReconciliation = reconciliation;
+    this.cleanupReconciliation = { allowMissingOwnerAfterSdkClose, promise: reconciliation };
     try {
       return await reconciliation;
     } finally {
-      if (this.cleanupReconciliation === reconciliation) this.cleanupReconciliation = undefined;
+      if (this.cleanupReconciliation?.promise === reconciliation) this.cleanupReconciliation = undefined;
     }
   }
 
@@ -1224,7 +1235,12 @@ class DeepSeekHarnessProcess {
       let cleanupAcknowledged: boolean | undefined | null;
       try {
         cleanupAcknowledged = await this.reconcileRuntimeExit(allowMissingOwnerAfterSdkClose);
-      } catch {
+      } catch (error) {
+        // Exit confirmation failure is quarantinable; resource disposal failure must withhold completion.
+        if (error instanceof DeepSeekHarnessTransportError
+          && (error.sdkCode === 'credential-patch-cleanup-failed' || error.sdkCode === 'plugin-cleanup-failed')) {
+          throw error;
+        }
         return false;
       }
       if (cleanupAcknowledged === true) return true;

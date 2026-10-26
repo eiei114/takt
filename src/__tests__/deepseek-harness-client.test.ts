@@ -51,6 +51,7 @@ import {
 import { DeepSeekHarnessProvider } from '../infra/providers/deepseek-harness.js';
 import { DeepSeekHarnessInstallRequiredError, installDeepSeekHarness } from '../infra/deepseek-harness/managed-package.js';
 import { resolveDeepSeekHarnessNpmPlugins } from '../infra/deepseek-harness/npm-plugin.js';
+import * as runtimeState from '../infra/deepseek-harness/runtime-state.js';
 import {
   acknowledgeDeepSeekRuntimeCleanup,
   assertDeepSeekRuntimeCreationAllowed,
@@ -2047,7 +2048,7 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     expect(api.requests).toHaveLength(2);
   }, 90_000);
 
-  it.skipIf(!SUPPORTED_RUNTIME)('keeps an aborted call classified while cleanup blocks another runtime start', async () => {
+  it.skipIf(!SUPPORTED_RUNTIME).each([false, true])('keeps an aborted call classified while cleanup blocks another runtime start (repeated SDK close succeeds=%s)', async (repeatedCloseSucceeds) => {
     let signalRunStarted: () => void = () => {};
     const runStarted = new Promise<void>((resolve) => { signalRunStarted = resolve; });
     vi.spyOn(DeepSeekHarness.prototype, 'start').mockResolvedValue(undefined);
@@ -2058,9 +2059,25 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     let releaseRepeatedClose: () => void = () => {};
     const repeatedCloseCanFinish = new Promise<void>((resolve) => { releaseRepeatedClose = resolve; });
     let closeCalls = 0;
+    let delayStrictAcknowledgement = false;
+    let strictAcknowledgementPending = false;
+    let releaseStrictAcknowledgement: () => void = () => {};
+    const strictAcknowledgementCanFinish = new Promise<void>((resolve) => { releaseStrictAcknowledgement = resolve; });
+    const realAcknowledgement = runtimeState.acknowledgeDeepSeekRuntimeCleanup;
+    vi.spyOn(runtimeState, 'acknowledgeDeepSeekRuntimeCleanup').mockImplementation(async (confirmationPath) => {
+      if (delayStrictAcknowledgement) {
+        delayStrictAcknowledgement = false;
+        strictAcknowledgementPending = true;
+        await strictAcknowledgementCanFinish;
+      }
+      return realAcknowledgement(confirmationPath);
+    });
     vi.spyOn(DeepSeekHarness.prototype, 'close').mockImplementation(async () => {
       // Let the supervisor watcher reconcile before a repeated SDK close returns.
-      if (++closeCalls > 1) await repeatedCloseCanFinish;
+      if (++closeCalls > 1) {
+        await repeatedCloseCanFinish;
+        if (repeatedCloseSucceeds) return;
+      }
       throw new Error('simulated unconfirmed shutdown');
     });
 
@@ -2130,13 +2147,23 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       expect(sdkConstructorOptions).toHaveLength(constructedBeforeRetry);
       expect(existsSync(cleanupBarrierPath)).toBe(true);
 
+      delayStrictAcknowledgement = repeatedCloseSucceeds;
       process.kill(-child.pid, 'SIGTERM');
       await waitForExit(child);
       await mkdir(dirname(receiptPath), { recursive: true });
       await writeFile(receiptPath, 'confirmed\n', { mode: 0o600 });
-      await waitForPathRemoval(cleanupPaths[0]!);
-      await waitForPathRemoval(ownerPath);
-      releaseRepeatedClose();
+      if (repeatedCloseSucceeds) {
+        await vi.waitFor(() => expect(strictAcknowledgementPending).toBe(true));
+        // Another state owner consumes the proven-exit receipt while the strict watcher is pending.
+        expect(await realAcknowledgement(receiptPath)).toBe(true);
+        releaseRepeatedClose();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        releaseStrictAcknowledgement();
+      } else {
+        await waitForPathRemoval(cleanupPaths[0]!);
+        await waitForPathRemoval(ownerPath);
+        releaseRepeatedClose();
+      }
       const aborted = await operation;
 
       expect(aborted).toMatchObject({ status: 'error', failureCategory: 'external_abort' });
@@ -2156,6 +2183,7 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
         await writeFile(receiptPath, 'confirmed\n', { mode: 0o600 });
       }
       releaseRepeatedClose();
+      releaseStrictAcknowledgement();
       await operation;
       for (const cleanupPath of cleanupPaths) {
         await waitForPathRemoval(cleanupPath, 10_000).catch(() => undefined);
