@@ -467,9 +467,22 @@ Most config keys can be overridden with an environment variable named `TAKT_` pl
 
 Separately from config-key overrides, `TAKT_NOTIFY_WEBHOOK` sets a Slack Incoming Webhook URL. When it is set, TAKT posts a Slack notification on pipeline completion and when a `takt run` task batch finishes (run summary). Enabled manager goal notifications use the same webhook.
 
-## Manager Notification Settings
+## Manager sensitive read targets
 
-Manager is in preparation and currently unavailable. The settings below are retained for the internal implementation.
+In global `~/.takt/config.yaml` or project `.takt/config.yaml`, `manager.sensitive_paths` adds files and directories that require the manager permission judge even inside assigned repositories:
+
+```yaml
+manager:
+  sensitive_paths:
+    - private
+    - config/credentials.json
+```
+
+Defaults are `.env`, `.env.*`, `id_rsa`, `id_dsa`, `id_ecdsa`, `id_ed25519`, `*.key`, `*.pem`, `*.crt`, `*.cer`, `*.p12`, and `*.pfx`. Both configuration lists are added to the defaults; omission or an empty list cannot remove them. A bare name applies at any directory depth. Relative paths with a directory component are relative to each assigned repository; absolute paths and `~/` paths are also supported. A directory entry includes its descendants. Name patterns support a single leading or trailing `*`; this setting does not define allow rules.
+
+With Claude, `Read`, `Glob`, and `Grep` bypass the judge only for readable ordinary targets inside the assignment after path and symlink resolution. Search candidates are checked using paths and metadata, without reading sensitive contents. Simple search patterns with `*`, `**`, and `?` are supported; exclusion, brace expansion, character classes, escapes, or ranges that cannot be established go to the judge. Hidden paths and traversed directories or symlinks are checked conservatively, so an otherwise restrictive search can still require review. Codex built-in tools continue to require review.
+
+## Manager Notification Settings
 
 Use `manager.notifications` in project `.takt/config.yaml` or global
 `~/.takt/config.yaml` to enable or disable each kind of goal notification.
@@ -480,7 +493,7 @@ Use `manager.notifications` in project `.takt/config.yaml` or global
 | `awaiting_merge` | A goal awaits a human merge | `true` |
 | `completed` | A goal is completed | `true` |
 | `progress` | A work unit is integrated | `true` |
-| `blocked` | The manager reports a blocker through the notification tool | `true` |
+| `blocked` | The manager reports a blocker through the notification tool, or event handling or TUI conversation fails | `true` |
 | `custom` | The manager reports another event through the notification tool | `true` |
 
 ```yaml
@@ -499,15 +512,9 @@ Each kind resolves independently in this order: project setting → global setti
 `question: true` overrides global `question: false`; omitting that key in the
 project uses the global value. Settings for other kinds are unaffected.
 
-Setting a kind to `false` disables saving notifications of that kind and sending
-them to Slack. Saving and answering questions, checking work dependencies,
-integrating work units, and updating goal state continue to operate.
-Pending questions remain visible in the TUI even when their notifications are disabled.
-Without `TAKT_NOTIFY_WEBHOOK`, Slack delivery is skipped and enabled saved
-notifications appear when the TUI next opens or receives a user message.
-Slack delivery failures do not stop manager processing; diagnostics are saved and
-displayed in the TUI. `manager.notifications` does not affect existing run or
-pipeline notifications.
+Setting a kind to `false` disables saving, TUI notification display and Slack delivery for that kind. Answering questions, integrating results and updating goals continue, and pending questions remain visible.
+
+Set `TAKT_NOTIFY_WEBHOOK` to deliver notifications to Slack. Enabled saved notifications refresh while the TUI is open. Failed manager event handling or TUI conversation sends `blocked`, including repeated failures. No failure-state file is created. Slack delivery failures are logged and manager work continues. These settings do not affect ordinary run or pipeline notifications.
 
 ## API Key Configuration
 
@@ -829,6 +836,8 @@ provider:
         profile: router
       review-completion-judge:
         profile: router
+      manager-permission-judge:
+        profile: router
 
   auto_routing:
     strategy: balanced
@@ -989,7 +998,7 @@ defaults
   < steps
 ```
 
-The internal `selector`, `assistant`, `loop-judge`, and `review-completion-judge` agents resolve through a separate ladder. `selector` chooses dynamic work, `assistant` backs interactive sessions, `loop-judge` evaluates loop monitors, and `review-completion-judge` decides whether an opted-in reviewer needs another pass. Every seat is optional; an unassigned seat uses the ordinary default resolution.
+The internal `selector`, `assistant`, `loop-judge`, `review-completion-judge`, and `manager-permission-judge` agents resolve through a separate ladder. `selector` chooses dynamic work, `assistant` backs interactive sessions, `loop-judge` evaluates loop monitors, and `review-completion-judge` decides whether an opted-in reviewer needs another pass. `manager-permission-judge` reviews tool use before execution in manager conversations with the claude (claude-sdk) or codex provider. Set its provider and model through `provider.targets.internal_agents.manager-permission-judge` in `runtime.yaml`, using `profile` or `ladder`; `pool` is not allowed. Every seat is optional; an unassigned seat uses the ordinary default resolution. However, an unassigned `manager-permission-judge` seat uses the same provider, model, and provider options as the manager.
 
 ```text
 defaults
@@ -1088,7 +1097,7 @@ mcp:
 | `mcp.targets.personas` | `{ <persona>: { servers?, exclude? } }` | Per-persona additions/exclusions. |
 | `mcp.targets.tags` | `{ <tag>: { servers?, exclude? } }` | Per-tag additions/exclusions. |
 | `mcp.targets.steps` | `{ <leaf-workflow>/<step>: { servers?, exclude? } }` | Per-step additions/exclusions. Control nodes (`workflow_call` etc.) are not resolution targets. |
-| `mcp.targets.internal_agents` | `{ selector: { exclude? } }` | Exclusions applied to both internal agents (`selector` and `assistant`). Only `selector.exclude` is accepted. |
+| `mcp.targets.internal_agents` | `{ selector: { exclude? } }` | Exclusions applied to internal agents (`selector`, `assistant`, and `manager`). Only `selector.exclude` is accepted. Manager also matches `mcp.targets.personas.manager`; its own TAKT MCP server is always added. |
 
 Server entries:
 

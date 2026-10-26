@@ -60,9 +60,17 @@ const entries = [
 ] as const;
 
 describe('Merge launch after PR creation', () => {
+  it('passes the warning sink through silent post-execution to linked merge', async () => {
+    const eventSink = vi.fn();
+    await postExecutionFlow({ execCwd: '/clone', projectCwd: '/project', task: 'Implement task',
+      branch: 'takt/task', shouldCreatePr: true, draftPr: false, outputMode: 'silent', eventSink });
+    expect(mocks.merge).toHaveBeenCalledWith('/project', prUrl, undefined,
+      expect.objectContaining({ outputMode: 'silent', eventSink }), undefined);
+  });
+
   beforeEach(() => {
     vi.resetAllMocks();
-    mocks.commit.mockResolvedValue({ success: true, commitHash: 'a'.repeat(40) });
+    mocks.commit.mockResolvedValue({ success: true, commitHash: 'a'.repeat(40), publishedHead: 'a'.repeat(40) });
     mocks.pipelineCommit.mockResolvedValue(true);
     mocks.createPr.mockReturnValue({ success: true, url: prUrl });
     mocks.submitPr.mockReturnValue(prUrl);

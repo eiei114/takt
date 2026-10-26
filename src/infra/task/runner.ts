@@ -5,7 +5,7 @@ import { TaskStore } from './store.js';
 import { TaskLifecycleService } from './taskLifecycleService.js';
 import { TaskQueryService } from './taskQueryService.js';
 import { TaskDeletionService, type TaskDeletionCleanup } from './taskDeletionService.js';
-import { TaskExceedService, type ExceedTaskOptions } from './taskExceedService.js';
+import { TaskExceedService, type ExceedTaskOptions, type RequeueExceededTaskOptions } from './taskExceedService.js';
 import type { RunResumeSource } from '../../core/workflow/run/run-meta.js';
 import {
   TaskRetryService,
@@ -108,8 +108,8 @@ export class TaskRunner {
     return this.lifecycle.claimNextTasks(count);
   }
 
-  failInterruptedRunningTasks(goalId?: string): number {
-    return this.lifecycle.failInterruptedRunningTasks(goalId);
+  failInterruptedRunningTasks(goalId?: string, onRecovered?: (task: TaskState) => void): number {
+    return this.lifecycle.failInterruptedRunningTasks(goalId, onRecovered);
   }
 
   invalidatePendingGoalTasks(goalId: string): void {
@@ -118,6 +118,10 @@ export class TaskRunner {
 
   completeTask(result: TaskResult): string {
     return this.lifecycle.completeTask(result);
+  }
+
+  requestTaskStop(goalId: string | undefined, taskName: string, executionId: string) {
+    return this.lifecycle.requestTaskStop(goalId, taskName, executionId);
   }
 
   failTask(result: TaskResult): string {
@@ -204,11 +208,19 @@ export class TaskRunner {
     this.deletion.deleteTaskByNameAndStatus(name, kind, cleanup);
   }
 
+  deleteTaskWithCleanup(
+    name: string,
+    kind: 'pending' | 'failed' | 'completed' | 'exceeded' | 'pr_failed',
+    cleanup: () => boolean,
+  ): boolean {
+    return this.deletion.deleteTaskWithCleanup(name, kind, cleanup);
+  }
+
   exceedTask(taskName: string, options: ExceedTaskOptions): void {
     this.exceed.exceedTask(taskName, options);
   }
 
-  requeueExceededTask(taskName: string): void {
-    this.exceed.requeueExceededTask(taskName);
+  requeueExceededTask(taskName: string, options?: RequeueExceededTaskOptions): void {
+    this.exceed.requeueExceededTask(taskName, options);
   }
 }
