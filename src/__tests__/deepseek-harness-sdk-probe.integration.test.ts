@@ -74,7 +74,7 @@ interface LocalApiMock {
   close(): Promise<void>;
 }
 
-const SDK_VERSION = '0.2.1-rc.2';
+const SDK_VERSION = '0.2.1-rc.3';
 const STDERR_SENTINEL = 'TAKT_DSH_PROBE_STDERR_SENTINEL';
 const isSupportedDshRuntimePlatform = (
   (process.platform === 'linux' && (process.arch === 'x64' || process.arch === 'arm64'))

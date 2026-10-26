@@ -5,7 +5,7 @@ import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { satisfies } from 'semver';
 
-const sdkVersion = '0.2.1-rc.2';
+const sdkVersion = '0.2.1-rc.3';
 const managedBase = 'managed/deepseek-harness/';
 
 /**

@@ -22,7 +22,7 @@ function createFixture() {
   };
 }
 
-const SDK_VERSION = '0.2.1-rc.2';
+const SDK_VERSION = '0.2.1-rc.3';
 const CORDIS_VERSION = '4.0.5';
 const STALE_VERSION = '0.0.0-stale';
 const sdkDependencies = {
@@ -227,7 +227,7 @@ describe('managed DeepSeek npm dependency graph', () => {
       fixture.managed,
       fixture.lock,
       fixture.constants,
-    )).toThrow('@deepseek-ai/dsh-sandbox must be pinned to 0.2.1-rc.2');
+    )).toThrow('@deepseek-ai/dsh-sandbox must be pinned to 0.2.1-rc.3');
   });
 
   it('rejects a managed dependency lock with a peer outside the declared range', () => {

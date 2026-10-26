@@ -1547,7 +1547,7 @@ steps:
     await installDeepSeekHarness({ npmPath: fakeNpmPath });
     const first = await getReadyDeepSeekHarnessPackageDirectory();
     expect((await loadManagedDeepSeekHarnessModules()).directory).toBe(first);
-    expect((await readFile(join(first, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), 'utf8'))).toContain('0.2.1-rc.2');
+    expect((await readFile(join(first, 'node_modules', '@deepseek-ai', 'dsh', 'package.json'), 'utf8'))).toContain('0.2.1-rc.3');
 
     vi.stubEnv('TAKT_TEST_NPM_FAIL', '1');
     await installDeepSeekHarness({ npmPath: fakeNpmPath });
