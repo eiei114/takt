@@ -386,7 +386,7 @@ describe('managed provider public boundary', () => {
     generatedRoot = mkdtempSync(join(tmpdir(), 'takt-managed-package-artifact-'));
     generatedPackage = join(generatedRoot, 'package');
     compileIsolatedPackage();
-  }, 60_000);
+  }, 30_000);
 
   afterAll(() => {
     rmSync(generatedRoot, { recursive: true, force: true });
