@@ -98,7 +98,8 @@ const SUPPORTED_RUNTIME = (
   || (process.platform === 'darwin' && process.arch === 'arm64')
 );
 const DUMMY_CREDENTIAL = 'TAKT_DUMMY_CLIENT_CREDENTIAL_SENTINEL';
-const environmentKeys = ['TAKT_CONFIG_DIR', 'DSH_HOME', 'DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'PI_CODING_AGENT_DIR', 'npm_config_cache', 'npm_config_ignore_scripts'] as const;
+const offlineManagedNpmCache = process.env.TAKT_DSH_OFFLINE_NPM_CACHE;
+const environmentKeys = ['TAKT_CONFIG_DIR', 'DSH_HOME', 'DEEPSEEK_API_KEY', 'DEEPSEEK_BASE_URL', 'PI_CODING_AGENT_DIR', 'NPM_CONFIG_CACHE', 'npm_config_cache', 'NPM_CONFIG_OFFLINE', 'npm_config_offline', 'npm_config_ignore_scripts'] as const;
 const savedEnvironment = new Map<string, string | undefined>();
 let temporaryRoot: string;
 let localApis: LocalApi[] = [];
@@ -2344,7 +2345,14 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
   }, 90_000);
 
   it.skipIf(!SUPPORTED_RUNTIME)('refuses a previously used session ID after the parent process restarts', async () => {
-    process.env.npm_config_cache = join(temporaryRoot, 'npm-cache');
+    if (offlineManagedNpmCache !== undefined) {
+      process.env.NPM_CONFIG_CACHE = offlineManagedNpmCache;
+      process.env.npm_config_cache = offlineManagedNpmCache;
+      process.env.NPM_CONFIG_OFFLINE = 'true';
+      process.env.npm_config_offline = 'true';
+    } else {
+      process.env.npm_config_cache = join(temporaryRoot, 'npm-cache');
+    }
     process.env.npm_config_ignore_scripts = 'true';
     await installDeepSeekHarness();
     const api = await startLocalApi();
