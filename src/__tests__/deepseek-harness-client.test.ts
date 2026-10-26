@@ -2033,11 +2033,13 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
     await closeDeepSeekHarnessProcesses();
   }, 90_000);
 
-  it.skipIf(!SUPPORTED_RUNTIME || offlineManagedNpmCache === undefined)('refuses a previously used session ID after the parent process restarts', async () => {
-    process.env.NPM_CONFIG_CACHE = offlineManagedNpmCache!;
-    process.env.npm_config_cache = offlineManagedNpmCache!;
-    process.env.NPM_CONFIG_OFFLINE = 'true';
-    process.env.npm_config_offline = 'true';
+  it.skipIf(!SUPPORTED_RUNTIME)('refuses a previously used session ID after the parent process restarts', async () => {
+    if (offlineManagedNpmCache !== undefined) {
+      process.env.NPM_CONFIG_CACHE = offlineManagedNpmCache;
+      process.env.npm_config_cache = offlineManagedNpmCache;
+      process.env.NPM_CONFIG_OFFLINE = 'true';
+      process.env.npm_config_offline = 'true';
+    }
     process.env.npm_config_ignore_scripts = 'true';
     await installDeepSeekHarness();
     const api = await startLocalApi();
