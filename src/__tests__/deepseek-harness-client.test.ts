@@ -2055,7 +2055,14 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       signalRunStarted();
       return await new Promise<never>(() => {});
     });
-    vi.spyOn(DeepSeekHarness.prototype, 'close').mockRejectedValue(new Error('simulated unconfirmed shutdown'));
+    let releaseRepeatedClose: () => void = () => {};
+    const repeatedCloseCanFinish = new Promise<void>((resolve) => { releaseRepeatedClose = resolve; });
+    let closeCalls = 0;
+    vi.spyOn(DeepSeekHarness.prototype, 'close').mockImplementation(async () => {
+      // Let the supervisor watcher reconcile before a repeated SDK close returns.
+      if (++closeCalls > 1) await repeatedCloseCanFinish;
+      throw new Error('simulated unconfirmed shutdown');
+    });
 
     const abortController = new AbortController();
     const operation = callDeepSeekHarness('worker', 'abort while runtime cleanup is pending', {
@@ -2127,6 +2134,9 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       await waitForExit(child);
       await mkdir(dirname(receiptPath), { recursive: true });
       await writeFile(receiptPath, 'confirmed\n', { mode: 0o600 });
+      await waitForPathRemoval(cleanupPaths[0]!);
+      await waitForPathRemoval(ownerPath);
+      releaseRepeatedClose();
       const aborted = await operation;
 
       expect(aborted).toMatchObject({ status: 'error', failureCategory: 'external_abort' });
@@ -2145,6 +2155,7 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
         await mkdir(dirname(receiptPath), { recursive: true });
         await writeFile(receiptPath, 'confirmed\n', { mode: 0o600 });
       }
+      releaseRepeatedClose();
       await operation;
       for (const cleanupPath of cleanupPaths) {
         await waitForPathRemoval(cleanupPath, 10_000).catch(() => undefined);
@@ -2165,7 +2176,14 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       signalRunStarted();
       return await runPending;
     });
-    vi.spyOn(DeepSeekHarness.prototype, 'close').mockRejectedValue(new Error('simulated unconfirmed shutdown'));
+    let releaseRepeatedClose: () => void = () => {};
+    const repeatedCloseCanFinish = new Promise<void>((resolve) => { releaseRepeatedClose = resolve; });
+    let closeCalls = 0;
+    vi.spyOn(DeepSeekHarness.prototype, 'close').mockImplementation(async () => {
+      // Let the supervisor watcher reconcile before a repeated SDK close returns.
+      if (++closeCalls > 1) await repeatedCloseCanFinish;
+      throw new Error('simulated unconfirmed shutdown');
+    });
 
     const operation = callDeepSeekHarness('worker', 'time out while runtime cleanup is pending', {
       cwd: temporaryRoot,
@@ -2237,6 +2255,9 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
       await waitForExit(child);
       await mkdir(dirname(receiptPath), { recursive: true });
       await writeFile(receiptPath, 'confirmed\n', { mode: 0o600 });
+      await waitForPathRemoval(cleanupPaths[0]!);
+      await waitForPathRemoval(ownerPath);
+      releaseRepeatedClose();
       const timedOut = await operation;
 
       expect(timedOut).toMatchObject({ status: 'error', failureCategory: 'part_timeout' });
@@ -2253,6 +2274,7 @@ describe('DeepSeek Harness TypeScript SDK client', () => {
         await mkdir(dirname(receiptPath), { recursive: true });
         await writeFile(receiptPath, 'confirmed\n', { mode: 0o600 });
       }
+      releaseRepeatedClose();
       await operation;
       for (const cleanupPath of cleanupPaths) {
         await waitForPathRemoval(cleanupPath, 10_000).catch(() => undefined);

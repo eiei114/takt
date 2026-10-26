@@ -215,7 +215,7 @@ describe('managed DeepSeek npm dependency graph', () => {
     )).toThrow();
   });
 
-  it('rejects a managed DSH direct pin outside RC2', () => {
+  it('rejects a managed DSH direct pin outside the pinned SDK version', () => {
     const fixture = createDeepSeekFixture();
     fixture.managed.dependencies['@deepseek-ai/dsh-sandbox'] = '0.2.1-alpha.2';
     fixture.lock.packages['']!.dependencies!['@deepseek-ai/dsh-sandbox'] = '0.2.1-alpha.2';
@@ -241,6 +241,59 @@ describe('managed DeepSeek npm dependency graph', () => {
       fixture.lock,
       fixture.constants,
     )).toThrow('@deepseek-ai/cordis-plugin-group peer @deepseek-ai/cordis-plugin-loader@~1.0.6');
+  });
+
+  it.each([false, true])('validates a transitive peer even when optional=%s', (optional) => {
+    const fixture = createDeepSeekFixture();
+    fixture.lock.packages['node_modules/transitive-plugin'] = {
+      version: '1.0.0', peerDependencies: { 'plugin-peer': '^2.0.0' },
+      peerDependenciesMeta: { 'plugin-peer': { optional } },
+    };
+    fixture.lock.packages['node_modules/plugin-peer'] = { version: '1.0.0' };
+    expect(() => verifyDeepSeekManagedLock(
+      fixture.root, fixture.rootLock, fixture.managed, fixture.lock, fixture.constants,
+    )).toThrow('transitive-plugin peer plugin-peer@^2.0.0');
+  });
+
+  it.each([false, true])('permits a missing transitive peer only when optional=%s', (optional) => {
+    const fixture = createDeepSeekFixture();
+    fixture.lock.packages['node_modules/transitive-plugin'] = {
+      version: '1.0.0', peerDependencies: { 'missing-peer': '^2.0.0' },
+      peerDependenciesMeta: { 'missing-peer': { optional } },
+    };
+    const verify = () => verifyDeepSeekManagedLock(
+      fixture.root, fixture.rootLock, fixture.managed, fixture.lock, fixture.constants,
+    );
+    if (optional) expect(verify).not.toThrow();
+    else expect(verify).toThrow('transitive-plugin peer missing-peer@^2.0.0');
+  });
+
+  it.each([false, true])('uses the nearest scoped nested peer rather than the root peer (compatible=%s)', (compatible) => {
+    const fixture = createDeepSeekFixture();
+    fixture.lock.packages['node_modules/parent/node_modules/@scope/plugin'] = {
+      version: '1.0.0', peerDependencies: { '@scope/peer': '^2.0.0' },
+    };
+    fixture.lock.packages['node_modules/parent/node_modules/@scope/peer'] = {
+      version: compatible ? '2.1.0' : '1.0.0',
+    };
+    fixture.lock.packages['node_modules/@scope/peer'] = { version: compatible ? '1.0.0' : '2.1.0' };
+    const verify = () => verifyDeepSeekManagedLock(
+      fixture.root, fixture.rootLock, fixture.managed, fixture.lock, fixture.constants,
+    );
+    if (compatible) expect(verify).not.toThrow();
+    else expect(verify).toThrow('@scope/plugin peer @scope/peer@^2.0.0');
+  });
+
+  it('rejects a present optional peer without a version', () => {
+    const fixture = createDeepSeekFixture();
+    fixture.lock.packages['node_modules/transitive-plugin'] = {
+      version: '1.0.0', peerDependencies: { 'plugin-peer': '^2.0.0' },
+      peerDependenciesMeta: { 'plugin-peer': { optional: true } },
+    };
+    fixture.lock.packages['node_modules/plugin-peer'] = {};
+    expect(() => verifyDeepSeekManagedLock(
+      fixture.root, fixture.rootLock, fixture.managed, fixture.lock, fixture.constants,
+    )).toThrow('transitive-plugin peer plugin-peer@^2.0.0');
   });
 
   it.each([

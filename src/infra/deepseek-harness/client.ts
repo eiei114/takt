@@ -1005,7 +1005,7 @@ class DeepSeekHarnessProcess {
   private closed = false;
   private runtimeStartAttempted = false;
   private resourceDisposal: Promise<void> | undefined;
-  private cleanupReconciliation: Promise<boolean> | undefined;
+  private cleanupReconciliation: Promise<boolean | undefined | null> | undefined;
   private cleanupReceiptListener: (() => void) | undefined;
   activeTurns = 1;
   lastUsed = ++runtimeUseSequence;
@@ -1174,9 +1174,6 @@ class DeepSeekHarnessProcess {
     let cleanupBarrierPersisted = false;
     cleanupConfirmed = await this.waitForRuntimeExitConfirmation(sdkCloseSucceeded);
     if (cleanupConfirmed) {
-      await this.disposeResources();
-      this.closed = true;
-      this.releasePendingCleanupOwnership();
       return;
     }
 
@@ -1194,13 +1191,19 @@ class DeepSeekHarnessProcess {
 
   /** Reconcile the durable owner and dispose resources only after process-group exit is proven. */
   async disposeAfterConfirmedExit(allowMissingOwnerAfterSdkClose = false): Promise<boolean> {
+    return (await this.reconcileRuntimeExit(allowMissingOwnerAfterSdkClose)) === true;
+  }
+
+  /** Share receipt consumption and disposal with close so neither can recreate a resolved barrier. */
+  private async reconcileRuntimeExit(allowMissingOwnerAfterSdkClose: boolean): Promise<boolean | undefined | null> {
     if (this.closed) {
       this.releasePendingCleanupOwnership();
       return true;
     }
     if (this.cleanupReconciliation !== undefined) return this.cleanupReconciliation;
-    const reconciliation = (async (): Promise<boolean> => {
-      if (!(await this.confirmRuntimeExit(allowMissingOwnerAfterSdkClose))) return false;
+    const reconciliation = (async (): Promise<boolean | undefined | null> => {
+      const confirmation = await this.confirmRuntimeExit(allowMissingOwnerAfterSdkClose);
+      if (confirmation !== true) return confirmation;
       await this.disposeResources();
       this.closed = true;
       this.releasePendingCleanupOwnership();
@@ -1220,7 +1223,7 @@ class DeepSeekHarnessProcess {
     while (true) {
       let cleanupAcknowledged: boolean | undefined | null;
       try {
-        cleanupAcknowledged = await this.confirmRuntimeExit(allowMissingOwnerAfterSdkClose);
+        cleanupAcknowledged = await this.reconcileRuntimeExit(allowMissingOwnerAfterSdkClose);
       } catch {
         return false;
       }
