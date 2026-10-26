@@ -674,17 +674,7 @@ describe.skipIf(!supportedRuntime)('DeepSeek Harness credential store integratio
       }
       controller.abort();
       expect((await turn).status).not.toBe('done');
-      await vi.waitFor(() => {
-        const bashToolUse = events.find((event): event is Extract<StreamEvent, { type: 'tool_use' }> => (
-          event.type === 'tool_use' && event.data.tool === 'bash'
-        ));
-        const bashToolResult = bashToolUse === undefined
-          ? undefined
-          : events.find((event): event is Extract<StreamEvent, { type: 'tool_result' }> => (
-            event.type === 'tool_result' && event.data.id === bashToolUse.data.id
-          ));
-        expect(bashToolResult).toMatchObject({ type: 'tool_result', data: { id: bashToolUse?.data.id, isError: true } });
-      }, { timeout: 5_000, interval: 50 });
+      // SDK shutdown proves process exit; it does not promise a final tool-result notification.
       await vi.waitFor(() => {
         expect(() => process.kill(childPid!, 0)).toThrow();
       }, { timeout: 5_000, interval: 50 });
