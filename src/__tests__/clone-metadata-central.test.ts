@@ -39,7 +39,9 @@ describe('generated clone metadata publication', () => {
     const first = fs.readFileSync(filePath, 'utf8');
     expect(JSON.parse(first)).toEqual({ branch, clonePath });
     expect(fs.statSync(filePath).mode & 0o777).toBe(storage === 'central' ? 0o600 : 0o644);
-    expect(fs.statSync(dirname(filePath)).mode & 0o777).toBe(storage === 'central' ? 0o700 : 0o755);
+    // Default mkdir permissions honor the caller's umask; central storage is explicitly private.
+    const directoryMode = storage === 'central' ? 0o700 : 0o755 & ~process.umask();
+    expect(fs.statSync(dirname(filePath)).mode & 0o777).toBe(directoryMode);
     expect(saveGeneratedCloneMeta(project, branch, join(root, 'second-clone'), directory)).toBe(false);
     expect(fs.readFileSync(filePath, 'utf8')).toBe(first);
     expect(fs.readdirSync(dirname(filePath))).toEqual([basename(filePath)]);
