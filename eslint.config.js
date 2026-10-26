@@ -14,6 +14,7 @@ export default tseslint.config(
             'eval/scripts/*.mjs',
             'scripts/test-classification.mjs',
             'scripts/verify-deepseek-sdk-lock.mjs',
+            'scripts/verify-deepseek-sdk-lock.d.mts',
             'src/infra/deepseek-harness/*.mjs',
             'scripts/test-classification.mjs',
           ],
